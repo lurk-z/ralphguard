@@ -1,43 +1,48 @@
-"""Risk assessment endpoints (stub)."""
-from typing import List, Optional
+"""Risk assessment endpoints — create + poll."""
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
-from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from app.db.session import get_db
+from app.schemas.assessment import (
+    AssessmentResult,
+    AssessmentStatus,
+    CreateAssessmentRequest,
+    CreateAssessmentResponse,
+)
+from app.services import assessment_service
 
 router = APIRouter()
 
 
-class FormulaItem(BaseModel):
-    smiles: str
-    name: Optional[str] = None
-    concentration: float = Field(..., ge=0, le=100, description="Percentage 0-100")
+@router.post(
+    "/",
+    response_model=CreateAssessmentResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_assessment(
+    payload: CreateAssessmentRequest,
+    db: Session = Depends(get_db),
+) -> CreateAssessmentResponse:
+    """Queue a formula for QSAR risk assessment. Poll the result via GET /{job_id}."""
+    row = assessment_service.create_assessment(db, payload)
+    return CreateAssessmentResponse(job_id=row.id, status=AssessmentStatus(row.status.value))
 
 
-class AssessRequest(BaseModel):
-    formula: List[FormulaItem]
-    region: str = Field(..., description="forearm | hand | face | eye")
-
-
-@router.post("/")
-async def create_assessment(payload: AssessRequest):
-    """Submit a formula for risk assessment.
-
-    Returns a job_id that can be polled for results.
-    """
-    # TODO: enqueue to Redis Streams, return job_id
-    return {
-        "status": "queued",
-        "job_id": "stub-job-id",
-        "message": "Worker integration pending",
-    }
-
-
-@router.get("/{job_id}")
-async def get_assessment(job_id: str):
-    """Get assessment result by job ID."""
-    # TODO: fetch from DB
-    return {
-        "job_id": job_id,
-        "status": "pending",
-        "result": None,
-    }
+@router.get("/{job_id}", response_model=AssessmentResult)
+async def get_assessment(
+    job_id: str,
+    db: Session = Depends(get_db),
+) -> AssessmentResult:
+    row = assessment_service.get_assessment(db, job_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"assessment {job_id} not found")
+    return AssessmentResult(
+        id=row.id,
+        status=AssessmentStatus(row.status.value),
+        region=row.region,
+        formula=row.formula,
+        result=row.result,
+        error=row.error,
+        created_at=row.created_at,
+        completed_at=row.completed_at,
+    )

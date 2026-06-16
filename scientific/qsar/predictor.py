@@ -25,6 +25,7 @@ from applicability import check_applicability_domain
 from confidence import ConfidenceResult, calculate_confidence
 from descriptors import MolecularDescriptors, canonicalize_smiles, compute_descriptors
 from fingerprints import morgan_fingerprint
+from rules import check_structural_alerts, rule_agrees_with_prediction
 
 ENDPOINTS = ("skin", "eye", "sens", "acute")
 MODEL_FILES = {
@@ -44,6 +45,8 @@ class EndpointPrediction:
     probability: float  # 0..1 hazard probability
     score: float        # 0..100 potency for this substance
     confidence: ConfidenceResult
+    alerts: List[str] = field(default_factory=list)
+    rule_agrees: bool = True
 
 
 @dataclass
@@ -111,6 +114,8 @@ class Predictor:
         if descriptors is None or fp is None:
             raise ValueError(f"cannot featurize SMILES: {smiles}")
 
+        alerts_by_endpoint = check_structural_alerts(canonical)
+
         per_endpoint: Dict[str, EndpointPrediction] = {}
         for endpoint, model in self._models.items():
             probability = self._predict_proba(model, fp)
@@ -123,11 +128,14 @@ class Predictor:
                 # Without training fps we cannot run AD — degrade to Medium ceiling
                 in_domain, similarity = True, 0.0
 
+            ep_alerts = alerts_by_endpoint.get(endpoint, [])
+            rule_agrees = rule_agrees_with_prediction(ep_alerts, probability)
+
             confidence = calculate_confidence(
                 in_domain=in_domain,
                 domain_similarity=similarity,
                 prediction_prob=probability,
-                rule_agrees=True,
+                rule_agrees=rule_agrees,
             )
 
             per_endpoint[endpoint] = EndpointPrediction(
@@ -135,6 +143,8 @@ class Predictor:
                 probability=round(probability, 4),
                 score=score,
                 confidence=confidence,
+                alerts=ep_alerts,
+                rule_agrees=rule_agrees,
             )
 
         return SubstancePrediction(

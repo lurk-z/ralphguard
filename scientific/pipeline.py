@@ -122,6 +122,8 @@ def run_pipeline(
                     ep: {
                         "probability": p.probability,
                         "score": p.score,
+                        "alerts": p.alerts,
+                        "rule_agrees": p.rule_agrees,
                         "confidence": {
                             "level": p.confidence.level,
                             "reason_th": p.confidence.reason_th,
