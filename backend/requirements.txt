@@ -13,6 +13,10 @@ alembic==1.13.3
 # Redis / Queue
 redis==5.0.8
 
+# Chemistry (for SMILES validation on the API side)
+rdkit==2024.3.5
+numpy==2.0.2
+
 # Utilities
 python-multipart==0.0.10
 python-dotenv==1.0.1
