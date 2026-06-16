@@ -1,0 +1,69 @@
+# ============ Node / Frontend ============
+node_modules/
+.next/
+out/
+build/
+dist/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ============ Python / Backend / Scientific ============
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.tox/
+
+# ============ Environment ============
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ============ Data (large files) ============
+data/raw/*
+!data/raw/.gitkeep
+!data/raw/README.md
+data/processed/*
+!data/processed/.gitkeep
+*.pkl
+*.joblib
+*.h5
+models/*.bin
+
+# ============ IDE ============
+.vscode/
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ============ Docker ============
+*.dockerignore
+
+# ============ Database ============
+*.sqlite3
+*.db
+postgres-data/
+redis-data/
+
+# ============ Misc ============
+*.tmp
+*.bak
+.cache/
