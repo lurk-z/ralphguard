@@ -1,0 +1,46 @@
+{
+  "skin": {
+    "accuracy": 0.793,
+    "balanced_accuracy": 0.669,
+    "sensitivity": 0.429,
+    "specificity": 0.909,
+    "auc": 0.779,
+    "cv_bac_mean": 0.531,
+    "cv_bac_std": 0.045,
+    "n_train": 115,
+    "n_test": 29
+  },
+  "eye": {
+    "accuracy": 0.793,
+    "balanced_accuracy": 0.669,
+    "sensitivity": 0.429,
+    "specificity": 0.909,
+    "auc": 0.779,
+    "cv_bac_mean": 0.531,
+    "cv_bac_std": 0.045,
+    "n_train": 115,
+    "n_test": 29
+  },
+  "sens": {
+    "accuracy": 0.759,
+    "balanced_accuracy": 0.478,
+    "sensitivity": 0.0,
+    "specificity": 0.957,
+    "auc": 0.757,
+    "cv_bac_mean": 0.509,
+    "cv_bac_std": 0.033,
+    "n_train": 115,
+    "n_test": 29
+  },
+  "acute": {
+    "accuracy": 0.828,
+    "balanced_accuracy": 0.645,
+    "sensitivity": 0.333,
+    "specificity": 0.957,
+    "auc": 0.772,
+    "cv_bac_mean": 0.666,
+    "cv_bac_std": 0.12,
+    "n_train": 115,
+    "n_test": 29
+  }
+}

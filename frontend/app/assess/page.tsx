@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -120,6 +120,41 @@ function randomFormulaItem(): FormulaItem {
   return { name: s.name, smiles: s.smiles, concentration };
 }
 
+/**
+ * Parse an uploaded CSV into formula items.
+ * Accepts columns name/smiles/concentration in any order when a header row is
+ * present (header detected by the word "smiles"); otherwise assumes the order
+ * name, smiles, concentration.
+ */
+function parseFormulaCsv(text: string): FormulaItem[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return [];
+
+  const hasHeader = lines[0].toLowerCase().includes("smiles");
+  const header = hasHeader ? lines[0].split(",").map((c) => c.trim().toLowerCase()) : [];
+  const find = (...keys: string[]) =>
+    header.findIndex((c) => keys.some((k) => c.includes(k)));
+
+  const iSmiles = hasHeader ? find("smiles") : 1;
+  const iName = hasHeader ? find("name", "ชื่อ") : 0;
+  const iConc = hasHeader ? find("conc", "percent", "%", "ความเข้มข้น") : 2;
+
+  const rows = hasHeader ? lines.slice(1) : lines;
+  const items: FormulaItem[] = [];
+  for (const line of rows) {
+    const cols = line.split(",").map((c) => c.trim());
+    const smiles = (iSmiles >= 0 ? cols[iSmiles] : cols[1]) ?? "";
+    if (!smiles) continue;
+    const name = (iName >= 0 ? cols[iName] : cols[0]) ?? "";
+    const concentration = parseFloat((iConc >= 0 ? cols[iConc] : cols[2]) ?? "") || 0;
+    items.push({ name: name || undefined, smiles, concentration });
+  }
+  return items;
+}
+
 export default function AssessPage() {
   const [formula, setFormula] = useState<FormulaItem[]>(SAMPLE_FORMULA);
   const [region, setRegion] = useState<Region>("forearm");
@@ -129,6 +164,8 @@ export default function AssessPage() {
   const [error, setError] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectOut[]>([]);
   const [projectId, setProjectId] = useState<number | null>(null);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
 
   // Load projects for the optional "save under project" dropdown
   useEffect(() => {
@@ -181,6 +218,38 @@ export default function AssessPage() {
   const addRandomRow = () =>
     setFormula((prev) => [...prev, randomFormulaItem()]);
 
+  // 📄 import a formula from an uploaded CSV (replaces the current rows)
+  const importCsv = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const parsed = parseFormulaCsv(String(reader.result ?? ""));
+      if (parsed.length === 0) {
+        setError("ไม่พบสารในไฟล์ CSV (ต้องมีคอลัมน์ smiles อย่างน้อย 1 แถว)");
+        return;
+      }
+      setFormula(parsed);
+      setError(null);
+    };
+    reader.onerror = () => setError("อ่านไฟล์ CSV ไม่สำเร็จ");
+    reader.readAsText(file);
+  };
+
+  // ➕ create a project inline, then select it
+  const createProject = async () => {
+    const name = newProjectName.trim();
+    if (!name) return;
+    try {
+      const p = await api.createProject(name);
+      setProjects((prev) => [p, ...prev]);
+      setProjectId(p.id);
+      setNewProjectName("");
+      setCreatingProject(false);
+      setError(null);
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    }
+  };
+
   const submit = async () => {
     setError(null);
     setAssessment(null);
@@ -222,6 +291,7 @@ export default function AssessPage() {
           onRemove={removeRow}
           onUpdate={updateItem}
           onRandomize={randomizeRow}
+          onImportCsv={importCsv}
         />
         <RegionPicker value={region} onChange={setRegion} />
       </section>
@@ -232,21 +302,53 @@ export default function AssessPage() {
           {submitting ? "กำลังส่ง..." : "▶ ประเมิน"}
         </button>
 
-        <label className="flex items-center gap-2 text-xs text-gray-400">
-          โครงการ:
-          <select
-            value={projectId ?? ""}
-            onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
-            className="input py-1.5"
-          >
-            <option value="">— ไม่ผูกโครงการ —</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {creatingProject ? (
+          <div className="flex items-center gap-2">
+            <input
+              autoFocus
+              className="input py-1.5"
+              placeholder="ชื่อโครงการใหม่"
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") createProject();
+                if (e.key === "Escape") setCreatingProject(false);
+              }}
+            />
+            <button onClick={createProject} className="text-sm font-medium text-brand hover:underline">
+              บันทึก
+            </button>
+            <button
+              onClick={() => setCreatingProject(false)}
+              className="text-sm text-gray-500 hover:text-gray-300"
+            >
+              ยกเลิก
+            </button>
+          </div>
+        ) : (
+          <label className="flex items-center gap-2 text-xs text-gray-400">
+            โครงการ:
+            <select
+              value={projectId ?? ""}
+              onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
+              className="input py-1.5"
+            >
+              <option value="">— ไม่ผูกโครงการ —</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => setCreatingProject(true)}
+              className="text-brand hover:underline"
+              title="สร้างโครงการใหม่"
+            >
+              + ใหม่
+            </button>
+          </label>
+        )}
 
         {jobId && (
           <span className="ml-auto flex items-center gap-2 font-mono text-xs text-gray-500">
@@ -312,6 +414,7 @@ function FormulaBuilder({
   onRemove,
   onUpdate,
   onRandomize,
+  onImportCsv,
 }: {
   formula: FormulaItem[];
   totalConc: number;
@@ -320,8 +423,10 @@ function FormulaBuilder({
   onRemove: (i: number) => void;
   onUpdate: (i: number, patch: Partial<FormulaItem>) => void;
   onRandomize: (i: number) => void;
+  onImportCsv: (file: File) => void;
 }) {
   const balanced = Math.abs(totalConc - 100) < 1;
+  const fileRef = useRef<HTMLInputElement>(null);
   return (
     <div className="card p-5">
       <div className="mb-4 flex items-baseline justify-between">
@@ -390,7 +495,7 @@ function FormulaBuilder({
           </div>
         ))}
       </div>
-      <div className="mt-4 flex items-center gap-4">
+      <div className="mt-4 flex flex-wrap items-center gap-4">
         <button onClick={onAdd} className="text-sm font-medium text-brand hover:underline">
           + เพิ่มสาร
         </button>
@@ -401,7 +506,28 @@ function FormulaBuilder({
         >
           🎲 สุ่มเพิ่มสาร
         </button>
+        <button
+          onClick={() => fileRef.current?.click()}
+          className="text-sm text-gray-400 transition hover:text-brand"
+          title="อัปโหลด CSV (คอลัมน์: name, smiles, concentration)"
+        >
+          📄 นำเข้า CSV
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onImportCsv(f);
+            e.target.value = ""; // allow re-selecting the same file
+          }}
+        />
       </div>
+      <p className="mt-2 text-[11px] text-gray-600">
+        รูปแบบ CSV: <span className="font-mono">name, smiles, concentration</span> (มี/ไม่มีหัวตารางก็ได้)
+      </p>
     </div>
   );
 }
