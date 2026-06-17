@@ -49,9 +49,16 @@ def upgrade() -> None:
     )
     op.create_index("ix_substances_canonical_smiles", "substances", ["canonical_smiles"])
 
+    # Create the assessment_status ENUM exactly once.
+    #   - create_type=False  -> the column below will NOT auto-emit CREATE TYPE
+    #     during op.create_table (an inline sa.Enum default would, leading to a
+    #     duplicate "type already exists" failure on `alembic upgrade head`).
+    #   - .create(checkfirst=True) -> emits a single CREATE TYPE, idempotent on
+    #     re-apply.
     assessment_status = postgresql.ENUM(
         "queued", "running", "completed", "failed",
         name="assessment_status",
+        create_type=False,
     )
     assessment_status.create(op.get_bind(), checkfirst=True)
 
@@ -68,7 +75,7 @@ def upgrade() -> None:
         sa.Column("formula", postgresql.JSONB(), nullable=False),
         sa.Column(
             "status",
-            sa.Enum("queued", "running", "completed", "failed", name="assessment_status"),
+            assessment_status,
             nullable=False,
             server_default="queued",
         ),
