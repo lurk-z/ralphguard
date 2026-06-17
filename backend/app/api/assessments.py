@@ -1,11 +1,16 @@
-"""Risk assessment endpoints — create + poll."""
-from fastapi import APIRouter, Depends, HTTPException, status
+"""Risk assessment endpoints — create + list + poll."""
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models import Assessment
 from app.schemas.assessment import (
     AssessmentResult,
     AssessmentStatus,
+    AssessmentSummary,
     CreateAssessmentRequest,
     CreateAssessmentResponse,
 )
@@ -26,6 +31,31 @@ async def create_assessment(
     """Queue a formula for QSAR risk assessment. Poll the result via GET /{job_id}."""
     row = assessment_service.create_assessment(db, payload)
     return CreateAssessmentResponse(job_id=row.id, status=AssessmentStatus(row.status.value))
+
+
+@router.get("/", response_model=List[AssessmentSummary])
+async def list_assessments(
+    db: Session = Depends(get_db),
+    project_id: Optional[int] = Query(None, description="Filter by project"),
+    limit: int = Query(50, ge=1, le=200),
+) -> List[AssessmentSummary]:
+    """List recent assessments (newest first), optionally filtered by project."""
+    stmt = select(Assessment).order_by(Assessment.created_at.desc()).limit(limit)
+    if project_id is not None:
+        stmt = stmt.where(Assessment.project_id == project_id)
+    rows = db.execute(stmt).scalars().all()
+    return [
+        AssessmentSummary(
+            id=r.id,
+            status=AssessmentStatus(r.status.value),
+            region=r.region,
+            project_id=r.project_id,
+            n_substances=len(r.formula or []),
+            created_at=r.created_at,
+            completed_at=r.completed_at,
+        )
+        for r in rows
+    ]
 
 
 @router.get("/{job_id}", response_model=AssessmentResult)

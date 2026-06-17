@@ -71,3 +71,16 @@ class AssessmentResult(BaseModel):
     error: Optional[str] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
+
+
+class AssessmentSummary(BaseModel):
+    """Lightweight row for history lists (omits the heavy result blob)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    job_id: str = Field(..., alias="id")
+    status: AssessmentStatus
+    region: str
+    project_id: Optional[int] = None
+    n_substances: int = 0
+    created_at: datetime
+    completed_at: Optional[datetime] = None

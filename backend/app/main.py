@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import assessments, health, projects, substances
+from app.api import assessments, health, models, projects, substances
 from app.core.config import settings
 
 
@@ -47,6 +47,7 @@ app.include_router(health.router, tags=["health"])
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(substances.router, prefix="/api/substances", tags=["substances"])
 app.include_router(assessments.router, prefix="/api/assessments", tags=["assessments"])
+app.include_router(models.router, prefix="/api/models", tags=["models"])
 
 
 @app.get("/")

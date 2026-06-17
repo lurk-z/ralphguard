@@ -16,3 +16,18 @@ body {
 * {
   box-sizing: border-box;
 }
+
+/* Print: clean white report (charts/cards keep their colors via print-color-adjust) */
+@media print {
+  body {
+    background: #ffffff;
+    color: #111111;
+  }
+  .print\:hidden {
+    display: none !important;
+  }
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

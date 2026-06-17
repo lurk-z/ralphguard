@@ -87,6 +87,35 @@ def mark_failed(engine, job_id: str, err: str) -> None:
         )
 
 
+def cache_substances(engine, result: dict) -> None:
+    """Upsert each predicted substance into the substances table (dedup by
+    canonical SMILES). Best-effort: never fail the job over a cache miss."""
+    subs = result.get("substances") or []
+    if not subs:
+        return
+    try:
+        with engine.begin() as conn:
+            for s in subs:
+                canonical = s.get("canonical_smiles")
+                if not canonical:
+                    continue
+                conn.execute(
+                    text(
+                        "INSERT INTO substances (smiles, canonical_smiles, descriptors) "
+                        "VALUES (:smiles, :canonical, CAST(:descriptors AS jsonb)) "
+                        "ON CONFLICT (canonical_smiles) DO UPDATE "
+                        "SET descriptors = EXCLUDED.descriptors"
+                    ),
+                    {
+                        "smiles": s.get("smiles") or canonical,
+                        "canonical": canonical,
+                        "descriptors": json.dumps(s.get("descriptors") or {}),
+                    },
+                )
+    except Exception as e:  # noqa: BLE001 — caching must never break a job
+        print(f"⚠️  substance cache skipped: {e}")
+
+
 # ---------- Stream helpers ----------
 def ensure_group(r: redis.Redis) -> None:
     try:
@@ -111,6 +140,7 @@ def process_job(predictor: Predictor, engine, job_id: str) -> None:
     try:
         result = run_pipeline(predictor, record["formula"], record["region"])
         mark_completed(engine, job_id, result)
+        cache_substances(engine, result)
         print(f"✅ completed {job_id}")
     except Exception as e:
         tb = traceback.format_exc()

@@ -50,10 +50,12 @@ services:
       REDIS_URL: redis://redis:6379/0
       API_SECRET_KEY: ${API_SECRET_KEY:-dev-secret-change-me}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      MODELS_DIR: /models
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - ./scientific/models:/models:ro
     command: >
       sh -c "alembic upgrade head &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"

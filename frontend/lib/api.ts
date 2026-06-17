@@ -87,12 +87,80 @@ export const api = {
       body: JSON.stringify({ smiles }),
     }),
 
-  createAssessment: (formula: FormulaItem[], region: Region) =>
+  createAssessment: (formula: FormulaItem[], region: Region, projectId?: number | null) =>
     http<{ job_id: string; status: string }>("/api/assessments/", {
       method: "POST",
-      body: JSON.stringify({ formula, region }),
+      body: JSON.stringify({ formula, region, project_id: projectId ?? null }),
     }),
 
   getAssessment: (jobId: string) =>
     http<AssessmentRecord>(`/api/assessments/${jobId}`),
+
+  listAssessments: (projectId?: number | null, limit = 50) =>
+    http<AssessmentSummary[]>(
+      `/api/assessments/?limit=${limit}` +
+        (projectId != null ? `&project_id=${projectId}` : ""),
+    ),
+
+  listProjects: () => http<ProjectOut[]>("/api/projects/"),
+
+  createProject: (name: string, description?: string) =>
+    http<ProjectOut>("/api/projects/", {
+      method: "POST",
+      body: JSON.stringify({ name, description: description ?? null }),
+    }),
+
+  listProjectAssessments: (projectId: number) =>
+    http<AssessmentSummary[]>(`/api/projects/${projectId}/assessments`),
+
+  getModelMetrics: () => http<ModelMetricsPayload>("/api/models/metrics"),
+
+  getModelInfo: () => http<ModelInfoPayload>("/api/models/info"),
+};
+
+export type AssessmentSummary = {
+  // FastAPI serializes the `job_id` field by its alias -> "id" (by_alias=True)
+  id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  region: string;
+  project_id: number | null;
+  n_substances: number;
+  created_at: string;
+  completed_at: string | null;
+};
+
+export type ProjectOut = {
+  id: number;
+  name: string;
+  description: string | null;
+  created_at: string;
+};
+
+export type EndpointMetric = {
+  endpoint: string;
+  label_en: string;
+  label_th: string;
+  oecd_tg: string;
+  metrics: {
+    accuracy: number;
+    balanced_accuracy: number;
+    sensitivity: number;
+    specificity: number;
+    auc: number | null;
+    n_train: number;
+    n_test: number;
+  } | null;
+};
+
+export type ModelMetricsPayload = {
+  available: boolean;
+  endpoints: EndpointMetric[];
+  note_th: string;
+};
+
+export type ModelInfoPayload = {
+  methodology: Record<string, unknown>;
+  oecd_principles: string[];
+  endpoints: Record<string, { label_en: string; label_th: string; oecd_tg: string }>;
+  disclaimer_th: string;
 };

@@ -32,6 +32,15 @@ export default function Home() {
           เริ่มใช้งาน →
         </Link>
 
+        <div className="flex justify-center gap-6 mt-6 text-sm">
+          <Link href="/history" className="text-gray-400 hover:text-brand">
+            ประวัติการประเมิน
+          </Link>
+          <Link href="/models" className="text-gray-400 hover:text-brand">
+            โมเดล &amp; ความน่าเชื่อถือ
+          </Link>
+        </div>
+
         <p className="text-xs text-gray-600 mt-8">
           ⚠️ ผลจากแบบจำลองคอมพิวเตอร์ · ไม่ใช่การทดสอบทางคลินิก
         </p>

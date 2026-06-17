@@ -1,16 +1,28 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import {
   AssessmentRecord,
   EndpointResultPayload,
   FormulaItem,
+  ProjectOut,
   Region,
   SubstancePayload,
   api,
 } from "../../lib/api";
+
+// 3D model uses WebGL — load client-side only (no SSR).
+const AnatomyModel = dynamic(() => import("../../components/AnatomyModel"), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-72 rounded-lg bg-elevated border border-border grid place-items-center text-xs text-gray-500">
+      กำลังโหลดโมเดล 3 มิติ…
+    </div>
+  ),
+});
 
 const REGIONS: { value: Region; label: string; icon: string }[] = [
   { value: "forearm", label: "ท่อนแขน", icon: "💪" },
@@ -53,6 +65,19 @@ export default function AssessPage() {
   const [assessment, setAssessment] = useState<AssessmentRecord | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [projects, setProjects] = useState<ProjectOut[]>([]);
+  const [projectId, setProjectId] = useState<number | null>(null);
+
+  // Load projects for the optional "save under project" dropdown
+  useEffect(() => {
+    api.listProjects().then(setProjects).catch(() => setProjects([]));
+  }, []);
+
+  // Allow deep-linking to a past assessment via /assess?job=<id> (used by history)
+  useEffect(() => {
+    const job = new URLSearchParams(window.location.search).get("job");
+    if (job) setJobId(job);
+  }, []);
 
   const totalConc = useMemo(
     () => formula.reduce((sum, it) => sum + (Number(it.concentration) || 0), 0),
@@ -94,7 +119,7 @@ export default function AssessPage() {
     try {
       const cleaned = formula.filter((it) => it.smiles.trim() && it.concentration > 0);
       if (cleaned.length === 0) throw new Error("เพิ่มอย่างน้อย 1 สารและความเข้มข้น > 0");
-      const { job_id } = await api.createAssessment(cleaned, region);
+      const { job_id } = await api.createAssessment(cleaned, region, projectId);
       setJobId(job_id);
     } catch (e: any) {
       setError(e.message ?? String(e));
@@ -107,7 +132,13 @@ export default function AssessPage() {
 
   return (
     <main className="min-h-screen p-6 max-w-6xl mx-auto">
-      <header className="mb-6">
+      <header className="mb-6 print:hidden">
+        <nav className="flex gap-4 text-sm mb-3">
+          <a href="/" className="text-gray-400 hover:text-brand">หน้าแรก</a>
+          <a href="/assess" className="text-brand">ประเมิน</a>
+          <a href="/history" className="text-gray-400 hover:text-brand">ประวัติ</a>
+          <a href="/models" className="text-gray-400 hover:text-brand">โมเดล &amp; ความน่าเชื่อถือ</a>
+        </nav>
         <h1 className="text-2xl font-display font-semibold">การประเมินความเสี่ยง</h1>
         <p className="text-xs text-gray-500 mt-1">
           ⚠️ ผลจากแบบจำลองคอมพิวเตอร์ — ไม่ใช่การทดสอบทางคลินิก
@@ -125,7 +156,7 @@ export default function AssessPage() {
         <RegionPicker value={region} onChange={setRegion} />
       </section>
 
-      <div className="flex items-center gap-4 mt-6">
+      <div className="flex flex-wrap items-center gap-4 mt-6 print:hidden">
         <button
           onClick={submit}
           disabled={submitting}
@@ -133,6 +164,23 @@ export default function AssessPage() {
         >
           {submitting ? "กำลังส่ง..." : "▶ ประเมิน"}
         </button>
+
+        <label className="text-xs text-gray-400 flex items-center gap-2">
+          โครงการ:
+          <select
+            value={projectId ?? ""}
+            onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
+            className="bg-elevated border border-border rounded px-2 py-1.5 text-sm text-gray-200"
+          >
+            <option value="">— ไม่ผูกโครงการ —</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
         {jobId && (
           <span className="text-xs text-gray-500 font-mono">
             job: {jobId.slice(0, 8)} · status: <Status status={assessment?.status ?? "queued"} />
@@ -143,7 +191,16 @@ export default function AssessPage() {
 
       {endpoints && assessment?.status === "completed" && (
         <section className="mt-8 space-y-6">
-          <h2 className="text-lg font-display font-semibold">ผลการประเมิน</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-display font-semibold">ผลการประเมิน</h2>
+            <button
+              onClick={() => window.print()}
+              className="print:hidden text-sm px-3 py-1.5 rounded border border-border text-gray-300 hover:border-brand hover:text-brand"
+            >
+              🖨 พิมพ์ / บันทึก PDF
+            </button>
+          </div>
+          <ReportHeader region={assessment.region} jobId={assessment.id} createdAt={assessment.created_at} />
           <div className="grid md:grid-cols-2 gap-4">
             {ENDPOINTS.map((ep) =>
               endpoints[ep] ? (
@@ -197,39 +254,42 @@ function FormulaBuilder({
           รวม {totalConc.toFixed(1)}%
         </span>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-3">
         {formula.map((item, idx) => (
-          <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-            <input
-              className="col-span-3 px-2 py-1.5 rounded bg-elevated border border-border text-sm"
-              placeholder="ชื่อ"
-              value={item.name ?? ""}
-              onChange={(e) => onUpdate(idx, { name: e.target.value })}
-            />
-            <input
-              className="col-span-5 px-2 py-1.5 rounded bg-elevated border border-border text-sm font-mono"
-              placeholder="SMILES (เช่น CCO)"
-              value={item.smiles}
-              onChange={(e) => onUpdate(idx, { smiles: e.target.value })}
-            />
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.1}
-              className="col-span-3 px-2 py-1.5 rounded bg-elevated border border-border text-sm font-mono"
-              value={item.concentration}
-              onChange={(e) =>
-                onUpdate(idx, { concentration: parseFloat(e.target.value) || 0 })
-              }
-            />
-            <button
-              onClick={() => onRemove(idx)}
-              className="col-span-1 text-gray-500 hover:text-rose-400 text-lg"
-              aria-label="ลบ"
-            >
-              ×
-            </button>
+          <div key={idx} className="space-y-1">
+            <div className="grid grid-cols-12 gap-2 items-center">
+              <input
+                className="col-span-3 px-2 py-1.5 rounded bg-elevated border border-border text-sm"
+                placeholder="ชื่อ"
+                value={item.name ?? ""}
+                onChange={(e) => onUpdate(idx, { name: e.target.value })}
+              />
+              <input
+                className="col-span-5 px-2 py-1.5 rounded bg-elevated border border-border text-sm font-mono"
+                placeholder="SMILES (เช่น CCO)"
+                value={item.smiles}
+                onChange={(e) => onUpdate(idx, { smiles: e.target.value })}
+              />
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                className="col-span-3 px-2 py-1.5 rounded bg-elevated border border-border text-sm font-mono"
+                value={item.concentration}
+                onChange={(e) =>
+                  onUpdate(idx, { concentration: parseFloat(e.target.value) || 0 })
+                }
+              />
+              <button
+                onClick={() => onRemove(idx)}
+                className="col-span-1 text-gray-500 hover:text-rose-400 text-lg"
+                aria-label="ลบ"
+              >
+                ×
+              </button>
+            </div>
+            <SmilesValidity smiles={item.smiles} />
           </div>
         ))}
       </div>
@@ -243,16 +303,81 @@ function FormulaBuilder({
   );
 }
 
+type ValidityState =
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "valid"; canonical: string; mw?: number }
+  | { kind: "invalid"; error?: string };
+
+/** Debounced live RDKit validation for a single SMILES string. */
+function SmilesValidity({ smiles }: { smiles: string }) {
+  const [state, setState] = useState<ValidityState>({ kind: "idle" });
+
+  useEffect(() => {
+    const s = smiles.trim();
+    if (!s) {
+      setState({ kind: "idle" });
+      return;
+    }
+    setState({ kind: "checking" });
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const res = await api.validateSmiles(s);
+        if (cancelled) return;
+        if (res.valid) {
+          setState({
+            kind: "valid",
+            canonical: res.canonical ?? s,
+            mw: res.descriptors?.mw as number | undefined,
+          });
+        } else {
+          setState({ kind: "invalid", error: res.error ?? undefined });
+        }
+      } catch {
+        if (!cancelled) setState({ kind: "idle" }); // backend down — stay silent
+      }
+    }, 500);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [smiles]);
+
+  if (state.kind === "idle") return null;
+  if (state.kind === "checking")
+    return <div className="text-[11px] text-gray-500 pl-1">⏳ กำลังตรวจ SMILES…</div>;
+  if (state.kind === "invalid")
+    return (
+      <div className="text-[11px] text-rose-400 pl-1">
+        ✗ SMILES ไม่ถูกต้อง{state.error ? ` (${state.error})` : ""}
+      </div>
+    );
+  return (
+    <div className="text-[11px] text-emerald-400 pl-1 font-mono">
+      ✓ {state.canonical}
+      {state.mw != null ? ` · MW ${state.mw}` : ""}
+    </div>
+  );
+}
+
 function RegionPicker({ value, onChange }: { value: Region; onChange: (r: Region) => void }) {
   return (
     <div className="p-4 rounded-lg bg-panel border border-border">
       <h3 className="font-semibold mb-3">บริเวณทดสอบ</h3>
+
+      {/* Interactive 3D body — click a highlighted region */}
+      <AnatomyModel value={value} onChange={onChange} />
+      <p className="text-[11px] text-gray-500 mt-1 mb-3">
+        คลิกบริเวณบนโมเดล หรือเลือกจากปุ่มด้านล่าง · ลากเพื่อหมุน
+      </p>
+
       <div className="grid grid-cols-2 gap-2">
         {REGIONS.map((r) => (
           <button
             key={r.value}
             onClick={() => onChange(r.value)}
-            className={`p-4 rounded-lg border text-left transition ${
+            className={`p-3 rounded-lg border text-left transition ${
               value === r.value
                 ? "bg-brand/15 border-brand text-brand"
                 : "bg-elevated border-border hover:border-brand/50"
@@ -263,6 +388,33 @@ function RegionPicker({ value, onChange }: { value: Region; onChange: (r: Region
             <div className="text-xs text-gray-500 font-mono">{r.value}</div>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+const REGION_LABEL_TH: Record<string, string> = {
+  forearm: "ท่อนแขน",
+  hand: "มือ",
+  face: "ใบหน้า",
+  eye: "ดวงตา",
+};
+
+function ReportHeader({
+  region,
+  jobId,
+  createdAt,
+}: {
+  region: string;
+  jobId: string;
+  createdAt: string;
+}) {
+  return (
+    <div className="hidden print:block mb-4">
+      <div className="text-xl font-semibold">RalphGuard — รายงานผลการประเมินความเสี่ยง (In-silico)</div>
+      <div className="text-xs text-gray-600 mt-1">
+        บริเวณ: {REGION_LABEL_TH[region] ?? region} · รหัสงาน: {jobId.slice(0, 8)} ·
+        วันที่: {new Date(createdAt).toLocaleString("th-TH")}
       </div>
     </div>
   );
