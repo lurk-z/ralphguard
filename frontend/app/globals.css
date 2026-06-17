@@ -3,18 +3,148 @@
 @tailwind utilities;
 
 :root {
-  --background: #0A1213;
+  --background: #08100F;
   --foreground: #E8F1EF;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+@layer base {
+  body {
+    background:
+      radial-gradient(1200px 600px at 50% -10%, rgba(45, 212, 191, 0.07), transparent 60%),
+      var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans), "Inter", system-ui, -apple-system, sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  /* Smooth, theme-matched scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1F3A3C;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #2DD4BF55;
+    background-clip: padding-box;
+  }
+
+  /* Accessible focus ring across all interactive elements */
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--background), 0 0 0 4px rgba(45, 212, 191, 0.6);
+    border-radius: 8px;
+  }
+
+  ::selection {
+    background: rgba(45, 212, 191, 0.25);
+  }
 }
 
-* {
-  box-sizing: border-box;
+@layer components {
+  /* Subtle dotted-grid texture used in the ambient background */
+  .bg-grid {
+    background-image: radial-gradient(rgba(45, 212, 191, 0.07) 1px, transparent 1px);
+    background-size: 28px 28px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+  }
+
+  /* Glass card — the core surface used everywhere */
+  .card {
+    @apply rounded-xl border border-border/80 bg-panel/70 backdrop-blur-sm;
+    box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.03) inset, 0 8px 30px -12px rgba(0, 0, 0, 0.5);
+  }
+
+  .card-hover {
+    @apply transition duration-200 hover:border-brand/40;
+  }
+  .card-hover:hover {
+    box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.15), 0 12px 40px -16px rgba(45, 212, 191, 0.25);
+    transform: translateY(-2px);
+  }
+
+  /* Primary action button */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 font-semibold text-black transition;
+    background: linear-gradient(180deg, #45e0cd, #2DD4BF);
+    box-shadow: 0 6px 20px -6px rgba(45, 212, 191, 0.6);
+  }
+  .btn-primary:hover {
+    filter: brightness(1.05);
+    box-shadow: 0 8px 26px -6px rgba(45, 212, 191, 0.75);
+  }
+  .btn-primary:disabled {
+    @apply opacity-50;
+    filter: none;
+    box-shadow: none;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-border px-4 py-2 text-gray-300 transition hover:border-brand/60 hover:text-brand;
+  }
+
+  .input {
+    @apply rounded-lg border border-border bg-elevated/80 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 transition;
+  }
+  .input:hover {
+    @apply border-border;
+    border-color: #2a4d50;
+  }
+
+  /* Pill badge */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-mono;
+  }
+
+  .gradient-text {
+    background: linear-gradient(135deg, #7af0e0 0%, #2DD4BF 50%, #22b8a6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+@layer utilities {
+  .animate-fade-up {
+    animation: fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-fade-in {
+    animation: fade-in 0.4s ease both;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* Print: clean white report (charts/cards keep their colors via print-color-adjust) */
@@ -25,6 +155,11 @@ body {
   }
   .print\:hidden {
     display: none !important;
+  }
+  .card {
+    box-shadow: none;
+    border-color: #ddd;
+    background: #fff;
   }
   * {
     -webkit-print-color-adjust: exact;
