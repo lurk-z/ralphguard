@@ -58,6 +58,48 @@ const SAMPLE_FORMULA: FormulaItem[] = [
   { smiles: "CC(=O)Oc1ccccc1C(=O)O", name: "Aspirin", concentration: 5 },
 ];
 
+// Curated real ingredients (in / near the training set -> in-domain predictions).
+// `use` = a short note on what the substance is / does, shown as a tooltip + hint.
+type LibrarySubstance = { name: string; smiles: string; use: string };
+
+const SUBSTANCE_LIBRARY: LibrarySubstance[] = [
+  { name: "Ethanol", smiles: "CCO", use: "ตัวทำละลาย / ฆ่าเชื้อ" },
+  { name: "Glycerol", smiles: "OCC(O)CO", use: "สารให้ความชุ่มชื้น (humectant)" },
+  { name: "Propylene glycol", smiles: "CC(O)CO", use: "ตัวทำละลาย / humectant" },
+  { name: "Citric acid", smiles: "OC(=O)CC(O)(CC(=O)O)C(=O)O", use: "ปรับ pH / สารกันเสีย" },
+  { name: "Salicylic acid", smiles: "O=C(O)c1ccccc1O", use: "ผลัดเซลล์ผิว (BHA)" },
+  { name: "Benzyl alcohol", smiles: "OCc1ccccc1", use: "สารกันเสีย / น้ำหอม" },
+  { name: "Benzoic acid", smiles: "O=C(O)c1ccccc1", use: "สารกันเสีย" },
+  { name: "Lactic acid", smiles: "CC(O)C(=O)O", use: "ผลัดเซลล์ผิว (AHA)" },
+  { name: "Glycolic acid", smiles: "OCC(=O)O", use: "ผลัดเซลล์ผิว (AHA)" },
+  { name: "Limonene", smiles: "CC1=CCC(CC1)C(=C)C", use: "น้ำหอมส้ม (อาจก่อแพ้)" },
+  { name: "Linalool", smiles: "CC(C)=CCCC(C)(O)C=C", use: "น้ำหอมดอกไม้ (อาจก่อแพ้)" },
+  { name: "Geraniol", smiles: "CC(C)=CCCC(C)=CCO", use: "น้ำหอมกุหลาบ (อาจก่อแพ้)" },
+  { name: "Eugenol", smiles: "C=CCc1ccc(O)c(OC)c1", use: "น้ำหอมกานพลู (อาจก่อแพ้)" },
+  { name: "Cinnamaldehyde", smiles: "O=C/C=C/c1ccccc1", use: "กลิ่นอบเชย (สารก่อแพ้ที่รู้จัก)" },
+  { name: "Menthol", smiles: "CC(C)C1CCC(C)CC1O", use: "ให้ความเย็น" },
+  { name: "Vanillin", smiles: "O=Cc1ccc(O)c(OC)c1", use: "กลิ่นวานิลลา" },
+  { name: "Niacinamide", smiles: "NC(=O)c1cccnc1", use: "วิตามิน B3 / บำรุงผิว" },
+  { name: "Urea", smiles: "NC(N)=O", use: "ให้ความชุ่มชื้น / ผลัดผิว" },
+  { name: "Caffeine", smiles: "CN1C=NC2=C1C(=O)N(C)C(=O)N2C", use: "กระตุ้น / ลดบวม" },
+  { name: "Phenoxyethanol", smiles: "OCCOc1ccccc1", use: "สารกันเสีย" },
+  { name: "Sodium lauryl sulfate", smiles: "CCCCCCCCCCCCOS(=O)(=O)[O-].[Na+]", use: "สารชำระล้าง (ระคายเคือง)" },
+  { name: "Phenol", smiles: "Oc1ccccc1", use: "ฆ่าเชื้อ (กัดกร่อน)" },
+  { name: "Hydrogen peroxide", smiles: "OO", use: "ฟอกสี / ฆ่าเชื้อ" },
+  { name: "Acetic acid", smiles: "CC(=O)O", use: "ปรับ pH (กรด)" },
+];
+
+function randomFrom<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/** A random library substance + a sensible demo concentration (5–40%). */
+function randomFormulaItem(): FormulaItem {
+  const s = randomFrom(SUBSTANCE_LIBRARY);
+  const concentration = Math.round((5 + Math.random() * 35) * 10) / 10;
+  return { name: s.name, smiles: s.smiles, concentration };
+}
+
 export default function AssessPage() {
   const [formula, setFormula] = useState<FormulaItem[]>(SAMPLE_FORMULA);
   const [region, setRegion] = useState<Region>("forearm");
@@ -111,6 +153,14 @@ export default function AssessPage() {
   const removeRow = (idx: number) =>
     setFormula((prev) => prev.filter((_, i) => i !== idx));
 
+  // 🎲 fill one row with a random library substance
+  const randomizeRow = (idx: number) =>
+    setFormula((prev) => prev.map((it, i) => (i === idx ? randomFormulaItem() : it)));
+
+  // 🎲 append a new row that's already a random substance
+  const addRandomRow = () =>
+    setFormula((prev) => [...prev, randomFormulaItem()]);
+
   const submit = async () => {
     setError(null);
     setAssessment(null);
@@ -150,8 +200,10 @@ export default function AssessPage() {
           formula={formula}
           totalConc={totalConc}
           onAdd={addRow}
+          onAddRandom={addRandomRow}
           onRemove={removeRow}
           onUpdate={updateItem}
+          onRandomize={randomizeRow}
         />
         <RegionPicker value={region} onChange={setRegion} />
       </section>
@@ -233,14 +285,18 @@ function FormulaBuilder({
   formula,
   totalConc,
   onAdd,
+  onAddRandom,
   onRemove,
   onUpdate,
+  onRandomize,
 }: {
   formula: FormulaItem[];
   totalConc: number;
   onAdd: () => void;
+  onAddRandom: () => void;
   onRemove: (i: number) => void;
   onUpdate: (i: number, patch: Partial<FormulaItem>) => void;
+  onRandomize: (i: number) => void;
 }) {
   return (
     <div className="p-4 rounded-lg bg-panel border border-border">
@@ -265,7 +321,7 @@ function FormulaBuilder({
                 onChange={(e) => onUpdate(idx, { name: e.target.value })}
               />
               <input
-                className="col-span-5 px-2 py-1.5 rounded bg-elevated border border-border text-sm font-mono"
+                className="col-span-4 px-2 py-1.5 rounded bg-elevated border border-border text-sm font-mono"
                 placeholder="SMILES (เช่น CCO)"
                 value={item.smiles}
                 onChange={(e) => onUpdate(idx, { smiles: e.target.value })}
@@ -282,6 +338,14 @@ function FormulaBuilder({
                 }
               />
               <button
+                onClick={() => onRandomize(idx)}
+                className="col-span-1 text-gray-500 hover:text-brand text-lg"
+                title="สุ่มสารในช่องนี้"
+                aria-label="สุ่มสาร"
+              >
+                🎲
+              </button>
+              <button
                 onClick={() => onRemove(idx)}
                 className="col-span-1 text-gray-500 hover:text-rose-400 text-lg"
                 aria-label="ลบ"
@@ -293,12 +357,18 @@ function FormulaBuilder({
           </div>
         ))}
       </div>
-      <button
-        onClick={onAdd}
-        className="mt-3 text-sm text-brand hover:underline"
-      >
-        + เพิ่มสาร
-      </button>
+      <div className="mt-3 flex items-center gap-4">
+        <button onClick={onAdd} className="text-sm text-brand hover:underline">
+          + เพิ่มสาร
+        </button>
+        <button
+          onClick={onAddRandom}
+          className="text-sm text-gray-400 hover:text-brand"
+          title="เพิ่มสารสุ่มจากคลัง"
+        >
+          🎲 สุ่มเพิ่มสาร
+        </button>
+      </div>
     </div>
   );
 }
