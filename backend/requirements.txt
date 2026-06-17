@@ -14,7 +14,8 @@ alembic==1.13.3
 redis==5.0.8
 
 # Chemistry (for SMILES validation on the API side)
-rdkit==2024.3.5
+# NOTE: rdkit 2024.3.5 was yanked from PyPI; 2025.3.x is the current stable line.
+rdkit==2025.3.6
 numpy==2.0.2
 
 # Utilities
