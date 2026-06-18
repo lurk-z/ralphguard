@@ -30,7 +30,7 @@ export default function Home() {
         <p className="animate-fade-up mt-4 max-w-2xl text-lg text-gray-300 [animation-delay:60ms]">
           In-silico Irritation &amp; Toxicity Risk Screening
         </p>
-        <p className="animate-fade-up mt-2 max-w-2xl text-sm leading-relaxed text-gray-500 [animation-delay:120ms]">
+        <p className="animate-fade-up mt-2 max-w-2xl text-pretty text-sm leading-relaxed text-gray-500 [animation-delay:120ms]">
           ประเมินความเสี่ยงการระคายเคืองและความเป็นพิษของสารเคมีด้วยแบบจำลอง QSAR
           เพื่อลดการพึ่งพาการทดลองในสัตว์
         </p>

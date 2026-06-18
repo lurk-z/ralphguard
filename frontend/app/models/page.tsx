@@ -86,7 +86,10 @@ export default function ModelsPage() {
       </header>
 
       {error && (
-        <div className="mb-4 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-300">
+        <div
+          role="alert"
+          className="mb-4 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-300"
+        >
           {error}
         </div>
       )}
@@ -166,7 +169,7 @@ export default function ModelsPage() {
             <ol className="space-y-2 text-sm text-gray-300">
               {info.oecd_principles.map((p, i) => (
                 <li key={p} className="flex gap-3 leading-snug">
-                  <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-brand/15 font-mono text-[11px] text-brand">
+                  <span className="grid size-5 shrink-0 place-items-center rounded-full bg-brand/15 font-mono text-[11px] text-brand">
                     {i + 1}
                   </span>
                   <span>{p}</span>

@@ -355,13 +355,21 @@ export default function AssessPage() {
             job {jobId.slice(0, 8)} · <Status status={assessment?.status ?? "queued"} />
           </span>
         )}
-        {error && <span className="text-sm text-rose-400">{error}</span>}
+        {error && (
+          <span role="alert" aria-live="polite" className="text-sm text-rose-400">
+            {error}
+          </span>
+        )}
       </div>
 
       {/* Loading skeleton while worker runs */}
       {pending && (
-        <div className="card mt-8 flex items-center gap-3 p-6 text-sm text-gray-400">
-          <span className="h-2 w-2 animate-pulse-soft rounded-full bg-brand" />
+        <div
+          role="status"
+          aria-live="polite"
+          className="card mt-8 flex items-center gap-3 p-6 text-sm text-gray-400"
+        >
+          <span className="size-2 animate-pulse-soft rounded-full bg-brand" />
           กำลังรันแบบจำลอง QSAR ในคิว… (worker กำลังประมวลผล)
         </div>
       )}
@@ -445,54 +453,14 @@ function FormulaBuilder({
       </div>
       <div className="space-y-3">
         {formula.map((item, idx) => (
-          <div key={idx} className="space-y-1">
-            <div className="grid grid-cols-12 items-center gap-2">
-              <input
-                className="input col-span-3"
-                placeholder="ชื่อ"
-                value={item.name ?? ""}
-                onChange={(e) => onUpdate(idx, { name: e.target.value })}
-              />
-              <input
-                className="input col-span-4 font-mono"
-                placeholder="SMILES (เช่น CCO)"
-                value={item.smiles}
-                onChange={(e) => onUpdate(idx, { smiles: e.target.value })}
-              />
-              <div className="col-span-3 relative">
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={0.1}
-                  className="input w-full pr-6 font-mono"
-                  value={item.concentration}
-                  onChange={(e) =>
-                    onUpdate(idx, { concentration: parseFloat(e.target.value) || 0 })
-                  }
-                />
-                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">
-                  %
-                </span>
-              </div>
-              <button
-                onClick={() => onRandomize(idx)}
-                className="col-span-1 text-lg text-gray-500 transition hover:scale-110 hover:text-brand"
-                title="สุ่มสารในช่องนี้"
-                aria-label="สุ่มสาร"
-              >
-                🎲
-              </button>
-              <button
-                onClick={() => onRemove(idx)}
-                className="col-span-1 text-lg text-gray-500 transition hover:text-rose-400"
-                aria-label="ลบ"
-              >
-                ×
-              </button>
-            </div>
-            <SmilesValidity smiles={item.smiles} />
-          </div>
+          <FormulaRow
+            key={idx}
+            item={item}
+            idx={idx}
+            onUpdate={onUpdate}
+            onRemove={onRemove}
+            onRandomize={onRandomize}
+          />
         ))}
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-4">
@@ -532,6 +500,85 @@ function FormulaBuilder({
   );
 }
 
+/** One editable substance row. Owns its SMILES-validity state so the SMILES
+ *  input can be wired to its status message via aria-describedby / aria-invalid. */
+function FormulaRow({
+  item,
+  idx,
+  onUpdate,
+  onRemove,
+  onRandomize,
+}: {
+  item: FormulaItem;
+  idx: number;
+  onUpdate: (i: number, patch: Partial<FormulaItem>) => void;
+  onRemove: (i: number) => void;
+  onRandomize: (i: number) => void;
+}) {
+  const [invalid, setInvalid] = useState(false);
+  const helpId = `smiles-status-${idx}`;
+
+  return (
+    <div className="space-y-1">
+      <div className="grid grid-cols-12 items-center gap-2">
+        <input
+          className="input col-span-3"
+          placeholder="ชื่อ"
+          aria-label={`ชื่อสารแถวที่ ${idx + 1}`}
+          value={item.name ?? ""}
+          onChange={(e) => onUpdate(idx, { name: e.target.value })}
+        />
+        <input
+          className="input col-span-4 font-mono"
+          placeholder="SMILES (เช่น CCO)"
+          aria-label={`SMILES แถวที่ ${idx + 1}`}
+          aria-invalid={invalid}
+          aria-describedby={helpId}
+          value={item.smiles}
+          onChange={(e) => onUpdate(idx, { smiles: e.target.value })}
+        />
+        <div className="col-span-3 relative">
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={0.1}
+            className="input w-full pr-6 font-mono tabular-nums"
+            aria-label={`ความเข้มข้น (%) แถวที่ ${idx + 1}`}
+            value={item.concentration}
+            onChange={(e) =>
+              onUpdate(idx, { concentration: parseFloat(e.target.value) || 0 })
+            }
+          />
+          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">
+            %
+          </span>
+        </div>
+        <button
+          onClick={() => onRandomize(idx)}
+          className="col-span-1 text-lg text-gray-500 transition hover:scale-110 hover:text-brand"
+          title="สุ่มสารในช่องนี้"
+          aria-label="สุ่มสาร"
+        >
+          <span aria-hidden="true">🎲</span>
+        </button>
+        <button
+          onClick={() => onRemove(idx)}
+          className="col-span-1 text-lg text-gray-500 transition hover:text-rose-400"
+          aria-label="ลบสารแถวนี้"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
+      <SmilesValidity
+        smiles={item.smiles}
+        id={helpId}
+        onInvalidChange={setInvalid}
+      />
+    </div>
+  );
+}
+
 type ValidityState =
   | { kind: "idle" }
   | { kind: "checking" }
@@ -539,8 +586,20 @@ type ValidityState =
   | { kind: "invalid"; error?: string };
 
 /** Debounced live RDKit validation for a single SMILES string. */
-function SmilesValidity({ smiles }: { smiles: string }) {
+function SmilesValidity({
+  smiles,
+  id,
+  onInvalidChange,
+}: {
+  smiles: string;
+  id?: string;
+  onInvalidChange?: (invalid: boolean) => void;
+}) {
   const [state, setState] = useState<ValidityState>({ kind: "idle" });
+
+  useEffect(() => {
+    onInvalidChange?.(state.kind === "invalid");
+  }, [state.kind, onInvalidChange]);
 
   useEffect(() => {
     const s = smiles.trim();
@@ -573,17 +632,26 @@ function SmilesValidity({ smiles }: { smiles: string }) {
     };
   }, [smiles]);
 
-  if (state.kind === "idle") return null;
+  if (state.kind === "idle") return <span id={id} className="hidden" />;
   if (state.kind === "checking")
-    return <div className="pl-1 text-[11px] text-gray-500">⏳ กำลังตรวจ SMILES…</div>;
+    return (
+      <div id={id} role="status" aria-live="polite" className="pl-1 text-[11px] text-gray-500">
+        ⏳ กำลังตรวจ SMILES…
+      </div>
+    );
   if (state.kind === "invalid")
     return (
-      <div className="pl-1 text-[11px] text-rose-400">
+      <div id={id} role="status" aria-live="polite" className="pl-1 text-[11px] text-rose-400">
         ✗ SMILES ไม่ถูกต้อง{state.error ? ` (${state.error})` : ""}
       </div>
     );
   return (
-    <div className="pl-1 font-mono text-[11px] text-emerald-400">
+    <div
+      id={id}
+      role="status"
+      aria-live="polite"
+      className="pl-1 font-mono text-[11px] text-emerald-400"
+    >
       ✓ {state.canonical}
       {state.mw != null ? ` · MW ${state.mw}` : ""}
     </div>
@@ -674,7 +742,7 @@ function RiskGauge({ score, band }: { score: number; band: string }) {
         />
       </svg>
       <div className="absolute inset-0 grid place-items-center">
-        <span className="font-display text-lg font-bold" style={{ color }}>
+        <span className="font-display text-lg font-bold tabular-nums" style={{ color }}>
           {Math.round(score)}
         </span>
       </div>

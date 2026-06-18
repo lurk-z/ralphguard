@@ -22,8 +22,8 @@ export default function NavBar() {
     <header className="sticky top-0 z-40 border-b border-border/60 bg-ink/70 backdrop-blur-md print:hidden">
       <nav className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
         <Link href="/" className="group flex items-center gap-2">
-          <span className="grid h-7 w-7 place-items-center rounded-lg bg-brand/15 ring-1 ring-brand/40 transition group-hover:bg-brand/25">
-            <span className="text-sm">🛡️</span>
+          <span className="grid size-7 place-items-center rounded-lg bg-brand/15 ring-1 ring-brand/40 transition group-hover:bg-brand/25">
+            <span className="text-sm" aria-hidden="true">🛡️</span>
           </span>
           <span className="font-display text-lg font-bold tracking-tight">
             Ralph<span className="text-brand">Guard</span>

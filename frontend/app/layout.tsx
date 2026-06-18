@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans_Thai, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
@@ -29,10 +29,37 @@ const plexThai = IBM_Plex_Sans_Thai({
   display: "swap",
 });
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+const TITLE = "RalphGuard — In-silico Irritation & Toxicity Screening";
+const DESCRIPTION =
+  "ระบบประเมินความเสี่ยงการระคายเคืองและความเป็นพิษของสารเคมีด้วยแบบจำลองคอมพิวเตอร์ (QSAR) เพื่อลดการพึ่งพาการทดลองในสัตว์";
+
 export const metadata: Metadata = {
-  title: "RalphGuard — In-silico Irritation & Toxicity Screening",
-  description:
-    "ระบบประเมินความเสี่ยงการระคายเคืองและความเป็นพิษของสารเคมีด้วยแบบจำลองคอมพิวเตอร์ (QSAR) เพื่อลดการพึ่งพาการทดลองในสัตว์",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: TITLE,
+    template: "%s · RalphGuard",
+  },
+  description: DESCRIPTION,
+  applicationName: "RalphGuard",
+  openGraph: {
+    type: "website",
+    title: TITLE,
+    description: DESCRIPTION,
+    siteName: "RalphGuard",
+    url: SITE_URL,
+    locale: "th_TH",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: TITLE,
+    description: DESCRIPTION,
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#08100F",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({
@@ -45,7 +72,7 @@ export default function RootLayout({
       lang="th"
       className={`${spaceGrotesk.variable} ${plexMono.variable} ${plexThai.variable}`}
     >
-      <body className="min-h-screen flex flex-col antialiased">
+      <body className="min-h-dvh flex flex-col antialiased">
         {/* Ambient background glow — fixed, behind everything */}
         <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden print:hidden">
           <div className="absolute -top-40 left-1/2 h-[36rem] w-[36rem] -translate-x-1/2 rounded-full bg-brand/15 blur-[120px]" />

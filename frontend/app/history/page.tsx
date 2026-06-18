@@ -75,13 +75,16 @@ export default function HistoryPage() {
       </header>
 
       {loading && (
-        <div className="card flex items-center gap-3 p-6 text-sm text-gray-400">
-          <span className="h-2 w-2 animate-pulse-soft rounded-full bg-brand" />
+        <div role="status" className="card flex items-center gap-3 p-6 text-sm text-gray-400">
+          <span className="size-2 animate-pulse-soft rounded-full bg-brand" />
           กำลังโหลด…
         </div>
       )}
       {error && (
-        <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-300">
+        <div
+          role="alert"
+          className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-300"
+        >
           {error}
         </div>
       )}
