@@ -44,6 +44,11 @@ export type SubstancePayload = {
       score: number;
       alerts?: string[];
       rule_agrees?: boolean;
+      uncertainty?: number;
+      in_domain?: boolean;
+      domain_similarity?: number;
+      threshold?: number;
+      flagged?: boolean;
       confidence: { level: ConfidenceLevel; reason_th: string };
     }
   >;

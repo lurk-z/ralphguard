@@ -124,6 +124,12 @@ def run_pipeline(
                         "score": p.score,
                         "alerts": p.alerts,
                         "rule_agrees": p.rule_agrees,
+                        # explicit uncertainty quantification (reviewer feedback #1)
+                        "uncertainty": getattr(p, "uncertainty", 0.0),
+                        "in_domain": getattr(p, "in_domain", True),
+                        "domain_similarity": getattr(p, "domain_similarity", 0.0),
+                        "threshold": getattr(p, "threshold", 0.5),
+                        "flagged": getattr(p, "flagged", p.probability >= 0.5),
                         "confidence": {
                             "level": p.confidence.level,
                             "reason_th": p.confidence.reason_th,

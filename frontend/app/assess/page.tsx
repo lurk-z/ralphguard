@@ -262,6 +262,10 @@ export default function AssessPage() {
           </div>
 
           {assessment.result?.substances?.[0]?.per_endpoint && (
+            <UncertaintyPanel substances={assessment.result.substances} />
+          )}
+
+          {assessment.result?.substances?.[0]?.per_endpoint && (
             <AlertsPanel substances={assessment.result.substances} />
           )}
 
@@ -547,6 +551,68 @@ function EndpointCard({
       {data.confidence && (
         <p className="text-xs text-gray-400 mt-2 leading-snug">{data.confidence.reason_th}</p>
       )}
+    </div>
+  );
+}
+
+function UncertaintyPanel({ substances }: { substances: SubstancePayload[] }) {
+  const rows: {
+    sub: string; ep: string; prob: number; unc: number; sim: number; indom: boolean; flagged: boolean;
+  }[] = [];
+  for (const s of substances) {
+    for (const [ep, d] of Object.entries(s.per_endpoint)) {
+      const dd = d as any;
+      if (dd.uncertainty === undefined && dd.domain_similarity === undefined) continue;
+      rows.push({
+        sub: s.canonical_smiles, ep,
+        prob: dd.probability ?? 0,
+        unc: dd.uncertainty ?? 0,
+        sim: dd.domain_similarity ?? 0,
+        indom: dd.in_domain ?? true,
+        flagged: dd.flagged ?? false,
+      });
+    }
+  }
+  if (rows.length === 0) return null;
+  return (
+    <div className="p-4 rounded-lg bg-panel border border-border">
+      <h3 className="font-semibold mb-1">📊 ความเชื่อมั่น & ความไม่แน่นอน (Uncertainty Quantification)</h3>
+      <p className="text-[11px] text-gray-500 mb-2">
+        uncertainty = ความไม่เห็นพ้องของโมเดลในชุด (สูง=ไม่แน่ใจ) · AD = ความคล้ายกับสารในชุดเทรน (ต่ำ=นอกขอบเขต)
+      </p>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-xs text-gray-500 text-left border-b border-border">
+            <th className="py-1">สาร</th><th>Endpoint</th><th>โอกาสเสี่ยง</th>
+            <th>Uncertainty</th><th>AD similarity</th><th>สถานะ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} className="border-b border-border/50">
+              <td className="py-1 font-mono text-xs">{r.sub.slice(0, 22)}</td>
+              <td className="py-1">{ENDPOINT_LABEL_TH[r.ep] ?? r.ep}</td>
+              <td className="py-1 font-mono">{(r.prob * 100).toFixed(0)}%{r.flagged ? " ⚠️" : ""}</td>
+              <td className="py-1">
+                <div className="flex items-center gap-1">
+                  <div className="h-1.5 w-16 bg-elevated rounded">
+                    <div className="h-1.5 rounded bg-amber-400" style={{ width: `${Math.min(100, r.unc * 300)}%` }} />
+                  </div>
+                  <span className="text-xs font-mono text-gray-400">{r.unc.toFixed(2)}</span>
+                </div>
+              </td>
+              <td className="py-1 font-mono text-xs">{r.sim.toFixed(2)}</td>
+              <td className="py-1">
+                {r.indom ? (
+                  <span className="text-emerald-400 text-xs">in-domain</span>
+                ) : (
+                  <span className="text-rose-400 text-xs">⚠ out-of-domain</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
