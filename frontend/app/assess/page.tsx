@@ -15,7 +15,9 @@ import {
 } from "../../lib/api";
 
 // 3D model uses WebGL — load client-side only (no SSR).
-const AnatomyModel = dynamic(() => import("../../components/AnatomyModel"), {
+// Uses the realistic GLTF model (frontend/public/human.glb); falls back to the
+// procedural model automatically if the .glb is absent.
+const AnatomyModel = dynamic(() => import("../../components/AnatomyModelGLTF"), {
   ssr: false,
   loading: () => (
     <div className="w-full h-72 rounded-lg bg-elevated border border-border grid place-items-center text-xs text-gray-500">
@@ -180,6 +182,30 @@ export default function AssessPage() {
 
   const endpoints = assessment?.result?.endpoints ?? null;
 
+  // worst risk band across endpoints — used to color the selected region on the 3D model
+  const selectedBand = useMemo(() => {
+    if (!endpoints || assessment?.status !== "completed" || assessment?.region !== region)
+      return undefined;
+    const order: Record<string, number> = { low: 0, moderate: 1, high: 2, severe: 3 };
+    let worst: string | undefined;
+    for (const ep of ENDPOINTS) {
+      const b = endpoints[ep]?.band;
+      if (b && (worst === undefined || order[b] > order[worst])) worst = b;
+    }
+    return worst;
+  }, [endpoints, assessment?.status, assessment?.region, region]);
+
+  // per-endpoint peak scores for the 3D model's value readout
+  const selectedScores = useMemo(() => {
+    if (!endpoints || assessment?.status !== "completed" || assessment?.region !== region)
+      return undefined;
+    const s: Record<string, number> = {};
+    for (const ep of ENDPOINTS) {
+      if (endpoints[ep]) s[ep] = endpoints[ep].peak_score;
+    }
+    return s;
+  }, [endpoints, assessment?.status, assessment?.region, region]);
+
   return (
     <main className="min-h-screen p-6 max-w-6xl mx-auto">
       <header className="mb-6 print:hidden">
@@ -205,7 +231,7 @@ export default function AssessPage() {
           onUpdate={updateItem}
           onRandomize={randomizeRow}
         />
-        <RegionPicker value={region} onChange={setRegion} />
+        <RegionPicker value={region} onChange={setRegion} band={selectedBand} scores={selectedScores} />
       </section>
 
       <div className="flex flex-wrap items-center gap-4 mt-6 print:hidden">
@@ -435,13 +461,23 @@ function SmilesValidity({ smiles }: { smiles: string }) {
   );
 }
 
-function RegionPicker({ value, onChange }: { value: Region; onChange: (r: Region) => void }) {
+function RegionPicker({
+  value,
+  onChange,
+  band,
+  scores,
+}: {
+  value: Region;
+  onChange: (r: Region) => void;
+  band?: string;
+  scores?: Record<string, number>;
+}) {
   return (
     <div className="p-4 rounded-lg bg-panel border border-border">
       <h3 className="font-semibold mb-3">บริเวณทดสอบ</h3>
 
-      {/* Interactive 3D body — click a highlighted region */}
-      <AnatomyModel value={value} onChange={onChange} />
+      {/* Interactive 3D body — click a region; colored + labelled by risk after assessment */}
+      <AnatomyModel value={value} onChange={onChange} band={band} scores={scores} />
       <p className="text-[11px] text-gray-500 mt-1 mb-3">
         คลิกบริเวณบนโมเดล หรือเลือกจากปุ่มด้านล่าง · ลากเพื่อหมุน
       </p>
