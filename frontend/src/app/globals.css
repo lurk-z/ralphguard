@@ -2,17 +2,174 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #0A1213;
-  --foreground: #E8F1EF;
+@layer base {
+
+  /* shadcn/ui tokens — themed to RalphGuard's dark teal brand (HSL) */
+  :root {
+    --background: 188 52% 6%;
+    /* dark navy #071416 */
+    --foreground: 170 22% 92%;
+    /* #E8F1EF */
+    --card: 189 33% 9%;
+    /* panel */
+    --card-foreground: 170 22% 92%;
+    --popover: 189 33% 11%;
+    --popover-foreground: 170 22% 92%;
+    --primary: 172 66% 50%;
+    /* brand #2DD4BF */
+    --primary-foreground: 192 45% 7%;
+    --secondary: 187 34% 16%;
+    /* elevated */
+    --secondary-foreground: 170 22% 92%;
+    --muted: 187 28% 13%;
+    --muted-foreground: 180 12% 62%;
+    --accent: 187 34% 18%;
+    --accent-foreground: 170 22% 92%;
+    --destructive: 359 95% 71%;
+    /* risk.high */
+    --destructive-foreground: 192 45% 7%;
+    --border: 184 32% 18%;
+    /* #1F3A3C */
+    --input: 184 32% 18%;
+    --ring: 172 66% 50%;
+    --radius: 0.5rem;
+  }
+
+  /* Auth pages — light theme override applied via .auth-theme wrapper */
+  .auth-theme {
+    --background: 168 60% 97%;
+    /* #EEF9F7 light mint */
+    --foreground: 220 26% 14%;
+    /* #1a2035 near-black */
+    --card: 0 0% 100%;
+    /* white */
+    --card-foreground: 220 26% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 26% 14%;
+    --primary: 172 66% 50%;
+    /* brand teal — same */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 168 30% 94%;
+    --secondary-foreground: 220 26% 14%;
+    --muted: 168 20% 95%;
+    --muted-foreground: 220 10% 46%;
+    /* #6B7280 */
+    --accent: 168 30% 91%;
+    --accent-foreground: 220 26% 14%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 168 20% 88%;
+    /* light gray-teal */
+    --input: 168 20% 88%;
+    --ring: 172 66% 50%;
+    color-scheme: light;
+  }
+
+  /* keep .dark identical so the `dark` class also resolves correctly */
+  .dark {
+    --background: 192 33% 6%;
+    --foreground: 170 22% 92%;
+    --card: 189 33% 9%;
+    --card-foreground: 170 22% 92%;
+    --popover: 189 33% 11%;
+    --popover-foreground: 170 22% 92%;
+    --primary: 172 66% 50%;
+    --primary-foreground: 192 45% 7%;
+    --secondary: 187 34% 16%;
+    --secondary-foreground: 170 22% 92%;
+    --muted: 187 28% 13%;
+    --muted-foreground: 180 12% 62%;
+    --accent: 187 34% 18%;
+    --accent-foreground: 170 22% 92%;
+    --destructive: 359 95% 71%;
+    --destructive-foreground: 192 45% 7%;
+    --border: 184 32% 18%;
+    --input: 184 32% 18%;
+    --ring: 172 66% 50%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+html {
+  scroll-behavior: smooth;
 }
 
 * {
   box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ---- Hero entrance + ambient motion ---- */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scrollHint {
+
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+
+  50% {
+    transform: translateY(6px);
+    opacity: 1;
+  }
+}
+
+@keyframes glowPulse {
+
+  0%,
+  100% {
+    opacity: 0.85;
+    transform: translateX(-50%) scale(1);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.04);
+  }
+}
+
+.animate-fade-up {
+  opacity: 0;
+  animation: fadeUp 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-scroll-hint {
+  animation: scrollHint 1.8s ease-in-out infinite;
+}
+
+.animate-glow-pulse {
+  animation: glowPulse 6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .animate-fade-up,
+  .animate-scroll-hint,
+  .animate-glow-pulse {
+    animation: none;
+    opacity: 1;
+  }
 }
