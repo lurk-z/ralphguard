@@ -50,7 +50,7 @@ function HeroChapter({ c }: { c: Chapter }) {
 
       <h1 className="mt-3 font-sans font-bold leading-[1.08] tracking-tight text-foreground text-[clamp(2.5rem,6.5vw,4.5rem)]">
         {c.titleLines.map((line, i) => (
-          <span key={i} className="block overflow-hidden pb-1">
+          <span key={i} className="block overflow-hidden pt-2 pb-1">
             <span data-line className="block" style={{ opacity: 0 }}>
               {renderTitle(line, c.highlight)}
             </span>
@@ -122,7 +122,7 @@ function CTAChapter({ c }: { c: Chapter }) {
 
       <h2 className="mt-3 font-sans font-bold leading-[1.08] tracking-tight text-foreground text-[clamp(2.25rem,6vw,4rem)]">
         {c.titleLines.map((line, i) => (
-          <span key={i} className="block overflow-hidden pb-1">
+          <span key={i} className="block overflow-hidden pt-2 pb-1">
             <span className="block">
               {renderTitle(line, c.highlight)}
             </span>

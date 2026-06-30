@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Particles } from '@/components/ui/particles'
 
 function GoogleIcon() {
   return (
@@ -24,8 +25,16 @@ export default function RegisterPage() {
   const [showConfirm, setShowConfirm] = useState(false)
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
-      <div className="w-full max-w-3xl">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10">
+      <Particles
+        quantity={120}
+        color="#2DD4BF"
+        size={0.4}
+        staticity={40}
+        ease={60}
+        className="absolute inset-0 z-0"
+      />
+      <div className="relative z-10 w-full max-w-3xl">
         <Card className="overflow-hidden border-border bg-card shadow-[0_8px_48px_rgba(0,0,0,0.30)]">
           <CardContent className="grid p-0 md:grid-cols-2">
 
@@ -68,49 +77,49 @@ export default function RegisterPage() {
                   </div>
                 </div>
 
-                {/* Password + Confirm */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="password" className="font-sans text-sm font-medium text-foreground">รหัสผ่าน</Label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        id="password"
-                        type={showPassword ? 'text' : 'password'}
-                        placeholder="••••••••"
-                        required
-                        className="h-11 rounded-xl border-border bg-muted pl-10 pr-10 font-sans text-sm placeholder:text-muted-foreground/60 focus-visible:ring-brand"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword((v) => !v)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
-                        aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
-                      >
-                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </div>
+                {/* Password */}
+                <div className="grid gap-1.5">
+                  <Label htmlFor="password" className="font-sans text-sm font-medium text-foreground">รหัสผ่าน</Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="••••••••"
+                      required
+                      className="h-11 rounded-xl border-border bg-muted pl-10 pr-10 font-sans text-sm placeholder:text-muted-foreground/60 focus-visible:ring-brand"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                      aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
                   </div>
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="confirm" className="font-sans text-sm font-medium text-foreground">ยืนยัน</Label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        id="confirm"
-                        type={showConfirm ? 'text' : 'password'}
-                        placeholder="••••••••"
-                        required
-                        className="h-11 rounded-xl border-border bg-muted pl-10 pr-10 font-sans text-sm placeholder:text-muted-foreground/60 focus-visible:ring-brand"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowConfirm((v) => !v)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
-                        aria-label={showConfirm ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
-                      >
-                        {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </div>
+                </div>
+
+                {/* Confirm Password */}
+                <div className="grid gap-1.5">
+                  <Label htmlFor="confirm" className="font-sans text-sm font-medium text-foreground">ยืนยันรหัสผ่าน</Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="confirm"
+                      type={showConfirm ? 'text' : 'password'}
+                      placeholder="••••••••"
+                      required
+                      className="h-11 rounded-xl border-border bg-muted pl-10 pr-10 font-sans text-sm placeholder:text-muted-foreground/60 focus-visible:ring-brand"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirm((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                      aria-label={showConfirm ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                    >
+                      {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
                   </div>
                 </div>
 

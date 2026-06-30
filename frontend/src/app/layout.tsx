@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { IBM_Plex_Mono } from "next/font/google";
+import { IBM_Plex_Mono, Noto_Sans_Thai } from "next/font/google";
 import "./globals.css";
 
 // LINE Seed Sans TH — Thai + Latin body text
@@ -27,6 +27,16 @@ const lineSeedEN = localFont({
   display: "swap",
 });
 
+// Noto Sans Thai — fallback for Thai tone marks LINE Seed renders incorrectly
+// Google Fonts serves this with unicode-range U+0E00-U+0E7F so it only
+// activates for Thai characters, leaving Latin to LINE Seed.
+const notoSansThai = Noto_Sans_Thai({
+  subsets: ["thai"],
+  weight: ["400", "700", "800"],
+  variable: "--font-thai",
+  display: "swap",
+})
+
 // IBM Plex Mono — code / mono (LINE Seed has no mono variant)
 const ibmPlexMono = IBM_Plex_Mono({
   subsets: ["latin"],
@@ -49,7 +59,7 @@ export default function RootLayout({
   return (
     <html
       lang="th"
-      className={`${lineSeedTH.variable} ${lineSeedEN.variable} ${ibmPlexMono.variable}`}
+      className={`${lineSeedTH.variable} ${lineSeedEN.variable} ${ibmPlexMono.variable} ${notoSansThai.variable}`}
     >
       <body className="antialiased">{children}</body>
     </html>

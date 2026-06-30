@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Particles } from '@/components/ui/particles'
 
 function GoogleIcon() {
   return (
@@ -23,8 +24,16 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
-      <div className="w-full max-w-3xl">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10">
+      <Particles
+        quantity={120}
+        color="#2DD4BF"
+        size={0.4}
+        staticity={40}
+        ease={60}
+        className="absolute inset-0 z-0"
+      />
+      <div className="relative z-10 w-full max-w-3xl">
         <Card className="overflow-hidden border-border bg-card shadow-[0_8px_48px_rgba(0,0,0,0.30)]">
           <CardContent className="grid p-0 md:grid-cols-2">
 
