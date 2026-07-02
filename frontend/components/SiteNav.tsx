@@ -3,6 +3,7 @@ import Link from "next/link";
 const LINKS: { href: string; label: string }[] = [
   { href: "/", label: "หน้าแรก" },
   { href: "/assess", label: "ประเมิน" },
+  { href: "/skin-viewer", label: "โมเดลผิว 3D" },
   { href: "/how-to", label: "วิธีใช้งาน" },
   { href: "/methodology", label: "วิธีการ & AI" },
   { href: "/models", label: "ความน่าเชื่อถือ" },

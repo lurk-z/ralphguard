@@ -46,6 +46,7 @@ export default function ModelsPage() {
       <nav className="flex gap-4 text-sm mb-3">
         <a href="/" className="text-ink2/65 hover:text-brand">หน้าแรก</a>
         <a href="/assess" className="text-ink2/65 hover:text-brand">ประเมิน</a>
+        <a href="/skin-viewer" className="text-ink2/65 hover:text-brand">โมเดลผิว 3D</a>
         <a href="/history" className="text-ink2/65 hover:text-brand">ประวัติ</a>
         <a href="/models" className="text-brand">โมเดล &amp; ความน่าเชื่อถือ</a>
       </nav>
