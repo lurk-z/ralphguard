@@ -30,8 +30,14 @@ type IrritationUniforms = {
 };
 
 function FaceModel({ intensity, zone }: { intensity: number; zone: SkinZone }) {
-  const { scene } = useGLTF("/head.glb", true); // true = enable Draco decoder
+  const { scene: rawScene } = useGLTF("/head.glb", true); // true = enable Draco decoder
   const gl = useThree((s) => s.gl);
+
+  // drei caches the loaded scene by URL and shares it across every mount, so a
+  // module-level "already injected" guard would orphan later instances' uniforms
+  // (redness would stop reacting after the first mount / re-assessment). Clone the
+  // scene per instance so each one owns its own skin material + uniforms.
+  const scene = useMemo(() => rawScene.clone(true), [rawScene]);
 
   const uniforms = useRef<IrritationUniforms>({
     uIntensity: { value: 0 },
@@ -45,13 +51,13 @@ function FaceModel({ intensity, zone }: { intensity: number; zone: SkinZone }) {
     scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
-      const mat = mesh.material as THREE.MeshStandardMaterial;
-      if (!mat) return;
+      const srcMat = mesh.material as THREE.MeshStandardMaterial;
+      if (!srcMat) return;
 
       // Sharpen: enable anisotropic filtering on every texture (fixes blur on
-      // grazing-angle skin like cheeks/jaw).
+      // grazing-angle skin like cheeks/jaw). Textures are shared — safe to tweak.
       const maxA = gl.capabilities.getMaxAnisotropy();
-      [mat.map, mat.normalMap, mat.roughnessMap, mat.metalnessMap].forEach((t) => {
+      [srcMat.map, srcMat.normalMap, srcMat.roughnessMap, srcMat.metalnessMap].forEach((t) => {
         if (t && t.anisotropy !== maxA) {
           t.anisotropy = maxA;
           t.needsUpdate = true;
@@ -59,9 +65,12 @@ function FaceModel({ intensity, zone }: { intensity: number; zone: SkinZone }) {
       });
 
       // Only the skin material — skip brows/lashes/lens/eyeball/eye-wet.
-      if (mat.name !== "Material.001") return;
-      if (mat.userData.irritationInjected) return;
-      mat.userData.irritationInjected = true;
+      if (srcMat.name !== "Material.001") return;
+
+      // Clone the material so THIS instance owns it (and its uniforms). Without
+      // this, the shared cached material would only bind to the first mount.
+      const mat = srcMat.clone();
+      mesh.material = mat;
 
       mesh.geometry.computeBoundingBox();
       const bb = mesh.geometry.boundingBox!;
