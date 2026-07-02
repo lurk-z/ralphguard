@@ -14,19 +14,8 @@ import {
   api,
 } from "../../lib/api";
 
-// 3D model uses WebGL — load client-side only (no SSR).
-// Stylized mannequin: each region is a separate mesh so the selected part's
-// surface recolors by risk (matches "show result ON the selected part").
-const AnatomyModel = dynamic(() => import("../../components/AnatomyModel"), {
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-72 rounded-lg bg-elevated border border-border grid place-items-center text-xs text-ink2/55">
-      กำลังโหลดโมเดล 3 มิติ…
-    </div>
-  ),
-});
-
 // Realistic head — the result arms a brush; the user paints it onto the skin.
+// This is the ONLY 3D model now (the procedural mannequin was removed).
 const FacePaint = dynamic(
   () => import("../../components/FaceIrritationModel").then((m) => m.FacePaintCanvas),
   {
@@ -266,33 +255,11 @@ export default function AssessPage() {
     return Math.max(at("skin"), at("eye")) / 100;
   }, [endpoints, dayIdx]);
 
-  const resultReady =
-    !!endpoints && assessment?.status === "completed" && assessment?.region === region;
-
-  // per-endpoint risk AT THE SELECTED DAY (Day 1/3/7) — drives the 3D over time
-  const selectedScores = useMemo(() => {
-    if (!resultReady || !endpoints) return undefined;
-    const s: Record<string, number> = {};
-    for (const ep of ENDPOINTS) {
-      const e = endpoints[ep];
-      if (e) s[ep] = e.timecourse?.[dayIdx] ?? e.peak_score;
-    }
-    return s;
-  }, [endpoints, resultReady, dayIdx]);
-
-  // worst band across endpoints at the selected day — colors the region on the 3D model
-  const selectedBand = useMemo(() => {
-    if (!selectedScores) return undefined;
-    const order: Record<string, number> = { low: 0, moderate: 1, high: 2, severe: 3 };
-    let worst: string | undefined;
-    for (const ep of ENDPOINTS) {
-      const sc = selectedScores[ep];
-      if (sc == null) continue;
-      const b = sc < 25 ? "low" : sc < 50 ? "moderate" : sc < 75 ? "high" : "severe";
-      if (worst === undefined || order[b] > order[worst]) worst = b;
-    }
-    return worst;
-  }, [selectedScores]);
+  const completed = assessment?.status === "completed";
+  const resultReady = !!endpoints && completed;
+  const bandOf = (s: number) =>
+    s < 25 ? "low" : s < 50 ? "moderate" : s < 75 ? "high" : "severe";
+  const headBand = bandOf(headIntensity * 100);
 
   return (
     <main className="min-h-screen p-6 max-w-6xl mx-auto">
@@ -310,95 +277,149 @@ export default function AssessPage() {
         </p>
       </header>
 
-      <section className="grid lg:grid-cols-2 gap-6">
-        <FormulaBuilder
-          formula={formula}
-          totalConc={totalConc}
-          onAdd={addRow}
-          onAddRandom={addRandomRow}
-          onRemove={removeRow}
-          onUpdate={updateItem}
-          onRandomize={randomizeRow}
-          onImportCsv={importCsv}
-        />
-        <RegionPicker
-          value={region}
-          onChange={setRegion}
-          band={selectedBand}
-          scores={selectedScores}
-          dayIdx={dayIdx}
-          onDayChange={setDayIdx}
-          showDays={resultReady}
-        />
-      </section>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] items-start">
+        {/* ── Left: inputs ── */}
+        <div className="space-y-4 print:hidden">
+          <FormulaBuilder
+            formula={formula}
+            totalConc={totalConc}
+            onAdd={addRow}
+            onAddRandom={addRandomRow}
+            onRemove={removeRow}
+            onUpdate={updateItem}
+            onRandomize={randomizeRow}
+            onImportCsv={importCsv}
+          />
 
-      <div className="flex flex-wrap items-center gap-4 mt-6 print:hidden">
-        <button
-          onClick={submit}
-          disabled={submitting}
-          className="px-6 py-3 rounded-lg bg-brand text-black font-semibold disabled:opacity-50"
-        >
-          {submitting ? "กำลังส่ง..." : "▶ ประเมิน"}
-        </button>
+          <RegionPills value={region} onChange={setRegion} />
 
-        {creatingProject ? (
-          <div className="flex items-center gap-2">
-            <input
-              autoFocus
-              className="bg-elevated border border-border rounded px-2 py-1.5 text-sm"
-              placeholder="ชื่อโครงการใหม่"
-              value={newProjectName}
-              onChange={(e) => setNewProjectName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") createProject();
-                if (e.key === "Escape") setCreatingProject(false);
-              }}
-            />
-            <button onClick={createProject} className="text-sm text-brand font-medium hover:underline">
-              บันทึก
-            </button>
+          <div className="rounded-xl bg-panel border border-border shadow-card p-4 space-y-3">
             <button
-              onClick={() => setCreatingProject(false)}
-              className="text-sm text-ink2/55 hover:text-ink2/80"
+              onClick={submit}
+              disabled={submitting}
+              className="w-full py-3 rounded-lg bg-brand text-white font-semibold shadow-soft transition hover:bg-brand-dark disabled:opacity-50"
             >
-              ยกเลิก
+              {submitting ? "กำลังส่ง..." : "▶ ประเมินความเสี่ยง"}
             </button>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {creatingProject ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    autoFocus
+                    className="bg-elevated border border-border rounded px-2 py-1.5 text-sm"
+                    placeholder="ชื่อโครงการใหม่"
+                    value={newProjectName}
+                    onChange={(e) => setNewProjectName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") createProject();
+                      if (e.key === "Escape") setCreatingProject(false);
+                    }}
+                  />
+                  <button onClick={createProject} className="text-sm text-brand font-medium hover:underline">
+                    บันทึก
+                  </button>
+                  <button
+                    onClick={() => setCreatingProject(false)}
+                    className="text-sm text-ink2/55 hover:text-ink2/80"
+                  >
+                    ยกเลิก
+                  </button>
+                </div>
+              ) : (
+                <label className="text-xs text-ink2/65 flex items-center gap-2">
+                  โครงการ:
+                  <select
+                    value={projectId ?? ""}
+                    onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
+                    className="bg-elevated border border-border rounded px-2 py-1.5 text-sm"
+                  >
+                    <option value="">— ไม่ผูกโครงการ —</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => setCreatingProject(true)}
+                    className="text-brand hover:underline"
+                    title="สร้างโครงการใหม่"
+                  >
+                    + ใหม่
+                  </button>
+                </label>
+              )}
+
+              {jobId && (
+                <span className="text-xs text-ink2/55 font-mono">
+                  {jobId.slice(0, 8)} · <Status status={assessment?.status ?? "queued"} />
+                </span>
+              )}
+            </div>
+
+            {error && (
+              <div
+                role="alert"
+                aria-live="polite"
+                className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2"
+              >
+                {error}
+              </div>
+            )}
           </div>
-        ) : (
-          <label className="text-xs text-ink2/65 flex items-center gap-2">
-            โครงการ:
-            <select
-              value={projectId ?? ""}
-              onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
-              className="bg-elevated border border-border rounded px-2 py-1.5 text-sm"
-            >
-              <option value="">— ไม่ผูกโครงการ —</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={() => setCreatingProject(true)}
-              className="text-brand hover:underline"
-              title="สร้างโครงการใหม่"
-            >
-              + ใหม่
-            </button>
-          </label>
-        )}
+        </div>
 
-        {jobId && (
-          <span className="text-xs text-ink2/55 font-mono">
-            job: {jobId.slice(0, 8)} · status: <Status status={assessment?.status ?? "queued"} />
-          </span>
-        )}
-        {error && (
-          <span role="alert" aria-live="polite" className="text-sm text-rose-400">
-            {error}
-          </span>
-        )}
+        {/* ── Right: the head is the star (only 3D model) ── */}
+        <div className="lg:sticky lg:top-4 space-y-2">
+          <div className="rounded-2xl bg-panel border border-border shadow-card overflow-hidden">
+            <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border">
+              <div>
+                <div className="font-display font-semibold text-sm">แบบจำลองผิว 3 มิติ</div>
+                <div className="text-[11px] text-ink2/55">
+                  {resultReady ? "🖌️ กดค้างแล้วลากบนผิวเพื่อระบายผล" : "กรอกสูตรทางซ้าย แล้วกดประเมิน"}
+                </div>
+              </div>
+              {resultReady && (
+                <div className="flex items-center gap-1.5 print:hidden">
+                  {DAY_LABELS.map((d, i) => (
+                    <button
+                      key={d}
+                      onClick={() => setDayIdx(i)}
+                      className={`px-2.5 py-1 rounded-full text-xs border transition ${
+                        i === dayIdx
+                          ? "bg-brand/15 border-brand text-brand font-semibold"
+                          : "bg-elevated border-border text-ink2/65 hover:border-brand/50"
+                      }`}
+                    >
+                      D{d}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="h-[58vh] min-h-[440px]">
+              <FacePaint
+                key={jobId ?? "idle"}
+                brushValue={headIntensity}
+                armed={resultReady}
+                background="#2A2320"
+              />
+            </div>
+          </div>
+          {resultReady && (
+            <div className="flex items-center justify-between px-1 text-[11px]">
+              <span className="text-ink2/55">
+                พู่กันติดค่า {Math.round(headIntensity * 100)}% (skin/eye · Day {DAY_LABELS[dayIdx]})
+              </span>
+              <span
+                className={`px-2 py-0.5 rounded-full text-xs font-mono border ${BAND_COLOR[headBand]}`}
+              >
+                {headBand.toUpperCase()}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       {endpoints && assessment?.status === "completed" && (
@@ -413,40 +434,6 @@ export default function AssessPage() {
             </button>
           </div>
           <ReportHeader region={assessment.region} jobId={assessment.id} createdAt={assessment.created_at} />
-
-          {/* Realistic head — irritation painted on real skin, driven by the result */}
-          <div className="p-4 rounded-lg bg-panel border border-border">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <h3 className="font-semibold">
-                แบบจำลองผิว 3 มิติ — ระบายผลลงบนผิว
-                <span className="ml-2 text-xs font-normal text-ink2/55">
-                  พู่กันติดค่า {Math.round(headIntensity * 100)}%
-                </span>
-              </h3>
-              <div className="flex items-center gap-2 print:hidden">
-                <span className="text-[11px] text-ink2/55">จำลองวันที่:</span>
-                {DAY_LABELS.map((d, i) => (
-                  <button
-                    key={d}
-                    onClick={() => setDayIdx(i)}
-                    className={`px-3 py-1 rounded-full text-xs border transition ${
-                      i === dayIdx
-                        ? "bg-brand/20 border-brand text-brand font-semibold"
-                        : "bg-elevated border-border text-ink2/65 hover:border-brand/50"
-                    }`}
-                  >
-                    Day {d}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="h-[52vh] min-h-[380px] rounded-lg overflow-hidden border border-border">
-              <FacePaint brushValue={headIntensity} armed background="#2A2320" />
-            </div>
-            <p className="text-[11px] text-ink2/55 mt-2">
-              🖌️ กดปุ่มประเมินแล้ว "พู่กัน" จะติดค่าความเสี่ยงผิว/ตาที่วันที่เลือก — กดค้างแล้วลากบนใบหน้าเพื่อระบาย รอยแดงจะค่อย ๆ ปรากฏ · ลากพื้นที่ว่างเพื่อหมุน · เปลี่ยน Day เพื่อปรับค่าพู่กัน
-            </p>
-          </div>
 
           <div className="grid md:grid-cols-2 gap-4">
             {ENDPOINTS.map((ep) =>
@@ -660,69 +647,32 @@ function SmilesValidity({ smiles }: { smiles: string }) {
 
 const DAY_LABELS = [1, 3, 7];
 
-function RegionPicker({
-  value,
-  onChange,
-  band,
-  scores,
-  dayIdx,
-  onDayChange,
-  showDays,
-}: {
-  value: Region;
-  onChange: (r: Region) => void;
-  band?: string;
-  scores?: Record<string, number>;
-  dayIdx: number;
-  onDayChange: (i: number) => void;
-  showDays?: boolean;
-}) {
+function RegionPills({ value, onChange }: { value: Region; onChange: (r: Region) => void }) {
   return (
-    <div className="p-4 rounded-lg bg-panel border border-border">
-      <h3 className="font-semibold mb-3">บริเวณทดสอบ &amp; การจำลองตามเวลา</h3>
-
-      {/* Interactive 3D body — click a region; colored + labelled by risk at the selected day */}
-      <AnatomyModel value={value} onChange={onChange} band={band} scores={scores} />
-
-      {/* Day 1 / 3 / 7 time simulation selector — drives the 3D coloring (proposal §1.4) */}
-      {showDays && (
-        <div className="mt-2 flex items-center justify-center gap-2">
-          <span className="text-[11px] text-ink2/55">จำลองวันที่:</span>
-          {DAY_LABELS.map((d, i) => (
+    <div className="rounded-xl bg-panel border border-border shadow-card p-4">
+      <h3 className="font-semibold mb-1">บริเวณที่สัมผัส</h3>
+      <p className="text-[11px] text-ink2/55 mb-3">
+        ปรับค่าความไวของผิวตามบริเวณ (ใบหน้า/ดวงตาไวต่อการระคายเคืองมากกว่า)
+      </p>
+      <div className="grid grid-cols-4 gap-2">
+        {REGIONS.map((r) => {
+          const active = value === r.value;
+          return (
             <button
-              key={d}
-              onClick={() => onDayChange(i)}
-              className={`px-3 py-1 rounded-full text-xs border transition ${
-                i === dayIdx
-                  ? "bg-brand/20 border-brand text-brand font-semibold"
-                  : "bg-elevated border-border text-ink2/65 hover:border-brand/50"
+              key={r.value}
+              onClick={() => onChange(r.value)}
+              aria-pressed={active}
+              className={`flex flex-col items-center gap-1 rounded-lg border py-2.5 text-center transition ${
+                active
+                  ? "bg-brand/10 border-brand text-brand"
+                  : "bg-elevated border-border text-ink2/70 hover:border-brand/50"
               }`}
             >
-              Day {d}
+              <span className="text-xl" aria-hidden="true">{r.icon}</span>
+              <span className="text-xs font-medium">{r.label}</span>
             </button>
-          ))}
-        </div>
-      )}
-      <p className="text-[11px] text-ink2/55 mt-1 mb-3">
-        คลิกบริเวณบนโมเดล หรือเลือกจากปุ่มด้านล่าง · ลากเพื่อหมุน
-      </p>
-
-      <div className="grid grid-cols-2 gap-2">
-        {REGIONS.map((r) => (
-          <button
-            key={r.value}
-            onClick={() => onChange(r.value)}
-            className={`p-3 rounded-lg border text-left transition ${
-              value === r.value
-                ? "bg-brand/15 border-brand text-brand"
-                : "bg-elevated border-border hover:border-brand/50"
-            }`}
-          >
-            <div className="text-2xl">{r.icon}</div>
-            <div className="font-semibold mt-1">{r.label}</div>
-            <div className="text-xs text-ink2/55 font-mono">{r.value}</div>
-          </button>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
