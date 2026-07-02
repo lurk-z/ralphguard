@@ -26,9 +26,9 @@ const AnatomyModel = dynamic(() => import("../../components/AnatomyModel"), {
   ),
 });
 
-// Realistic head that paints the irritation ON the skin — primary result viz.
-const FaceResult = dynamic(
-  () => import("../../components/FaceIrritationModel").then((m) => m.FaceIrritationCanvas),
+// Realistic head — the result arms a brush; the user paints it onto the skin.
+const FacePaint = dynamic(
+  () => import("../../components/FaceIrritationModel").then((m) => m.FacePaintCanvas),
   {
     ssr: false,
     loading: () => (
@@ -418,9 +418,9 @@ export default function AssessPage() {
           <div className="p-4 rounded-lg bg-panel border border-border">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <h3 className="font-semibold">
-                แบบจำลองผิว 3 มิติ — รอยแดงจากผลจริง
+                แบบจำลองผิว 3 มิติ — ระบายผลลงบนผิว
                 <span className="ml-2 text-xs font-normal text-ink2/55">
-                  ความรุนแรง {Math.round(headIntensity * 100)}%
+                  พู่กันติดค่า {Math.round(headIntensity * 100)}%
                 </span>
               </h3>
               <div className="flex items-center gap-2 print:hidden">
@@ -441,10 +441,10 @@ export default function AssessPage() {
               </div>
             </div>
             <div className="h-[52vh] min-h-[380px] rounded-lg overflow-hidden border border-border">
-              <FaceResult intensity={headIntensity} zone="all" background="#2A2320" />
+              <FacePaint brushValue={headIntensity} armed background="#2A2320" />
             </div>
             <p className="text-[11px] text-ink2/55 mt-2">
-              รอยแดง (erythema) และตุ่มผื่นจำลองบนผิวจริงตามคะแนนความเสี่ยงผิว/ตาที่วันที่เลือก · ลากเพื่อหมุน
+              🖌️ กดปุ่มประเมินแล้ว "พู่กัน" จะติดค่าความเสี่ยงผิว/ตาที่วันที่เลือก — กดค้างแล้วลากบนใบหน้าเพื่อระบาย รอยแดงจะค่อย ๆ ปรากฏ · ลากพื้นที่ว่างเพื่อหมุน · เปลี่ยน Day เพื่อปรับค่าพู่กัน
             </p>
           </div>
 
