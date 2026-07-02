@@ -15,12 +15,12 @@ import {
 } from "../../lib/api";
 
 // 3D model uses WebGL — load client-side only (no SSR).
-// Uses the realistic GLTF model (frontend/public/human.glb); falls back to the
-// procedural model automatically if the .glb is absent.
-const AnatomyModel = dynamic(() => import("../../components/AnatomyModelGLTF"), {
+// Stylized mannequin: each region is a separate mesh so the selected part's
+// surface recolors by risk (matches "show result ON the selected part").
+const AnatomyModel = dynamic(() => import("../../components/AnatomyModel"), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-72 rounded-lg bg-elevated border border-border grid place-items-center text-xs text-gray-500">
+    <div className="w-full h-72 rounded-lg bg-elevated border border-border grid place-items-center text-xs text-ink2/55">
       กำลังโหลดโมเดล 3 มิติ…
     </div>
   ),
@@ -109,6 +109,7 @@ export default function AssessPage() {
   const [assessment, setAssessment] = useState<AssessmentRecord | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dayIdx, setDayIdx] = useState(1); // 0=Day1, 1=Day3, 2=Day7 — drives the 3D over time
   const [projects, setProjects] = useState<ProjectOut[]>([]);
   const [projectId, setProjectId] = useState<number | null>(null);
 
@@ -182,41 +183,45 @@ export default function AssessPage() {
 
   const endpoints = assessment?.result?.endpoints ?? null;
 
-  // worst risk band across endpoints — used to color the selected region on the 3D model
+  const resultReady =
+    !!endpoints && assessment?.status === "completed" && assessment?.region === region;
+
+  // per-endpoint risk AT THE SELECTED DAY (Day 1/3/7) — drives the 3D over time
+  const selectedScores = useMemo(() => {
+    if (!resultReady || !endpoints) return undefined;
+    const s: Record<string, number> = {};
+    for (const ep of ENDPOINTS) {
+      const e = endpoints[ep];
+      if (e) s[ep] = e.timecourse?.[dayIdx] ?? e.peak_score;
+    }
+    return s;
+  }, [endpoints, resultReady, dayIdx]);
+
+  // worst band across endpoints at the selected day — colors the region on the 3D model
   const selectedBand = useMemo(() => {
-    if (!endpoints || assessment?.status !== "completed" || assessment?.region !== region)
-      return undefined;
+    if (!selectedScores) return undefined;
     const order: Record<string, number> = { low: 0, moderate: 1, high: 2, severe: 3 };
     let worst: string | undefined;
     for (const ep of ENDPOINTS) {
-      const b = endpoints[ep]?.band;
-      if (b && (worst === undefined || order[b] > order[worst])) worst = b;
+      const sc = selectedScores[ep];
+      if (sc == null) continue;
+      const b = sc < 25 ? "low" : sc < 50 ? "moderate" : sc < 75 ? "high" : "severe";
+      if (worst === undefined || order[b] > order[worst]) worst = b;
     }
     return worst;
-  }, [endpoints, assessment?.status, assessment?.region, region]);
-
-  // per-endpoint peak scores for the 3D model's value readout
-  const selectedScores = useMemo(() => {
-    if (!endpoints || assessment?.status !== "completed" || assessment?.region !== region)
-      return undefined;
-    const s: Record<string, number> = {};
-    for (const ep of ENDPOINTS) {
-      if (endpoints[ep]) s[ep] = endpoints[ep].peak_score;
-    }
-    return s;
-  }, [endpoints, assessment?.status, assessment?.region, region]);
+  }, [selectedScores]);
 
   return (
     <main className="min-h-screen p-6 max-w-6xl mx-auto">
       <header className="mb-6 print:hidden">
         <nav className="flex gap-4 text-sm mb-3">
-          <a href="/" className="text-gray-400 hover:text-brand">หน้าแรก</a>
+          <a href="/" className="text-ink2/65 hover:text-brand">หน้าแรก</a>
           <a href="/assess" className="text-brand">ประเมิน</a>
-          <a href="/history" className="text-gray-400 hover:text-brand">ประวัติ</a>
-          <a href="/models" className="text-gray-400 hover:text-brand">โมเดล &amp; ความน่าเชื่อถือ</a>
+          <a href="/history" className="text-ink2/65 hover:text-brand">ประวัติ</a>
+          <a href="/models" className="text-ink2/65 hover:text-brand">โมเดล &amp; ความน่าเชื่อถือ</a>
         </nav>
         <h1 className="text-2xl font-display font-semibold">การประเมินความเสี่ยง</h1>
-        <p className="text-xs text-gray-500 mt-1">
+        <p className="text-xs text-ink2/55 mt-1">
           ⚠️ ผลจากแบบจำลองคอมพิวเตอร์ — ไม่ใช่การทดสอบทางคลินิก
         </p>
       </header>
@@ -231,7 +236,15 @@ export default function AssessPage() {
           onUpdate={updateItem}
           onRandomize={randomizeRow}
         />
-        <RegionPicker value={region} onChange={setRegion} band={selectedBand} scores={selectedScores} />
+        <RegionPicker
+          value={region}
+          onChange={setRegion}
+          band={selectedBand}
+          scores={selectedScores}
+          dayIdx={dayIdx}
+          onDayChange={setDayIdx}
+          showDays={resultReady}
+        />
       </section>
 
       <div className="flex flex-wrap items-center gap-4 mt-6 print:hidden">
@@ -243,7 +256,7 @@ export default function AssessPage() {
           {submitting ? "กำลังส่ง..." : "▶ ประเมิน"}
         </button>
 
-        <label className="text-xs text-gray-400 flex items-center gap-2">
+        <label className="text-xs text-ink2/65 flex items-center gap-2">
           โครงการ:
           <select
             value={projectId ?? ""}
@@ -260,7 +273,7 @@ export default function AssessPage() {
         </label>
 
         {jobId && (
-          <span className="text-xs text-gray-500 font-mono">
+          <span className="text-xs text-ink2/55 font-mono">
             job: {jobId.slice(0, 8)} · status: <Status status={assessment?.status ?? "queued"} />
           </span>
         )}
@@ -273,7 +286,7 @@ export default function AssessPage() {
             <h2 className="text-lg font-display font-semibold">ผลการประเมิน</h2>
             <button
               onClick={() => window.print()}
-              className="print:hidden text-sm px-3 py-1.5 rounded border border-border text-gray-300 hover:border-brand hover:text-brand"
+              className="print:hidden text-sm px-3 py-1.5 rounded border border-border text-ink2/80 hover:border-brand hover:text-brand"
             >
               🖨 พิมพ์ / บันทึก PDF
             </button>
@@ -295,7 +308,7 @@ export default function AssessPage() {
             <AlertsPanel substances={assessment.result.substances} />
           )}
 
-          <p className="text-xs text-gray-500 pt-4 border-t border-border">
+          <p className="text-xs text-ink2/55 pt-4 border-t border-border">
             {assessment.result?.disclaimer_th}
           </p>
         </section>
@@ -334,7 +347,7 @@ function FormulaBuilder({
         <h3 className="font-semibold">สูตร</h3>
         <span
           className={`text-xs font-mono ${
-            Math.abs(totalConc - 100) < 1 ? "text-emerald-400" : "text-gray-500"
+            Math.abs(totalConc - 100) < 1 ? "text-emerald-400" : "text-ink2/55"
           }`}
         >
           รวม {totalConc.toFixed(1)}%
@@ -369,7 +382,7 @@ function FormulaBuilder({
               />
               <button
                 onClick={() => onRandomize(idx)}
-                className="col-span-1 text-gray-500 hover:text-brand text-lg"
+                className="col-span-1 text-ink2/55 hover:text-brand text-lg"
                 title="สุ่มสารในช่องนี้"
                 aria-label="สุ่มสาร"
               >
@@ -377,7 +390,7 @@ function FormulaBuilder({
               </button>
               <button
                 onClick={() => onRemove(idx)}
-                className="col-span-1 text-gray-500 hover:text-rose-400 text-lg"
+                className="col-span-1 text-ink2/55 hover:text-rose-400 text-lg"
                 aria-label="ลบ"
               >
                 ×
@@ -393,7 +406,7 @@ function FormulaBuilder({
         </button>
         <button
           onClick={onAddRandom}
-          className="text-sm text-gray-400 hover:text-brand"
+          className="text-sm text-ink2/65 hover:text-brand"
           title="เพิ่มสารสุ่มจากคลัง"
         >
           🎲 สุ่มเพิ่มสาร
@@ -446,7 +459,7 @@ function SmilesValidity({ smiles }: { smiles: string }) {
 
   if (state.kind === "idle") return null;
   if (state.kind === "checking")
-    return <div className="text-[11px] text-gray-500 pl-1">⏳ กำลังตรวจ SMILES…</div>;
+    return <div className="text-[11px] text-ink2/55 pl-1">⏳ กำลังตรวจ SMILES…</div>;
   if (state.kind === "invalid")
     return (
       <div className="text-[11px] text-rose-400 pl-1">
@@ -461,24 +474,52 @@ function SmilesValidity({ smiles }: { smiles: string }) {
   );
 }
 
+const DAY_LABELS = [1, 3, 7];
+
 function RegionPicker({
   value,
   onChange,
   band,
   scores,
+  dayIdx,
+  onDayChange,
+  showDays,
 }: {
   value: Region;
   onChange: (r: Region) => void;
   band?: string;
   scores?: Record<string, number>;
+  dayIdx: number;
+  onDayChange: (i: number) => void;
+  showDays?: boolean;
 }) {
   return (
     <div className="p-4 rounded-lg bg-panel border border-border">
-      <h3 className="font-semibold mb-3">บริเวณทดสอบ</h3>
+      <h3 className="font-semibold mb-3">บริเวณทดสอบ &amp; การจำลองตามเวลา</h3>
 
-      {/* Interactive 3D body — click a region; colored + labelled by risk after assessment */}
+      {/* Interactive 3D body — click a region; colored + labelled by risk at the selected day */}
       <AnatomyModel value={value} onChange={onChange} band={band} scores={scores} />
-      <p className="text-[11px] text-gray-500 mt-1 mb-3">
+
+      {/* Day 1 / 3 / 7 time simulation selector — drives the 3D coloring (proposal §1.4) */}
+      {showDays && (
+        <div className="mt-2 flex items-center justify-center gap-2">
+          <span className="text-[11px] text-ink2/55">จำลองวันที่:</span>
+          {DAY_LABELS.map((d, i) => (
+            <button
+              key={d}
+              onClick={() => onDayChange(i)}
+              className={`px-3 py-1 rounded-full text-xs border transition ${
+                i === dayIdx
+                  ? "bg-brand/20 border-brand text-brand font-semibold"
+                  : "bg-elevated border-border text-ink2/65 hover:border-brand/50"
+              }`}
+            >
+              Day {d}
+            </button>
+          ))}
+        </div>
+      )}
+      <p className="text-[11px] text-ink2/55 mt-1 mb-3">
         คลิกบริเวณบนโมเดล หรือเลือกจากปุ่มด้านล่าง · ลากเพื่อหมุน
       </p>
 
@@ -495,7 +536,7 @@ function RegionPicker({
           >
             <div className="text-2xl">{r.icon}</div>
             <div className="font-semibold mt-1">{r.label}</div>
-            <div className="text-xs text-gray-500 font-mono">{r.value}</div>
+            <div className="text-xs text-ink2/55 font-mono">{r.value}</div>
           </button>
         ))}
       </div>
@@ -547,10 +588,10 @@ function EndpointCard({
     <div className="p-4 rounded-lg bg-panel border border-border">
       <div className="flex items-start justify-between">
         <div>
-          <div className="text-sm text-gray-400">{ENDPOINT_LABEL_TH[endpoint]}</div>
+          <div className="text-sm text-ink2/65">{ENDPOINT_LABEL_TH[endpoint]}</div>
           <div className="text-3xl font-display font-bold mt-1">
             {Math.round(data.peak_score)}
-            <span className="text-sm text-gray-500 font-mono ml-1">/100</span>
+            <span className="text-sm text-ink2/55 font-mono ml-1">/100</span>
           </div>
         </div>
         <div className="flex flex-col gap-1 items-end">
@@ -585,7 +626,7 @@ function EndpointCard({
       </div>
 
       {data.confidence && (
-        <p className="text-xs text-gray-400 mt-2 leading-snug">{data.confidence.reason_th}</p>
+        <p className="text-xs text-ink2/65 mt-2 leading-snug">{data.confidence.reason_th}</p>
       )}
     </div>
   );
@@ -613,12 +654,12 @@ function UncertaintyPanel({ substances }: { substances: SubstancePayload[] }) {
   return (
     <div className="p-4 rounded-lg bg-panel border border-border">
       <h3 className="font-semibold mb-1">📊 ความเชื่อมั่น & ความไม่แน่นอน (Uncertainty Quantification)</h3>
-      <p className="text-[11px] text-gray-500 mb-2">
+      <p className="text-[11px] text-ink2/55 mb-2">
         uncertainty = ความไม่เห็นพ้องของโมเดลในชุด (สูง=ไม่แน่ใจ) · AD = ความคล้ายกับสารในชุดเทรน (ต่ำ=นอกขอบเขต)
       </p>
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-xs text-gray-500 text-left border-b border-border">
+          <tr className="text-xs text-ink2/55 text-left border-b border-border">
             <th className="py-1">สาร</th><th>Endpoint</th><th>โอกาสเสี่ยง</th>
             <th>Uncertainty</th><th>AD similarity</th><th>สถานะ</th>
           </tr>
@@ -634,7 +675,7 @@ function UncertaintyPanel({ substances }: { substances: SubstancePayload[] }) {
                   <div className="h-1.5 w-16 bg-elevated rounded">
                     <div className="h-1.5 rounded bg-amber-400" style={{ width: `${Math.min(100, r.unc * 300)}%` }} />
                   </div>
-                  <span className="text-xs font-mono text-gray-400">{r.unc.toFixed(2)}</span>
+                  <span className="text-xs font-mono text-ink2/65">{r.unc.toFixed(2)}</span>
                 </div>
               </td>
               <td className="py-1 font-mono text-xs">{r.sim.toFixed(2)}</td>
@@ -674,7 +715,7 @@ function AlertsPanel({ substances }: { substances: SubstancePayload[] }) {
       <h3 className="font-semibold mb-2">⚠️ Structural Alerts (Layer 3)</h3>
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-xs text-gray-500 text-left border-b border-border">
+          <tr className="text-xs text-ink2/55 text-left border-b border-border">
             <th className="py-1">สาร</th>
             <th className="py-1">Endpoint</th>
             <th className="py-1">Alerts</th>
@@ -713,7 +754,7 @@ function AlertsPanel({ substances }: { substances: SubstancePayload[] }) {
 
 function Status({ status }: { status: string }) {
   const colors: Record<string, string> = {
-    queued: "text-gray-400",
+    queued: "text-ink2/65",
     running: "text-amber-300",
     completed: "text-emerald-400",
     failed: "text-rose-400",

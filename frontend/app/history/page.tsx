@@ -12,7 +12,7 @@ const REGION_LABEL_TH: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  queued: "text-gray-400",
+  queued: "text-ink2/65",
   running: "text-amber-300",
   completed: "text-emerald-400",
   failed: "text-rose-400",
@@ -47,18 +47,18 @@ export default function HistoryPage() {
   return (
     <main className="min-h-screen p-6 max-w-5xl mx-auto">
       <nav className="flex gap-4 text-sm mb-3">
-        <a href="/" className="text-gray-400 hover:text-brand">หน้าแรก</a>
-        <a href="/assess" className="text-gray-400 hover:text-brand">ประเมิน</a>
+        <a href="/" className="text-ink2/65 hover:text-brand">หน้าแรก</a>
+        <a href="/assess" className="text-ink2/65 hover:text-brand">ประเมิน</a>
         <a href="/history" className="text-brand">ประวัติ</a>
-        <a href="/models" className="text-gray-400 hover:text-brand">โมเดล &amp; ความน่าเชื่อถือ</a>
+        <a href="/models" className="text-ink2/65 hover:text-brand">โมเดล &amp; ความน่าเชื่อถือ</a>
       </nav>
 
       <header className="mb-5 flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-display font-semibold">ประวัติการประเมิน</h1>
-          <p className="text-xs text-gray-500 mt-1">รายการงานประเมินทั้งหมด เรียงจากใหม่ไปเก่า</p>
+          <p className="text-xs text-ink2/55 mt-1">รายการงานประเมินทั้งหมด เรียงจากใหม่ไปเก่า</p>
         </div>
-        <label className="text-xs text-gray-400 flex items-center gap-2">
+        <label className="text-xs text-ink2/65 flex items-center gap-2">
           โครงการ:
           <select
             value={projectId ?? ""}
@@ -75,10 +75,10 @@ export default function HistoryPage() {
         </label>
       </header>
 
-      {loading && <p className="text-sm text-gray-500">กำลังโหลด…</p>}
+      {loading && <p className="text-sm text-ink2/55">กำลังโหลด…</p>}
       {error && <p className="text-sm text-rose-400">{error}</p>}
       {!loading && !error && rows.length === 0 && (
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-ink2/55">
           ยังไม่มีประวัติ — ไปที่หน้า{" "}
           <a href="/assess" className="text-brand hover:underline">ประเมิน</a> เพื่อเริ่ม
         </p>
@@ -87,7 +87,7 @@ export default function HistoryPage() {
       {rows.length > 0 && (
         <div className="rounded-lg border border-border overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-panel text-xs text-gray-500 text-left">
+            <thead className="bg-panel text-xs text-ink2/55 text-left">
               <tr>
                 <th className="py-2 px-3">รหัสงาน</th>
                 <th className="py-2 px-3">บริเวณ</th>
@@ -104,11 +104,11 @@ export default function HistoryPage() {
                   <td className="py-2 px-3 font-mono text-xs">{r.id.slice(0, 8)}</td>
                   <td className="py-2 px-3">{REGION_LABEL_TH[r.region] ?? r.region}</td>
                   <td className="py-2 px-3">{r.n_substances}</td>
-                  <td className="py-2 px-3 text-gray-400">{projectName(r.project_id)}</td>
+                  <td className="py-2 px-3 text-ink2/65">{projectName(r.project_id)}</td>
                   <td className={`py-2 px-3 font-mono ${STATUS_COLOR[r.status] ?? ""}`}>
                     {r.status}
                   </td>
-                  <td className="py-2 px-3 text-gray-400 text-xs">
+                  <td className="py-2 px-3 text-ink2/65 text-xs">
                     {new Date(r.created_at).toLocaleString("th-TH")}
                   </td>
                   <td className="py-2 px-3">
