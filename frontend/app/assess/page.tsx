@@ -26,6 +26,19 @@ const AnatomyModel = dynamic(() => import("../../components/AnatomyModel"), {
   ),
 });
 
+// Realistic head that paints the irritation ON the skin — primary result viz.
+const FaceResult = dynamic(
+  () => import("../../components/FaceIrritationModel").then((m) => m.FaceIrritationCanvas),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-full grid place-items-center text-xs text-gray-400">
+        กำลังโหลดโมเดลผิว 3 มิติ…
+      </div>
+    ),
+  },
+);
+
 const REGIONS: { value: Region; label: string; icon: string }[] = [
   { value: "forearm", label: "ท่อนแขน", icon: "💪" },
   { value: "hand", label: "มือ", icon: "🤚" },
@@ -244,6 +257,15 @@ export default function AssessPage() {
 
   const endpoints = assessment?.result?.endpoints ?? null;
 
+  // Drives the realistic head: worst surface-irritation (skin/eye) at the
+  // selected day, 0..1. Erythema on the head ~ facial skin/eye irritation.
+  const headIntensity = useMemo(() => {
+    if (!endpoints) return 0;
+    const at = (ep: string) =>
+      endpoints[ep]?.timecourse?.[dayIdx] ?? endpoints[ep]?.peak_score ?? 0;
+    return Math.max(at("skin"), at("eye")) / 100;
+  }, [endpoints, dayIdx]);
+
   const resultReady =
     !!endpoints && assessment?.status === "completed" && assessment?.region === region;
 
@@ -390,6 +412,41 @@ export default function AssessPage() {
             </button>
           </div>
           <ReportHeader region={assessment.region} jobId={assessment.id} createdAt={assessment.created_at} />
+
+          {/* Realistic head — irritation painted on real skin, driven by the result */}
+          <div className="p-4 rounded-lg bg-panel border border-border">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <h3 className="font-semibold">
+                แบบจำลองผิว 3 มิติ — รอยแดงจากผลจริง
+                <span className="ml-2 text-xs font-normal text-ink2/55">
+                  ความรุนแรง {Math.round(headIntensity * 100)}%
+                </span>
+              </h3>
+              <div className="flex items-center gap-2 print:hidden">
+                <span className="text-[11px] text-ink2/55">จำลองวันที่:</span>
+                {DAY_LABELS.map((d, i) => (
+                  <button
+                    key={d}
+                    onClick={() => setDayIdx(i)}
+                    className={`px-3 py-1 rounded-full text-xs border transition ${
+                      i === dayIdx
+                        ? "bg-brand/20 border-brand text-brand font-semibold"
+                        : "bg-elevated border-border text-ink2/65 hover:border-brand/50"
+                    }`}
+                  >
+                    Day {d}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="h-[52vh] min-h-[380px] rounded-lg overflow-hidden border border-border">
+              <FaceResult intensity={headIntensity} zone="all" background="#2A2320" />
+            </div>
+            <p className="text-[11px] text-ink2/55 mt-2">
+              รอยแดง (erythema) และตุ่มผื่นจำลองบนผิวจริงตามคะแนนความเสี่ยงผิว/ตาที่วันที่เลือก · ลากเพื่อหมุน
+            </p>
+          </div>
+
           <div className="grid md:grid-cols-2 gap-4">
             {ENDPOINTS.map((ep) =>
               endpoints[ep] ? (
