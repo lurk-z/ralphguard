@@ -67,3 +67,6 @@ redis-data/
 *.tmp
 *.bak
 .cache/
+
+# ============ 3D source files (not shipped) ============
+frontend/public/Blender/

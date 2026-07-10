@@ -9,7 +9,7 @@
  *
  * Model source (in priority):
  *   1. NEXT_PUBLIC_HUMAN_MODEL_URL  (env — e.g. a Ready Player Me .glb URL)
- *   2. /human.glb                   (local file in frontend/public)
+ *   2. /models/human.glb            (local file in frontend/public/models)
  *   3. DEFAULT_HUMAN_URL            (a real human served from a public CDN)
  * If none load, falls back to the procedural model so the app never breaks.
  */

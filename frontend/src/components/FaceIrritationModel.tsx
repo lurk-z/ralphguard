@@ -12,7 +12,7 @@
  *   - intensity : 0..1  (0 = clear skin, 1 = severe erythema + papules)
  *   - zone      : 'all' | 'forehead' | 'cheek'
  *
- * Asset: frontend/public/head.glb (Draco-compressed; drei fetches the decoder).
+ * Asset: frontend/public/models/head.glb (Draco-compressed; drei fetches the decoder).
  */
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Bounds, OrbitControls, useGLTF } from "@react-three/drei";
@@ -30,7 +30,7 @@ type IrritationUniforms = {
 };
 
 function FaceModel({ intensity, zone }: { intensity: number; zone: SkinZone }) {
-  const { scene: rawScene } = useGLTF("/head.glb", true); // true = enable Draco decoder
+  const { scene: rawScene } = useGLTF("/models/head.glb", true); // true = enable Draco decoder
   const gl = useThree((s) => s.gl);
 
   // drei caches the loaded scene by URL and shares it across every mount, so a
@@ -236,7 +236,7 @@ function PaintFaceModel({
   apiRef?: React.MutableRefObject<PaintApi | null>;
   onPaintStart?: () => void;
 }) {
-  const { scene: rawScene } = useGLTF("/head.glb", true);
+  const { scene: rawScene } = useGLTF("/models/head.glb", true);
   const gl = useThree((s) => s.gl);
   const getState = useThree((s) => s.get); // read live state (controls) in handlers
   const scene = useMemo(() => rawScene.clone(true), [rawScene]);
@@ -577,4 +577,4 @@ export default function FaceIrritationModel({
   );
 }
 
-useGLTF.preload("/head.glb");
+useGLTF.preload("/models/head.glb");
