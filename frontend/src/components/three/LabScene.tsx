@@ -6,7 +6,7 @@ import { Suspense, useEffect, useCallback, useState, useRef, useMemo } from 'rea
 import * as THREE from 'three'
 import { scrollState } from '@/app/_lib/scroll'
 import { storyState, smoothstep, STORY_HOLD } from '@/app/_lib/story'
-const MODEL_URL = '/models/Lab_room_camera_new.glb'
+const MODEL_URL = '/models/Lab_room.glb'
 
 type ReadyPayload = {
   center: THREE.Vector3
@@ -23,19 +23,6 @@ function Model({ url, onReady }: { url: string; onReady?: (p: ReadyPayload) => v
     cameras: THREE.Camera[]
   }
   const { actions, names } = useAnimations(animations, scene)
-
-  // Gentle floating bob applied ONLY while the hero is at rest (scroll top),
-  // eased out as soon as the camera tour starts so the dive isn't affected.
-  const floatGroup = useRef<THREE.Group>(null)
-  const floatAmp = useRef(0.15)
-
-  useFrame((state) => {
-    const g = floatGroup.current
-    if (!g) return
-    const rest = THREE.MathUtils.clamp(1 - scrollState.progress / 0.05, 0, 1)
-    const e = rest * rest * (3 - 2 * rest) // smoothstep
-    g.position.y = Math.sin(state.clock.elapsedTime * 0.6) * floatAmp.current * e
-  })
 
   useEffect(() => {
     if (!actions) return
@@ -97,8 +84,6 @@ function Model({ url, onReady }: { url: string; onReady?: (p: ReadyPayload) => v
     const box = new THREE.Box3().setFromObject(scene)
     const center = box.getCenter(new THREE.Vector3())
     const size = box.getSize(new THREE.Vector3())
-    floatAmp.current = Math.max(size.x, size.y, size.z) * 0.012
-
     scene.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return
       const mats = (
@@ -132,11 +117,7 @@ function Model({ url, onReady }: { url: string; onReady?: (p: ReadyPayload) => v
     onReady?.({ center, size, minY: box.min.y, cameras: cameras || [] })
   }, [scene, cameras, onReady])
 
-  return (
-    <group ref={floatGroup}>
-      <primitive object={scene} />
-    </group>
-  )
+  return <primitive object={scene} />
 }
 
 function CameraRig({
@@ -258,24 +239,22 @@ function ScrollCameraRig({
       .filter(Boolean) as Stop[]
   }, [cameras, order])
 
-  // A "hero rest" framing derived from Camera_end: keep its exact iso angle but
-  // raise the camera straight up in world space. With the orientation unchanged
-  // this slides the room down into the lower half of the frame (no lateral
-  // drift, no angle change), leaving a clean dark band at the top for the copy.
+  // The "hero rest" framing is Camera_start EXACTLY as authored in Blender —
+  // same position, orientation and fov — so the whole room fills the frame and
+  // the web view matches what was set up in Blender (no raised camera, no dark
+  // band at the top).
   //
-  // Narrow / portrait viewports crop the wide room horizontally and zoom it in,
-  // so on those we widen the fov (room shrinks back to fit) and raise the camera
-  // a touch less — keeping the hero composition consistent from phone to desktop.
+  // The only concession is narrow / portrait viewports: those crop the wide room
+  // horizontally, so we widen the fov a touch there (room shrinks back to fit)
+  // while keeping the authored angle untouched.
   const heroRest = useMemo<Stop | null>(() => {
     if (stops.length === 0) return null
     const s0 = stops[0]
     const aspect = viewport.height > 0 ? viewport.width / viewport.height : 1.6
     const portrait = THREE.MathUtils.clamp((0.9 - aspect) / 0.6, 0, 1)
-    const up = new THREE.Vector3(0, 1, 0)
-    const p = s0.p.clone().addScaledVector(up, maxDim * (0.4 + portrait * 0.3))
-    const fov = s0.fov * (1 + portrait * 1.0)
-    return { name: 'hero', p, q: s0.q.clone(), fov }
-  }, [stops, maxDim, viewport.width, viewport.height])
+    const fov = s0.fov * (1 + portrait * 0.6)
+    return { name: 'hero', p: s0.p.clone(), q: s0.q.clone(), fov }
+  }, [stops, viewport.width, viewport.height])
 
   // Place the camera at the hero rest framing on load.
   useEffect(() => {
@@ -404,7 +383,7 @@ export default function LabScene({
       }}
       style={{ position: 'absolute', inset: 0 }}
     >
-      <fog attach="fog" args={['#070b0c', 20, 45]} />
+      <fog attach="fog" args={['#ffffff', 20, 45]} />
 
       <ambientLight intensity={0.5} color="#dce6f0" />
       <hemisphereLight args={['#b8d4e8', '#8a9aa8', 0.4]} />

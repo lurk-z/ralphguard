@@ -17,7 +17,7 @@ export type Chapter = {
 
 export const CHAPTERS: Chapter[] = [
   {
-    cam: 'Camera_end',
+    cam: 'Camera_start',
     hero: true,
     eyebrow: 'In-silico Chemical Risk Screening Platform',
     titleLines: ['คัดกรองความเสี่ยง', 'สารเคมีด้วย AI'],

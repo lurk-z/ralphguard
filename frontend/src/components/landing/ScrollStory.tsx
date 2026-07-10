@@ -37,11 +37,12 @@ function renderTitle(line: string, highlight?: string) {
 
 function HeroChapter({ c }: { c: Chapter }) {
   return (
-    <>
+    // Plain centered copy over the full room — no card, no text shadow.
+    <div className="text-center">
       {c.eyebrow && (
         <p
           data-eyebrow
-          className="font-mono text-xs tracking-widest uppercase text-brand/70 opacity-0"
+          className="font-mono text-xs tracking-widest uppercase text-brand/80 opacity-0"
           style={{ transform: 'translateY(8px)' }}
         >
           {c.eyebrow}
@@ -61,7 +62,7 @@ function HeroChapter({ c }: { c: Chapter }) {
       <p
         data-fade
         data-sub
-        className="mx-auto mt-5 max-w-2xl font-sans leading-relaxed text-foreground/65 text-[clamp(0.9rem,1.4vw,1.125rem)] opacity-0"
+        className="mx-auto mt-5 max-w-2xl font-sans leading-relaxed text-foreground/85 text-[clamp(0.9rem,1.4vw,1.125rem)] opacity-0"
       >
         {c.body}
       </p>
@@ -90,7 +91,7 @@ function HeroChapter({ c }: { c: Chapter }) {
           ดูฟีเจอร์ทั้งหมด
         </Button>
       </div>
-    </>
+    </div>
   )
 }
 
@@ -170,7 +171,6 @@ function Chapter5Layout({ c }: { c: Chapter }) {
 export default function ScrollStory() {
   const chapterRefs = useRef<(HTMLDivElement | null)[]>([])
   const chevronRef = useRef<HTMLDivElement>(null)
-  const scrimRef = useRef<HTMLDivElement>(null)
   const ctaScrimRef = useRef<HTMLDivElement>(null)
 
   // Per-frame crossfade driven by shared scroll progress.
@@ -197,7 +197,6 @@ export default function ScrollStory() {
       }
       const heroOp = k === 0 ? 1 - smoothstep(Math.min(move / 0.6, 1)) : 0
       if (chevronRef.current) chevronRef.current.style.opacity = String(heroOp * 0.5)
-      if (scrimRef.current) scrimRef.current.style.opacity = String(heroOp)
       const ctaIdx = CHAPTERS.length - 1
       let ctaOp = 0
       if (ctaIdx === k) {
@@ -239,25 +238,18 @@ export default function ScrollStory() {
   return (
     <div className="pointer-events-none fixed inset-0 z-10">
       <div
-        ref={scrimRef}
-        className="absolute inset-x-0 top-0 h-[75%]"
-        style={{
-          background: 'linear-gradient(to bottom,#070b0c 0%,#070b0c 35%,rgba(7,11,12,0.88) 55%,transparent 100%)',
-        }}
-      />
-      <div
         ref={ctaScrimRef}
         className="absolute inset-x-0 top-0 h-[75%]"
         style={{
           opacity: 0,
-          background: 'linear-gradient(to bottom,#070b0c 0%,#070b0c 35%,rgba(7,11,12,0.88) 55%,transparent 100%)',
+          background: 'linear-gradient(to bottom,#ffffff 0%,#ffffff 35%,rgba(255,255,255,0.88) 55%,transparent 100%)',
         }}
       />
 
       {CHAPTERS.map((c, i) => {
         const isHero = c.hero
         const wrapperClass =
-          i === 1 || i === 4 || i === 6
+          isHero || i === 1 || i === 4 || i === 6
             ? 'absolute inset-0 flex items-center justify-center'
             : 'absolute inset-0'
 
@@ -265,7 +257,7 @@ export default function ScrollStory() {
         let innerStyle: React.CSSProperties = {}
 
         if (isHero) {
-          innerClass = 'mx-auto w-full max-w-3xl px-6 text-center pt-[clamp(4rem,11vh,7.5rem)]'
+          innerClass = 'w-full max-w-2xl px-4 sm:px-6'
         } else if (i === 1) {
           innerClass = 'w-full max-w-2xl px-6 text-center'
         } else if (i === 2) {

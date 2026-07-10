@@ -2,25 +2,16 @@ import SmoothScroll from '@/components/landing/SmoothScroll'
 import Navbar from '@/components/layout/Navbar'
 import ScrollStory from '@/components/landing/ScrollStory'
 import LabScene from '@/components/three/LabScene'
-import { Particles } from '@/components/ui/particles'
 import { CAMERA_SEQUENCE, CHAPTERS } from '@/components/landing/chapters'
 
 export default function Home() {
   return (
-    <main className="relative bg-[#070b0c]">
+    <main className="relative bg-white">
       <Navbar />
 
-      {/* Particle background — sits behind the 3D model */}
-      <div className="fixed inset-0 z-[1]">
-        <Particles
-          quantity={150}
-          color="#2DD4BF"
-          size={0.5}
-          staticity={40}
-          ease={60}
-          className="h-full w-full"
-        />
-      </div>
+      {/* Solid white backdrop behind the (transparent) 3D canvas so the dark
+          body never shows through — keeps the whole stage on white. */}
+      <div aria-hidden className="fixed inset-0 z-[1] bg-white" />
 
       {/* Pinned 3D stage — stays put while the page scrolls. */}
       <div className="fixed inset-0 z-[2]">
