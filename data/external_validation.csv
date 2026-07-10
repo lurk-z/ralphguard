@@ -1,0 +1,25 @@
+smiles,name,endpoint,label,source
+Clc1ccc([N+](=O)[O-])cc1[N+](=O)[O-],2_4-Dinitrochlorobenzene (DNCB),sens,1,OECD TG429 positive control (extreme sensitizer)
+Nc1ccc(N)cc1,p-Phenylenediamine,sens,1,Well-known hair-dye sensitizer (LLNA positive)
+COc1cc(/C=C/C)ccc1O,Isoeugenol,sens,1,EU26 fragrance allergen (LLNA positive)
+O=CCCCC=O,Glutaraldehyde,sens,1,Established contact sensitizer (LLNA positive)
+O=C/C=C/c1ccccc1,Cinnamaldehyde,sens,1,EU26 fragrance allergen (LLNA positive)
+OCC(O)CO,Glycerol,sens,0,Non-sensitizer (LLNA negative; GRAS)
+CC(O)C(=O)O,Lactic acid,sens,0,Non-sensitizer (LLNA negative)
+O=C(O)c1ccccc1,Benzoic acid,sens,0,Non-sensitizer (LLNA negative)
+OCC1OC(O)C(O)C(O)C1O,D-Glucose,sens,0,Non-sensitizer (inert sugar)
+CN1CCCC1c1cccnc1,Nicotine,acute,1,Highly acute-toxic (oral LD50 ~50 mg/kg)
+CCOP(=S)(OCC)Oc1ccc([N+](=O)[O-])cc1,Parathion,acute,1,Organophosphate (very toxic; GHS Cat1-2)
+C[n+]1ccc(-c2cc[n+](C)cc2)cc1,Paraquat,acute,1,Herbicide (highly acute-toxic)
+CO,Methanol,acute,1,Toxic alcohol (systemic toxicity)
+OCC1OC(O)C(O)C(O)C1O,D-Glucose,acute,0,Non-toxic sugar
+OC(=O)CC(O)(CC(=O)O)C(=O)O,Citric acid,acute,0,Low acute toxicity (food acid)
+[Na+].[Cl-],Sodium chloride,acute,0,Low acute toxicity (table salt)
+OCC(O)CO,Glycerol,acute,0,Low acute toxicity (GRAS)
+[Na+].[OH-],Sodium hydroxide,skin,1,Corrosive base (severe skin damage)
+Oc1ccccc1,Phenol,skin,1,Corrosive/irritant to skin
+CC(=O)O,Acetic acid,skin,1,Irritant/corrosive at concentration
+N,Ammonia,skin,1,Irritant base
+CCO,Ethanol,skin,0,Non-irritant at normal use
+OCC(O)CO,Glycerol,skin,0,Non-irritant (humectant)
+O=C(O)c1ccccc1,Benzoic acid,skin,0,Mild / non-irritant

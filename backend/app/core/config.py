@@ -32,5 +32,8 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://redis:6379/0"
     QUEUE_STREAM_NAME: str = "ralphguard:jobs"
 
+    # Models (read-only mount of scientific/models — used for the model card)
+    MODELS_DIR: str = "/models"
+
 
 settings = Settings()

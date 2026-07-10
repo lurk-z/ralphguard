@@ -51,10 +51,14 @@ module.exports = {
         panel2: "#14282A",
         elevated: "#173032",
         brand: "#2DD4BF",
+        // Pages merged from dev reference these; remapped from its orange palette.
+        "brand-dark": "#0D9488",
+        "brand-soft": "#134E4A",
+        ink2: "#E6F4F1",
         risk: {
-          low: "#34D399",
-          mod: "#FBBF24",
-          high: "#FB6F70",
+          low: "#16A34A",
+          mod: "#E08A00",
+          high: "#DC2626",
         },
       },
       borderRadius: {
@@ -81,6 +85,10 @@ module.exports = {
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+      },
+      boxShadow: {
+        card: "0 1px 3px rgba(0,0,0,0.24), 0 1px 2px rgba(0,0,0,0.16)",
+        soft: "0 8px 30px rgba(45,212,191,0.10)",
       },
     },
   },

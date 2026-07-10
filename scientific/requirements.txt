@@ -1,5 +1,6 @@
 # Chemistry
-rdkit==2024.3.5
+# NOTE: rdkit 2024.3.5 was yanked from PyPI; 2025.3.x is the current stable line.
+rdkit==2025.3.6
 
 # ML
 scikit-learn==1.5.2

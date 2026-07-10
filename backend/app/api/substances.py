@@ -1,20 +1,19 @@
-"""Substance management endpoints (stub)."""
+"""Substance endpoints — SMILES validation via RDKit."""
 from fastapi import APIRouter
-from pydantic import BaseModel
+
+from app.schemas.substance import SmilesInput, SmilesValidationResult
+from app.services.chemistry import validate_and_describe
 
 router = APIRouter()
 
 
-class SmilesInput(BaseModel):
-    smiles: str
-
-
-@router.post("/validate")
-async def validate_smiles(payload: SmilesInput):
-    """Validate a SMILES string (stub - will use RDKit)."""
-    # TODO: integrate with scientific worker
-    return {
-        "smiles": payload.smiles,
-        "valid": True,
-        "canonical": payload.smiles,  # placeholder
-    }
+@router.post("/validate", response_model=SmilesValidationResult)
+async def validate_smiles(payload: SmilesInput) -> SmilesValidationResult:
+    valid, canonical, descriptors, error = validate_and_describe(payload.smiles)
+    return SmilesValidationResult(
+        smiles=payload.smiles,
+        valid=valid,
+        canonical=canonical,
+        descriptors=descriptors,
+        error=error,
+    )
