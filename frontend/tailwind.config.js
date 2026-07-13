@@ -67,8 +67,10 @@ module.exports = {
         sm: "calc(var(--radius) - 4px)",
       },
       fontFamily: {
-        // next/font/google injects these CSS vars on <html> via layout.tsx
-        sans: ["var(--font-thai)", "var(--font-sans)", "system-ui", "sans-serif"],
+        // next/font injects these CSS vars on <html> via layout.tsx.
+        // LINE Seed Sans TH (--font-sans) is primary for Thai + Latin body;
+        // Noto Sans Thai (--font-thai) is the fallback.
+        sans: ["var(--font-sans)", "var(--font-thai)", "system-ui", "sans-serif"],
         display: ["var(--font-display)", "system-ui", "sans-serif"],
         mono: ["var(--font-mono)", "ui-monospace", "monospace"],
       },

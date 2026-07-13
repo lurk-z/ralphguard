@@ -15,22 +15,46 @@
  * Asset: frontend/public/models/head.glb (Draco-compressed; drei fetches the decoder).
  */
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Bounds, OrbitControls, useGLTF } from "@react-three/drei";
+import { Bounds, OrbitControls, useAnimations, useGLTF } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
 export type SkinZone = "all" | "forehead" | "cheek";
 const ZONE_ID: Record<SkinZone, number> = { all: 0, forehead: 1, cheek: 2 };
 
+// Brighten the skin albedo by a fixed amount on the skin material only. The GLSL
+// (mirrored from the 3D-skin-viewer reference) lifts diffuse toward white; this
+// scalar picks how far. 0 = untouched, 1 = full lift. 0.7 ≈ +70% brighter skin.
+const SKIN_LIFT = 0.7;
+
+// Lift the skin albedo toward white by `uSkinLift`. Injected after
+// <map_fragment> so albedo (base color + map) is already resolved; only the skin
+// material carries this uniform, so brows/lashes/eyes are untouched.
+const SKIN_LIFT_GLSL = `
+diffuseColor.rgb = mix(diffuseColor.rgb, min(diffuseColor.rgb * 1.55 + 0.10, vec3(1.0)), uSkinLift);`;
+
 type IrritationUniforms = {
   uIntensity: { value: number };
   uZone: { value: number };
   uBBMin: { value: THREE.Vector3 };
   uBBMax: { value: THREE.Vector3 };
+  uSkinLift: { value: number };
 };
 
+/** Loop every clip in a GLTF (head.glb ships eye-dart clips) so the face feels
+ *  alive. Safe when there are no clips. */
+function usePlayAllAnimations(
+  actions: Record<string, THREE.AnimationAction | null>,
+) {
+  useEffect(() => {
+    const started = Object.values(actions).filter(Boolean) as THREE.AnimationAction[];
+    started.forEach((a) => a.reset().setLoop(THREE.LoopRepeat, Infinity).play());
+    return () => started.forEach((a) => a.stop());
+  }, [actions]);
+}
+
 function FaceModel({ intensity, zone }: { intensity: number; zone: SkinZone }) {
-  const { scene: rawScene } = useGLTF("/models/head.glb", true); // true = enable Draco decoder
+  const { scene: rawScene, animations } = useGLTF("/models/head.glb", true); // true = enable Draco decoder
   const gl = useThree((s) => s.gl);
 
   // drei caches the loaded scene by URL and shares it across every mount, so a
@@ -39,11 +63,17 @@ function FaceModel({ intensity, zone }: { intensity: number; zone: SkinZone }) {
   // scene per instance so each one owns its own skin material + uniforms.
   const scene = useMemo(() => rawScene.clone(true), [rawScene]);
 
+  // Drive the GLTF's eye-dart clips against this instance's cloned scene.
+  const group = useRef<THREE.Group>(null);
+  const { actions } = useAnimations(animations, group);
+  usePlayAllAnimations(actions);
+
   const uniforms = useRef<IrritationUniforms>({
     uIntensity: { value: 0 },
     uZone: { value: 0 },
     uBBMin: { value: new THREE.Vector3() },
     uBBMax: { value: new THREE.Vector3() },
+    uSkinLift: { value: SKIN_LIFT },
   });
 
   // Inject the shader once when the scene loads (useMemo runs before compile).
@@ -83,6 +113,7 @@ function FaceModel({ intensity, zone }: { intensity: number; zone: SkinZone }) {
         shader.uniforms.uZone = U.uZone;
         shader.uniforms.uBBMin = U.uBBMin;
         shader.uniforms.uBBMax = U.uBBMax;
+        shader.uniforms.uSkinLift = U.uSkinLift;
 
         shader.vertexShader = shader.vertexShader
           .replace(
@@ -108,6 +139,7 @@ uniform float uIntensity;
 uniform int uZone;
 uniform vec3 uBBMin;
 uniform vec3 uBBMax;
+uniform float uSkinLift;
 float hash13(vec3 p){
   p = fract(p * 0.1031);
   p += dot(p, p.yzx + 33.33);
@@ -136,7 +168,7 @@ float fbm(vec3 p){
           )
           .replace(
             "#include <map_fragment>",
-            `#include <map_fragment>
+            `#include <map_fragment>${SKIN_LIFT_GLSL}
 float _front = smoothstep(0.0, 0.4, -vObjN.z);
 vec3 _nrm = (vLocalPos - uBBMin) / max(uBBMax - uBBMin, vec3(1e-4));
 float _fore  = smoothstep(0.80, 0.86, _nrm.y);
@@ -178,7 +210,11 @@ roughnessFactor = clamp(roughnessFactor + gIrr * 0.16 + gPapule * 0.22, 0.0, 1.0
     uniforms.current.uZone.value = ZONE_ID[zone];
   }, [intensity, zone]);
 
-  return <primitive object={scene} />;
+  return (
+    <group ref={group}>
+      <primitive object={scene} />
+    </group>
+  );
 }
 
 /** Bare canvas — drive it from assessment results (no built-in controls). */
@@ -236,10 +272,16 @@ function PaintFaceModel({
   apiRef?: React.MutableRefObject<PaintApi | null>;
   onPaintStart?: () => void;
 }) {
-  const { scene: rawScene } = useGLTF("/models/head.glb", true);
+  const { scene: rawScene, animations } = useGLTF("/models/head.glb", true);
   const gl = useThree((s) => s.gl);
   const getState = useThree((s) => s.get); // read live state (controls) in handlers
   const scene = useMemo(() => rawScene.clone(true), [rawScene]);
+
+  const group = useRef<THREE.Group>(null);
+  const { actions } = useAnimations(animations, group);
+  usePlayAllAnimations(actions);
+
+  const uSkinLift = useRef({ value: SKIN_LIFT });
 
   // Offscreen paint canvas (self-consistent: flipY=false + raw uv both when
   // drawing and sampling, so orientation is correct regardless of the model map).
@@ -289,9 +331,11 @@ function PaintFaceModel({
 
       const uPaint = { value: paint.tex };
       const uB = uBloom.current;
+      const uLift = uSkinLift.current;
       mat.onBeforeCompile = (shader) => {
         shader.uniforms.uPaintMap = uPaint;
         shader.uniforms.uBloom = uB;
+        shader.uniforms.uSkinLift = uLift;
 
         shader.vertexShader = shader.vertexShader
           .replace(
@@ -315,6 +359,7 @@ varying vec3 vLocalPos;
 varying vec2 vPaintUv;
 uniform sampler2D uPaintMap;
 uniform float uBloom;
+uniform float uSkinLift;
 float hash13(vec3 p){
   p = fract(p * 0.1031);
   p += dot(p, p.yzx + 33.33);
@@ -333,7 +378,7 @@ float fbm(vec3 p){ float s=0.0,a=0.5; for(int i=0;i<3;i++){s+=a*vnoise(p);p*=2.0
           )
           .replace(
             "#include <map_fragment>",
-            `#include <map_fragment>
+            `#include <map_fragment>${SKIN_LIFT_GLSL}
 float gIrr = clamp(texture2D(uPaintMap, vPaintUv).r * uBloom, 0.0, 1.0);
 float gPapule = 0.0;
 if (gIrr > 0.001) {
@@ -426,22 +471,24 @@ roughnessFactor = clamp(roughnessFactor + gIrr * 0.16 + gPapule * 0.22, 0.0, 1.0
   }, []);
 
   return (
-    <primitive
-      object={scene}
-      onPointerDown={(e: any) => {
-        if (!armed || !isSkin(e.object)) return;
-        e.stopPropagation();
-        painting.current = true;
-        setControls(false);
-        if (e.uv) paintAt(e.uv);
-      }}
-      onPointerMove={(e: any) => {
-        if (!armed || !painting.current || !isSkin(e.object)) return;
-        e.stopPropagation();
-        if (e.uv) paintAt(e.uv);
-      }}
-      onPointerUp={stopPaint}
-    />
+    <group ref={group}>
+      <primitive
+        object={scene}
+        onPointerDown={(e: any) => {
+          if (!armed || !isSkin(e.object)) return;
+          e.stopPropagation();
+          painting.current = true;
+          setControls(false);
+          if (e.uv) paintAt(e.uv);
+        }}
+        onPointerMove={(e: any) => {
+          if (!armed || !painting.current || !isSkin(e.object)) return;
+          e.stopPropagation();
+          if (e.uv) paintAt(e.uv);
+        }}
+        onPointerUp={stopPaint}
+      />
+    </group>
   );
 }
 
