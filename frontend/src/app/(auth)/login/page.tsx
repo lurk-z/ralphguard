@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -22,6 +23,10 @@ function GoogleIcon() {
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
+  const router = useRouter()
+
+  // No real auth yet — land on the project list after "logging in".
+  const goToApp = () => router.push('/projects')
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10">
@@ -38,7 +43,13 @@ export default function LoginPage() {
           <CardContent className="grid p-0 md:grid-cols-2">
 
             {/* Form side */}
-            <form className="p-6 md:p-8" onSubmit={(e) => e.preventDefault()}>
+            <form
+              className="p-6 md:p-8"
+              onSubmit={(e) => {
+                e.preventDefault()
+                goToApp()
+              }}
+            >
               <div className="flex flex-col gap-5">
 
                 {/* Heading */}
@@ -112,6 +123,7 @@ export default function LoginPage() {
                 <Button
                   variant="outline"
                   type="button"
+                  onClick={goToApp}
                   className="h-11 w-full rounded-xl border-border bg-card font-sans text-sm font-medium text-foreground transition-colors hover:bg-secondary"
                 >
                   <GoogleIcon />

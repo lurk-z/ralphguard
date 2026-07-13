@@ -15,8 +15,8 @@
     --card-foreground: 170 22% 92%;
     --popover: 189 33% 11%;
     --popover-foreground: 170 22% 92%;
-    --primary: 172 66% 50%;
-    /* brand #2DD4BF */
+    --primary: 182 100% 32%;
+    /* brand #009FA5 */
     --primary-foreground: 192 45% 7%;
     --secondary: 187 34% 16%;
     /* elevated */
@@ -31,7 +31,7 @@
     --border: 184 32% 18%;
     /* #1F3A3C */
     --input: 184 32% 18%;
-    --ring: 172 66% 50%;
+    --ring: 182 100% 32%;
     --radius: 0.5rem;
   }
 
@@ -46,8 +46,8 @@
     --card-foreground: 220 26% 14%;
     --popover: 0 0% 100%;
     --popover-foreground: 220 26% 14%;
-    --primary: 172 66% 50%;
-    /* brand teal — same */
+    --primary: 182 100% 32%;
+    /* brand #009FA5 */
     --primary-foreground: 0 0% 100%;
     --secondary: 168 30% 94%;
     --secondary-foreground: 220 26% 14%;
@@ -61,7 +61,40 @@
     --border: 168 20% 88%;
     /* light gray-teal */
     --input: 168 20% 88%;
-    --ring: 172 66% 50%;
+    --ring: 182 100% 32%;
+    color-scheme: light;
+  }
+
+  /* Dashboard / app pages — white light theme applied via .app-light wrapper.
+     Whiter than .auth-theme (mint); primary is a deeper teal so white button
+     text clears WCAG AA on white. */
+  .app-light {
+    --background: 200 24% 98%;
+    /* #F7FAFB cool near-white page */
+    --foreground: 202 40% 16%;
+    /* #18333B slate ink */
+    --card: 0 0% 100%;
+    /* white surface */
+    --card-foreground: 202 40% 16%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 202 40% 16%;
+    --primary: 182 100% 32%;
+    /* brand #009FA5 — white text clears WCAG AA (≥4.5:1) */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 190 30% 95%;
+    --secondary-foreground: 202 40% 16%;
+    --muted: 200 24% 96%;
+    --muted-foreground: 202 14% 42%;
+    /* #5C6B70 slate — passes AA on white */
+    --accent: 182 60% 93%;
+    /* soft teal tint for active nav / callouts */
+    --accent-foreground: 182 100% 28%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 200 20% 90%;
+    /* #DDE5E8 hairline */
+    --input: 200 20% 88%;
+    --ring: 182 100% 32%;
     color-scheme: light;
   }
 
@@ -73,7 +106,7 @@
     --card-foreground: 170 22% 92%;
     --popover: 189 33% 11%;
     --popover-foreground: 170 22% 92%;
-    --primary: 172 66% 50%;
+    --primary: 182 100% 32%;
     --primary-foreground: 192 45% 7%;
     --secondary: 187 34% 16%;
     --secondary-foreground: 170 22% 92%;
@@ -85,7 +118,7 @@
     --destructive-foreground: 192 45% 7%;
     --border: 184 32% 18%;
     --input: 184 32% 18%;
-    --ring: 172 66% 50%;
+    --ring: 182 100% 32%;
   }
 
   * {
