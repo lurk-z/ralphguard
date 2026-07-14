@@ -3,6 +3,7 @@
 // Shared dashboard shell using the Sidebar UI component.
 // Wraps all standard app pages: project list, results, report, settings.
 // The /assess workspace has its own full-bleed chrome and does NOT use this.
+import { Fragment } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronDown, Folder, LogOut, Settings } from "lucide-react";
 
@@ -199,9 +200,9 @@ export default function DashboardShell({
                   {breadcrumbs.map((crumb, i) => {
                     const isLast = i === breadcrumbs.length - 1;
                     return (
-                      <BreadcrumbItem key={i}>
-                        {!isLast ? (
-                          <>
+                      <Fragment key={i}>
+                        <BreadcrumbItem>
+                          {!isLast ? (
                             <BreadcrumbLink
                               href={crumb.href}
                               onClick={(e) => {
@@ -214,14 +215,14 @@ export default function DashboardShell({
                             >
                               {crumb.label}
                             </BreadcrumbLink>
-                            <BreadcrumbSeparator />
-                          </>
-                        ) : (
-                          <BreadcrumbPage className="font-semibold text-foreground">
-                            {crumb.label}
-                          </BreadcrumbPage>
-                        )}
-                      </BreadcrumbItem>
+                          ) : (
+                            <BreadcrumbPage className="font-semibold text-foreground">
+                              {crumb.label}
+                            </BreadcrumbPage>
+                          )}
+                        </BreadcrumbItem>
+                        {!isLast && <BreadcrumbSeparator />}
+                      </Fragment>
                     );
                   })}
                 </BreadcrumbList>
