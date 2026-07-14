@@ -61,7 +61,9 @@ export default function RootLayout({
       lang="th"
       className={`${lineSeedTH.variable} ${lineSeedEN.variable} ${ibmPlexMono.variable} ${notoSansThai.variable}`}
     >
-      <body className="antialiased">{children}</body>
+      <body className="antialiased" suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }

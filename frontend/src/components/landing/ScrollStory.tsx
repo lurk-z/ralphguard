@@ -21,15 +21,33 @@ const TRANSITIONS = CHAPTERS.length - 1
 
 const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
-function renderTitle(line: string, highlight?: string) {
+const HIGHLIGHT_GRADIENT =
+  'bg-gradient-to-r from-brand to-emerald-300 bg-clip-text font-display text-transparent'
+
+/** A full-viewport backdrop-filter keeps compositing every frame even at zero
+ *  opacity, so hide it outright once it has faded out. */
+function setScrim(el: HTMLDivElement | null, op: number) {
+  if (!el) return
+  el.style.opacity = String(op)
+  el.style.visibility = op < 0.01 ? 'hidden' : 'visible'
+}
+
+/** Softens the 3D room behind centred copy without a card or visible edge.
+ *  Shared by the hero and the closing CTA so both read the same way. */
+const READABILITY_SCRIM: React.CSSProperties = {
+  backdropFilter: 'blur(2.5px) brightness(0.88) saturate(0.85) contrast(0.96)',
+  WebkitBackdropFilter: 'blur(2.5px) brightness(0.88) saturate(0.85) contrast(0.96)',
+  background:
+    'radial-gradient(58% 44% at 50% 48%, rgba(232,240,248,0.40) 0%, rgba(232,240,248,0.15) 58%, rgba(232,240,248,0) 100%), linear-gradient(rgba(226,236,246,0.24), rgba(226,236,246,0.24))',
+}
+
+function renderTitle(line: string, highlight?: string, highlightClass = HIGHLIGHT_GRADIENT) {
   if (!highlight || !line.includes(highlight)) return line
   const [before, after] = line.split(highlight)
   return (
     <>
       {before}
-      <span className="bg-gradient-to-r from-brand to-emerald-300 bg-clip-text font-display text-transparent">
-        {highlight}
-      </span>
+      <span className={highlightClass}>{highlight}</span>
       {after}
     </>
   )
@@ -42,18 +60,18 @@ function HeroChapter({ c }: { c: Chapter }) {
       {c.eyebrow && (
         <p
           data-eyebrow
-          className="font-mono text-xs tracking-widest uppercase text-brand/80 opacity-0"
+          className="font-mono text-xs tracking-widest uppercase text-[#0B6258] opacity-0"
           style={{ transform: 'translateY(8px)' }}
         >
           {c.eyebrow}
         </p>
       )}
 
-      <h1 className="mt-3 font-sans font-bold leading-[1.08] tracking-tight text-foreground text-[clamp(2.5rem,6.5vw,4.5rem)]">
+      <h1 className="mt-3 font-sans font-bold leading-[1.08] tracking-tight text-[#16324A] text-[clamp(2.5rem,6.5vw,4.5rem)]">
         {c.titleLines.map((line, i) => (
           <span key={i} className="block overflow-hidden pt-2 pb-1">
             <span data-line className="block" style={{ opacity: 0 }}>
-              {renderTitle(line, c.highlight)}
+              {renderTitle(line, c.highlight, 'font-display text-[#21BFAF]')}
             </span>
           </span>
         ))}
@@ -62,7 +80,7 @@ function HeroChapter({ c }: { c: Chapter }) {
       <p
         data-fade
         data-sub
-        className="mx-auto mt-5 max-w-2xl font-sans leading-relaxed text-foreground/85 text-[clamp(0.9rem,1.4vw,1.125rem)] opacity-0"
+        className="mx-auto mt-5 max-w-2xl font-sans leading-relaxed text-[#526477] text-[clamp(0.9rem,1.4vw,1.125rem)] opacity-0"
       >
         {c.body}
       </p>
@@ -73,7 +91,7 @@ function HeroChapter({ c }: { c: Chapter }) {
           data-fade
           data-cta
           size="lg"
-          className="rounded-full px-7 opacity-0 shadow-[0_0_30px_-8px] shadow-brand/50"
+          className="rounded-full px-7 opacity-0 shadow-none"
         >
           <Link href="/login">
             เริ่มวิเคราะห์
@@ -85,7 +103,7 @@ function HeroChapter({ c }: { c: Chapter }) {
           data-cta
           size="lg"
           variant="outline"
-          className="rounded-full border-brand/40 bg-transparent px-7 text-foreground opacity-0 backdrop-blur-sm hover:bg-brand/10 hover:border-brand/70"
+          className="rounded-full border-[#21BFAF]/45 bg-transparent px-7 text-[#16324A] opacity-0 shadow-none hover:border-[#21BFAF]/70 hover:bg-[#21BFAF]/10"
           onClick={scrollToSection1}
         >
           ดูฟีเจอร์ทั้งหมด
@@ -116,31 +134,27 @@ function CTAChapter({ c }: { c: Chapter }) {
   return (
     <>
       {c.eyebrow && (
-        <p className="font-mono text-xs tracking-widest uppercase text-brand/70">
+        <p className="font-mono text-xs tracking-widest uppercase text-[#0B6258]">
           {c.eyebrow}
         </p>
       )}
 
-      <h2 className="mt-3 font-sans font-bold leading-[1.08] tracking-tight text-foreground text-[clamp(2.25rem,6vw,4rem)]">
+      <h2 className="mt-3 font-sans font-bold leading-[1.08] tracking-tight text-[#16324A] text-[clamp(2.25rem,6vw,4rem)]">
         {c.titleLines.map((line, i) => (
           <span key={i} className="block overflow-hidden pt-2 pb-1">
             <span className="block">
-              {renderTitle(line, c.highlight)}
+              {renderTitle(line, c.highlight, 'font-display text-[#21BFAF]')}
             </span>
           </span>
         ))}
       </h2>
 
-      <p className="mx-auto mt-5 max-w-2xl font-sans leading-relaxed text-foreground/65 text-[clamp(0.9rem,1.4vw,1.125rem)]">
+      <p className="mx-auto mt-5 max-w-2xl font-sans leading-relaxed text-[#526477] text-[clamp(0.9rem,1.4vw,1.125rem)]">
         {c.body}
       </p>
 
       <div className="pointer-events-auto mt-8 flex flex-wrap items-center justify-center gap-3">
-        <Button
-          asChild
-          size="lg"
-          className="rounded-full px-7 shadow-[0_0_30px_-8px] shadow-brand/50"
-        >
+        <Button asChild size="lg" className="rounded-full px-7 shadow-none">
           <a href="/assess">เริ่มใช้งาน</a>
         </Button>
       </div>
@@ -172,6 +186,7 @@ export default function ScrollStory() {
   const chapterRefs = useRef<(HTMLDivElement | null)[]>([])
   const chevronRef = useRef<HTMLDivElement>(null)
   const ctaScrimRef = useRef<HTMLDivElement>(null)
+  const heroScrimRef = useRef<HTMLDivElement>(null)
 
   // Per-frame crossfade driven by shared scroll progress.
   useEffect(() => {
@@ -197,6 +212,7 @@ export default function ScrollStory() {
       }
       const heroOp = k === 0 ? 1 - smoothstep(Math.min(move / 0.6, 1)) : 0
       if (chevronRef.current) chevronRef.current.style.opacity = String(heroOp * 0.5)
+      setScrim(heroScrimRef.current, heroOp)
       const ctaIdx = CHAPTERS.length - 1
       let ctaOp = 0
       if (ctaIdx === k) {
@@ -204,7 +220,7 @@ export default function ScrollStory() {
       } else if (ctaIdx === k + 1) {
         ctaOp = smoothstep(Math.max((move - 0.4) / 0.6, 0))
       }
-      if (ctaScrimRef.current) ctaScrimRef.current.style.opacity = String(ctaOp)
+      setScrim(ctaScrimRef.current, ctaOp)
     }
     gsap.ticker.add(update)
     update()
@@ -237,13 +253,20 @@ export default function ScrollStory() {
 
   return (
     <div className="pointer-events-none fixed inset-0 z-10">
+      {/* Both scrims fade with their own chapter, so the middle chapters keep
+          the room crisp. */}
+      <div
+        ref={heroScrimRef}
+        aria-hidden
+        className="absolute inset-0"
+        style={{ opacity: 0, visibility: 'hidden', ...READABILITY_SCRIM }}
+      />
+
       <div
         ref={ctaScrimRef}
-        className="absolute inset-x-0 top-0 h-[75%]"
-        style={{
-          opacity: 0,
-          background: 'linear-gradient(to bottom,#ffffff 0%,#ffffff 35%,rgba(255,255,255,0.88) 55%,transparent 100%)',
-        }}
+        aria-hidden
+        className="absolute inset-0"
+        style={{ opacity: 0, visibility: 'hidden', ...READABILITY_SCRIM }}
       />
 
       {CHAPTERS.map((c, i) => {
@@ -306,7 +329,7 @@ export default function ScrollStory() {
         className="absolute bottom-5 left-0 right-0 z-10 flex justify-center"
         style={{ opacity: 0 }}
       >
-        <ChevronDown className="h-5 w-5 text-foreground animate-scroll-hint" />
+        <ChevronDown className="h-5 w-5 text-[#526477] animate-scroll-hint" />
       </div>
     </div>
   )
