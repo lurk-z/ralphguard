@@ -73,16 +73,23 @@ export type AssessmentRecord = {
   completed_at: string | null;
 };
 
-async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`${res.status} ${res.statusText}: ${body}`);
+async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Promise<T> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${API}${path}`, {
+      ...init,
+      signal: ctrl.signal,
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`${res.status} ${res.statusText}: ${body}`);
+    }
+    return (await res.json()) as T;
+  } finally {
+    clearTimeout(t);
   }
-  return (await res.json()) as T;
 }
 
 export const api = {
