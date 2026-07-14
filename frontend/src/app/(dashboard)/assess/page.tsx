@@ -148,6 +148,25 @@ export default function StudioPage() {
     setJobId(null);
   };
 
+  // Import an AI-suggested formula straight into the Formulation input.
+  const importFormula = (items: FormulaItem[]) => {
+    const flat = SUBSTANCE_LIBRARY.flatMap((g) => g.items);
+    const mapped = items
+      .map((it) => {
+        const hit = flat.find((s) => s.name.toLowerCase() === (it.name || "").toLowerCase());
+        return {
+          name: it.name || hit?.name || "",
+          smiles: hit?.smiles || it.smiles, // prefer catalog SMILES when the name matches
+          concentration: it.concentration,
+        };
+      })
+      .filter((it) => it.smiles);
+    if (!mapped.length) return;
+    setFormula(mapped);
+    setAssessment(null);
+    setJobId(null);
+  };
+
   // Add one ingredient (picked from the catalog dropdown) as a new formula row.
   const addFromCatalog = (smiles: string) => {
     const it = SUBSTANCE_LIBRARY.flatMap((g) => g.items).find((s) => s.smiles === smiles);
@@ -421,7 +440,12 @@ export default function StudioPage() {
               </Section>
 
               <Section title="ผู้ช่วย AI">
-                <VoiceAssistant productName={productName} layers={paintLayers} ready={completed} />
+                <VoiceAssistant
+                  productName={productName}
+                  layers={paintLayers}
+                  ready={completed}
+                  onImportFormula={importFormula}
+                />
               </Section>
 
               <Section title="บริเวณที่เลือก">

@@ -17,16 +17,20 @@ const BAND_TH: Record<string, string> = {
   severe: "รุนแรง",
 };
 
+type FormulaItem = { name: string; smiles: string; concentration: number };
+
 export default function VoiceAssistant({
   productName,
   layers,
   ready,
+  onImportFormula,
 }: {
   productName: string;
   layers: Layer[];
   ready: boolean;
+  onImportFormula?: (items: FormulaItem[]) => void;
 }) {
-  const [messages, setMessages] = useState<{ role: "user" | "ai"; text: string }[]>([]);
+  const [messages, setMessages] = useState<{ role: "user" | "ai"; text: string; formula?: FormulaItem[] }[]>([]);
   const [input, setInput] = useState("");
   const [speaking, setSpeaking] = useState(false);
   const [listening, setListening] = useState(false);
@@ -168,8 +172,31 @@ export default function VoiceAssistant({
     }
     if (!a) a = answer(text);
     setThinking(false);
-    setMessages((m) => [...m, { role: "ai", text: a }]);
-    speak(a);
+    const { clean, formula } = parseFormula(a);
+    setMessages((m) => [...m, { role: "ai", text: clean, formula }]);
+    speak(clean); // don't read the JSON block aloud
+  };
+
+  // Extract a <formula>[...]</formula> JSON block from the AI reply (if any).
+  const parseFormula = (text: string): { clean: string; formula?: FormulaItem[] } => {
+    const m = text.match(/<formula>([\s\S]*?)<\/formula>/i);
+    if (!m) return { clean: text };
+    let formula: FormulaItem[] | undefined;
+    try {
+      const arr = JSON.parse(m[1].trim());
+      if (Array.isArray(arr)) {
+        formula = arr
+          .filter((x) => x && x.smiles)
+          .map((x) => ({
+            name: String(x.name ?? ""),
+            smiles: String(x.smiles),
+            concentration: Number(x.concentration) || 0,
+          }));
+      }
+    } catch {
+      /* ignore malformed block */
+    }
+    return { clean: text.replace(m[0], "").trim(), formula };
   };
 
   const toggleListen = () => {
@@ -236,8 +263,18 @@ export default function VoiceAssistant({
                 m.role === "user" ? "text-right text-slate-500" : "text-slate-800"
               }`}
             >
-              {m.role === "ai" ? "🤖 " : ""}
-              {m.text}
+              <div>
+                {m.role === "ai" ? "🤖 " : ""}
+                {m.text}
+              </div>
+              {m.role === "ai" && m.formula && m.formula.length > 0 && (
+                <button
+                  onClick={() => onImportFormula?.(m.formula!)}
+                  className="mt-1 rounded-md border border-brand bg-teal-50 px-2 py-1 text-[10px] font-semibold text-brand-dark transition hover:bg-brand hover:text-white"
+                >
+                  ⬇ นำสูตรเข้า workspace ({m.formula.length} สาร)
+                </button>
+              )}
             </div>
           ))}
         </div>
