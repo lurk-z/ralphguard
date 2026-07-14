@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import assessments, health, models, projects, substances
+from app.api import assessments, chat, health, models, projects, substances, tts
 from app.core.config import settings
 
 
@@ -36,7 +36,7 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,6 +48,8 @@ app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(substances.router, prefix="/api/substances", tags=["substances"])
 app.include_router(assessments.router, prefix="/api/assessments", tags=["assessments"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
+app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(tts.router, prefix="/api/tts", tags=["tts"])
 
 
 @app.get("/")

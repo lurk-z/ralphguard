@@ -23,7 +23,12 @@ class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
     API_SECRET_KEY: str = "change-me"
-    CORS_ORIGINS: List[str] = ["http://localhost:3000"]
+    # Comma-separated list of allowed origins (plain string avoids JSON parsing).
+    CORS_ORIGINS: str = "http://localhost:3000"
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     # Database
     DATABASE_URL: str = "postgresql://ralphguard:ralphguard_dev@postgres:5432/ralphguard"
@@ -34,6 +39,11 @@ class Settings(BaseSettings):
 
     # Models (read-only mount of scientific/models — used for the model card)
     MODELS_DIR: str = "/models"
+
+    # Gemini (voice assistant). Key is read from the environment / .env only —
+    # never hard-coded and never sent to the frontend.
+    GEMINI_API_KEY: str = "AQ.Ab8RN6KI7eocSBXsQrvKjufrsgcxc69FSv75xcm5Y9Rl42dQaw"
+    GEMINI_MODEL: str = "gemini-2.0-flash"
 
 
 settings = Settings()

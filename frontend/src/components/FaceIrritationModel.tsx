@@ -22,6 +22,53 @@ import * as THREE from "three";
 export type SkinZone = "all" | "forehead" | "cheek";
 const ZONE_ID: Record<SkinZone, number> = { all: 0, forehead: 1, cheek: 2 };
 
+const TIP_BAND_HEX: Record<string, string> = {
+  low: "#16A34A",
+  moderate: "#E08A00",
+  high: "#DC2626",
+  severe: "#B91C1C",
+};
+
+export type PaintLayer = { key: string; label: string; score: number; color: string; band: string };
+
+/** #RRGGBB -> [r,g,b] in 0..1 */
+function hex01(hex: string): [number, number, number] {
+  const n = parseInt(hex.replace("#", ""), 16);
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+}
+
+/**
+ * Map a 0..1 risk score to paint intensity. Near-proportional (mild curve) so the
+ * swelling/redness tracks the actual score: low score → faint, high score → strong.
+ */
+function gain(raw: number) {
+  return raw <= 0 ? 0 : Math.min(1, Math.pow(raw, 0.8) * 1.1);
+}
+
+/**
+ * Which endpoints are relevant to the part being painted.
+ * Eye region → eye irritation only; everywhere else → the skin endpoints.
+ */
+export function regionEndpoints(region: string): string[] {
+  return region.includes("ตา") ? ["eye"] : ["skin", "sens", "acute"];
+}
+
+/**
+ * Per-part skin sensitivity — thin/mucosal areas react more strongly to the same
+ * substance than thick skin, so the same result paints differently by location.
+ */
+export function regionSensitivity(region: string): number {
+  if (region.includes("ตา")) return 1.6; // รอบดวงตา บอบบางสุด
+  if (region.includes("ปาก")) return 1.45; // ริมฝีปาก
+  if (region.includes("จมูก")) return 1.2;
+  if (region.includes("หน้าผาก")) return 0.85;
+  if (region.includes("คาง")) return 0.8;
+  if (region.includes("หู")) return 0.65;
+  if (region.includes("คอ")) return 0.55;
+  if (region.includes("หนังศีรษะ")) return 0.5;
+  return 1.0; // แก้ม / ทั่วไป
+}
+
 type IrritationUniforms = {
   uIntensity: { value: number };
   uZone: { value: number };
@@ -89,13 +136,15 @@ function FaceModel({ intensity, zone }: { intensity: number; zone: SkinZone }) {
             "#include <common>",
             `#include <common>
 varying vec3 vLocalPos;
-varying vec3 vObjN;`
+varying vec3 vObjN;
+varying vec3 vViewN;`
           )
           .replace(
             "#include <begin_vertex>",
             `#include <begin_vertex>
 vLocalPos = position;
-vObjN = normal;`
+vObjN = normal;
+vViewN = normalize(normalMatrix * normal);`
           );
 
         shader.fragmentShader = shader.fragmentShader
@@ -104,6 +153,7 @@ vObjN = normal;`
             `#include <common>
 varying vec3 vLocalPos;
 varying vec3 vObjN;
+varying vec3 vViewN;
 uniform float uIntensity;
 uniform int uZone;
 uniform vec3 uBBMin;
@@ -137,13 +187,14 @@ float fbm(vec3 p){
           .replace(
             "#include <map_fragment>",
             `#include <map_fragment>
-float _front = smoothstep(0.0, 0.4, -vObjN.z);
+float _front = smoothstep(0.0, 0.35, vViewN.z);
 vec3 _nrm = (vLocalPos - uBBMin) / max(uBBMax - uBBMin, vec3(1e-4));
-float _fore  = smoothstep(0.80, 0.86, _nrm.y);
-float _cy    = smoothstep(0.48, 0.56, _nrm.y) * (1.0 - smoothstep(0.70, 0.78, _nrm.y));
+float _h = 1.0 - _nrm.z; // world-up maps to local -Z (head geometry is rotated +90deg about X)
+float _fore  = smoothstep(0.80, 0.86, _h);
+float _cy    = smoothstep(0.48, 0.56, _h) * (1.0 - smoothstep(0.70, 0.78, _h));
 float _cx    = smoothstep(0.14, 0.26, abs(_nrm.x - 0.5));
 float _cheek = _cy * _cx;
-float _all   = smoothstep(0.40, 0.48, _nrm.y);
+float _all   = smoothstep(0.40, 0.48, _h);
 float _region = (uZone == 1 ? _fore : (uZone == 2 ? _cheek : _all)) * _front;
 float gIrr = clamp(_region * uIntensity, 0.0, 1.0);
 float gPapule = 0.0;
@@ -226,15 +277,17 @@ export function FaceIrritationCanvas({
 export type PaintApi = { clear: () => void };
 
 function PaintFaceModel({
-  brushValue,
+  layers,
   armed,
   apiRef,
   onPaintStart,
+  onHover,
 }: {
-  brushValue: number; // 0..1 — assessed intensity carried by the brush
+  layers: PaintLayer[]; // all endpoint scores; the brush picks by region at click time
   armed: boolean;
   apiRef?: React.MutableRefObject<PaintApi | null>;
   onPaintStart?: () => void;
+  onHover?: (info: { x: number; y: number; region: string } | null) => void;
 }) {
   const { scene: rawScene } = useGLTF("/models/head.glb", true);
   const gl = useThree((s) => s.gl);
@@ -256,15 +309,26 @@ function PaintFaceModel({
     return { canvas, ctx, tex };
   }, []);
 
-  const uBloom = useRef({ value: 0 });
+  const uBloom = useRef({ value: 1 });
+  const uSwell = useRef({ value: 0 }); // max displacement (local units) at full intensity
+  const uTime = useRef({ value: 0 });  // drives the swelling pulse
   const hasPainted = useRef(false);
+  // Stamps still "developing" — each click grows 0→full over STAMP_DURATION seconds.
+  const stampsRef = useRef<
+    { cx: number; cy: number; r: number; R: number; G: number; B: number; t0: number }[]
+  >([]);
   const painting = useRef(false);
-  const brushRef = useRef(brushValue);
+  const brushRef = useRef(0); // set per-click from the region's dominant endpoint
+  const colorRef = useRef<[number, number, number]>([1, 0.23, 0.36]);
+  const layersRef = useRef<PaintLayer[]>(layers);
   useEffect(() => {
-    brushRef.current = brushValue;
-  }, [brushValue]);
+    layersRef.current = layers;
+  }, [layers]);
 
   const skinMesh = useRef<THREE.Mesh | null>(null);
+  const bbRef = useRef<{ min: THREE.Vector3; max: THREE.Vector3 } | null>(null);
+  const eyeMeshRef = useRef<THREE.Object3D | null>(null); // eyeball mesh → calibrates eye line
+  const calibRef = useRef<{ minY: number; maxY: number; eyeY: number } | null>(null);
 
   // Inject the paint-driven erythema shader onto a per-instance skin material.
   useMemo(() => {
@@ -282,29 +346,68 @@ function PaintFaceModel({
         }
       });
 
+      if (!eyeMeshRef.current && (mesh.name.includes("Eyeball") || mesh.name.includes("Eye Wet"))) {
+        eyeMeshRef.current = mesh;
+      }
+
       if (srcMat.name !== "Material.001") return;
       const mat = srcMat.clone();
       mesh.material = mat;
       skinMesh.current = mesh;
+      mesh.geometry.computeBoundingBox();
+      const bb = mesh.geometry.boundingBox!;
+      bbRef.current = { min: bb.min.clone(), max: bb.max.clone() };
+      // Max swell ≈ 13% of the head size, in the mesh's own local units.
+      const _sz = Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z);
+      uSwell.current.value = _sz * 0.08;
 
       const uPaint = { value: paint.tex };
       const uB = uBloom.current;
       mat.onBeforeCompile = (shader) => {
         shader.uniforms.uPaintMap = uPaint;
         shader.uniforms.uBloom = uB;
+        shader.uniforms.uSwell = uSwell.current;
+        shader.uniforms.uTime = uTime.current;
 
         shader.vertexShader = shader.vertexShader
           .replace(
             "#include <common>",
             `#include <common>
 varying vec3 vLocalPos;
-varying vec2 vPaintUv;`
+varying vec2 vPaintUv;
+uniform sampler2D uPaintMap;
+uniform float uBloom;
+uniform float uSwell;
+uniform float uTime;
+float vhash(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }
+float vnz(vec3 p){
+  vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  float n000=vhash(i), n100=vhash(i+vec3(1,0,0)), n010=vhash(i+vec3(0,1,0)), n110=vhash(i+vec3(1,1,0));
+  float n001=vhash(i+vec3(0,0,1)), n101=vhash(i+vec3(1,0,1)), n011=vhash(i+vec3(0,1,1)), n111=vhash(i+vec3(1,1,1));
+  return mix(mix(mix(n000,n100,f.x),mix(n010,n110,f.x),f.y),mix(mix(n001,n101,f.x),mix(n011,n111,f.x),f.y),f.z);
+}`
           )
           .replace(
             "#include <begin_vertex>",
             `#include <begin_vertex>
 vLocalPos = position;
-vPaintUv = uv;`
+vPaintUv = uv;
+// Swelling per endpoint (identified by painted hue): skin=swell, sens=very bumpy,
+// eye=flat & wet, acute=flat. Plus procedural papule bumps and a gentle pulse.
+vec3 _pt = texture2D(uPaintMap, uv).rgb;
+float _pmax = max(max(_pt.r, _pt.g), _pt.b);
+float _pv = _pmax * uBloom;
+if (_pv > 0.02) {
+  vec3 _hue = _pt / max(_pmax, 1e-4);
+  float _sw = 1.0; float _bf = 0.7;                                                   // skin irritation
+  if (_hue.b > 0.55 && _hue.g > 0.55 && _hue.r < 0.5) { _sw = 0.25; _bf = 0.2; }      // eye: flat/wet
+  else if (_hue.r > 0.5 && _hue.b > 0.5 && _hue.g < 0.55) { _sw = 0.85; _bf = 1.7; }  // sensitization: hives
+  else if (_hue.r > 0.6 && _hue.g > 0.35 && _hue.b < 0.35) { _sw = 0.35; _bf = 0.3; } // acute: flat
+  float _pulse = 1.0 + 0.12 * sin(uTime * 4.0); // more visible throb
+  float _bump  = vnz(position * 9.0);
+  float _rise  = _pv * uSwell * _sw * _pulse * (0.55 + _bf * _bump);
+  transformed += objectNormal * _rise;
+}`
           );
 
         shader.fragmentShader = shader.fragmentShader
@@ -315,6 +418,7 @@ varying vec3 vLocalPos;
 varying vec2 vPaintUv;
 uniform sampler2D uPaintMap;
 uniform float uBloom;
+uniform float uTime;
 float hash13(vec3 p){
   p = fract(p * 0.1031);
   p += dot(p, p.yzx + 33.33);
@@ -334,25 +438,60 @@ float fbm(vec3 p){ float s=0.0,a=0.5; for(int i=0;i<3;i++){s+=a*vnoise(p);p*=2.0
           .replace(
             "#include <map_fragment>",
             `#include <map_fragment>
-float gIrr = clamp(texture2D(uPaintMap, vPaintUv).r * uBloom, 0.0, 1.0);
-float gPapule = 0.0;
-if (gIrr > 0.001) {
-  float _blotch = fbm(vLocalPos * 20.0);
-  float _spot   = fbm(vLocalPos * 220.0);
-  float _clust  = smoothstep(0.35, 0.75, fbm(vLocalPos * 60.0));
-  float _e = gIrr * (0.5 + 0.6 * _blotch);
-  gPapule = smoothstep(0.62, 0.90, _spot) * _clust * gIrr;
+vec3  pTex  = texture2D(uPaintMap, vPaintUv).rgb;      // endpoint hue * intensity
+float pMax  = max(max(pTex.r, pTex.g), pTex.b);        // intensity (brightest channel)
+float gMask = clamp(pMax * uBloom, 0.0, 1.0);          // reveal with bloom
+float gRough = 0.0;
+vec3  gNeon  = vec3(0.0);
+if (gMask > 0.02) {
+  vec3 hue = pTex / max(pMax, 1e-4);
+  int eff = 0;                                                        // skin irritation (red)
+  if (hue.b > 0.55 && hue.g > 0.55 && hue.r < 0.5) eff = 1;           // eye (cyan)
+  else if (hue.r > 0.5 && hue.b > 0.5 && hue.g < 0.55) eff = 2;       // sensitization (purple)
+  else if (hue.r > 0.6 && hue.g > 0.35 && hue.b < 0.35) eff = 3;      // acute (orange)
+
   vec3 c = diffuseColor.rgb;
-  c.r += _e * 0.34; c.g -= _e * 0.14; c.b -= _e * 0.12;
-  c = mix(c, vec3(c.r * 1.06 + 0.10, c.g * 0.72, c.b * 0.66), gPapule * 0.75);
-  c = mix(c, c * 0.85, smoothstep(0.45, 0.62, _spot) * _clust * gIrr * 0.5);
+  if (eff == 0) {
+    // Skin irritation: red erythema
+    c = mix(c, vec3(0.95, 0.16, 0.18), gMask * 0.75);
+    gRough = gMask * 0.10;
+  } else if (eff == 1) {
+    // Eye irritation: glossy pink / wet
+    c = mix(c, vec3(1.0, 0.45, 0.5), gMask * 0.6);
+    c += vec3(0.14) * gMask;
+    gRough = -0.35 * gMask;
+  } else if (eff == 2) {
+    // Sensitization: mottled allergic wheals
+    float blotch = smoothstep(0.4, 0.8, fbm(vLocalPos * 40.0));
+    c = mix(c, vec3(0.85, 0.22, 0.55), gMask * (0.4 + 0.55 * blotch));
+    gRough = gMask * 0.25;
+  } else {
+    // Acute toxicity: pale / desaturated
+    float lum = dot(c, vec3(0.299, 0.587, 0.114));
+    c = mix(c, mix(vec3(lum), vec3(0.34, 0.32, 0.29), 0.5), gMask * 0.7);
+    gRough = gMask * 0.35;
+  }
+
+  // Locator grid + endpoint-colored glow that breathes over time (interaction)
+  float breathe = 0.82 + 0.24 * sin(uTime * 3.0);
+  vec2 guv = vPaintUv * 55.0;
+  vec2 gf  = abs(fract(guv) - 0.5);
+  float grid = 1.0 - smoothstep(0.0, 0.09, min(gf.x, gf.y)); // thicker, clearer lines
+  c += hue * grid * gMask * 1.15 * breathe;   // bright grid
+  c += hue * gMask * 0.18;                      // soft base glow inside the patch
   diffuseColor.rgb = clamp(c, 0.0, 1.0);
+  gNeon = (hue * grid * 0.95 + hue * 0.22) * gMask * breathe;
 }`
+          )
+          .replace(
+            "#include <emissivemap_fragment>",
+            `#include <emissivemap_fragment>
+totalEmissiveRadiance += gNeon;`
           )
           .replace(
             "#include <roughnessmap_fragment>",
             `#include <roughnessmap_fragment>
-roughnessFactor = clamp(roughnessFactor + gIrr * 0.16 + gPapule * 0.22, 0.0, 1.0);`
+roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
           );
       };
       mat.needsUpdate = true;
@@ -364,43 +503,136 @@ roughnessFactor = clamp(roughnessFactor + gIrr * 0.16 + gPapule * 0.22, 0.0, 1.0
     if (!apiRef) return;
     apiRef.current = {
       clear: () => {
+        stampsRef.current = [];
         paint.ctx.fillStyle = "#000000";
         paint.ctx.fillRect(0, 0, paint.canvas.width, paint.canvas.height);
         paint.tex.needsUpdate = true;
         hasPainted.current = false;
-        uBloom.current.value = 0;
       },
     };
   }, [apiRef, paint]);
 
   // Bloom: once anything is painted, ease the reveal toward 1 (~0.8s) so the
   // erythema "develops" instead of snapping on.
-  useFrame((_, dt) => {
-    const target = hasPainted.current ? 1 : 0;
-    const v = uBloom.current.value;
-    uBloom.current.value = v + (target - v) * Math.min(1, dt * 2.2);
+  const STAMP_DURATION = 0.7; // seconds for a click to fully "develop"
+
+  // Redraw one stamp at intensity fraction k (0..1) into the paint canvas.
+  const drawStamp = (
+    s: { cx: number; cy: number; r: number; R: number; G: number; B: number },
+    k: number,
+  ) => {
+    const R = Math.round(s.R * k);
+    const G = Math.round(s.G * k);
+    const B = Math.round(s.B * k);
+    const g = paint.ctx.createRadialGradient(s.cx, s.cy, 0, s.cx, s.cy, s.r);
+    g.addColorStop(0, `rgba(${R},${G},${B},1)`);
+    g.addColorStop(0.7, `rgba(${R},${G},${B},1)`);
+    g.addColorStop(1, `rgba(${R},${G},${B},0)`);
+    paint.ctx.globalCompositeOperation = "source-over";
+    paint.ctx.fillStyle = g;
+    paint.ctx.beginPath();
+    paint.ctx.arc(s.cx, s.cy, s.r, 0, Math.PI * 2);
+    paint.ctx.fill();
+  };
+
+  useFrame(() => {
+    uBloom.current.value = 1;
+    uTime.current.value = performance.now() / 1000;
+    const stamps = stampsRef.current;
+    if (!stamps.length) return;
+    const now = performance.now() / 1000;
+    const still: typeof stamps = [];
+    for (const s of stamps) {
+      const p = Math.min(1, (now - s.t0) / STAMP_DURATION);
+      const k = p * p * (3 - 2 * p); // smoothstep ease
+      drawStamp(s, k);
+      if (p < 1) still.push(s);
+    }
+    stampsRef.current = still;
+    paint.tex.needsUpdate = true;
   });
 
   const paintAt = (uv: THREE.Vector2) => {
     const W = paint.canvas.width;
     const H = paint.canvas.height;
-    const px = uv.x * W;
-    const py = uv.y * H; // flipY=false + raw uv -> no inversion
-    const r = 0.05 * W;
-    const val = Math.max(0, Math.min(255, Math.round(brushRef.current * 255)));
-    const g = paint.ctx.createRadialGradient(px, py, 0, px, py, r);
-    g.addColorStop(0, `rgba(${val},0,0,0.85)`);
-    g.addColorStop(1, `rgba(${val},0,0,0)`);
-    paint.ctx.globalCompositeOperation = "lighter"; // strokes accumulate
-    paint.ctx.fillStyle = g;
-    paint.ctx.beginPath();
-    paint.ctx.arc(px, py, r, 0, Math.PI * 2);
-    paint.ctx.fill();
-    paint.tex.needsUpdate = true;
+    const v = brushRef.current;
+    const [cr, cg, cb] = colorRef.current;
+    // Register a stamp at full target value/color; the frame loop grows it 0→full
+    // so the swelling/redness develops gradually after the click.
+    stampsRef.current.push({
+      cx: uv.x * W,
+      cy: uv.y * H, // flipY=false + raw uv → no inversion
+      r: 0.045 * W,
+      R: Math.round(cr * v * 255),
+      G: Math.round(cg * v * 255),
+      B: Math.round(cb * v * 255),
+      t0: performance.now() / 1000,
+    });
     if (!hasPainted.current) {
       hasPainted.current = true;
       onPaintStart?.();
     }
+  };
+
+  // Read back the painted intensity (red channel 0..255) at a UV — used to tell
+  // whether the pointer is hovering over an already-painted spot.
+  const sampleAt = (uv: THREE.Vector2) => {
+    const W = paint.canvas.width;
+    const H = paint.canvas.height;
+    const x = Math.max(0, Math.min(W - 1, Math.floor(uv.x * W)));
+    const y = Math.max(0, Math.min(H - 1, Math.floor(uv.y * H)));
+    const d = paint.ctx.getImageData(x, y, 1, 1).data;
+    return Math.max(d[0], d[1], d[2]);
+  };
+
+  // Map a world-space hit point on the skin to a named facial part.
+  // Uses world-up (Y) for height — robust to the model's rotation — and anchors
+  // the bands to the real eye line (from the eyeball mesh's bounding box). Bands
+  // are expressed as fractions of the eye→crown distance (≈ half a head).
+  const regionAt = (world: THREE.Vector3): string => {
+    const m = skinMesh.current;
+    const bb = bbRef.current;
+    if (!m || !bb) return "";
+    if (calibRef.current == null) {
+      const sbb = new THREE.Box3().setFromObject(m);
+      let eyeY = sbb.min.y + (sbb.max.y - sbb.min.y) * 0.62; // fallback
+      if (eyeMeshRef.current) {
+        eyeY = new THREE.Box3().setFromObject(eyeMeshRef.current).getCenter(new THREE.Vector3()).y;
+      }
+      calibRef.current = { minY: sbb.min.y, maxY: sbb.max.y, eyeY };
+    }
+    const { minY, maxY, eyeY } = calibRef.current;
+    const H = Math.max(1e-4, maxY - minY);
+    const hy = (world.y - minY) / H; // 0 = bottom, 1 = crown (world up)
+    const E = (eyeY - minY) / H;
+    const fu = Math.max(1e-4, 1 - E); // eye→crown ≈ half-head unit
+    const t = (hy - E) / fu; // height relative to eye line, in half-head units
+    const p = m.worldToLocal(world.clone());
+    const nx = (p.x - bb.min.x) / Math.max(1e-4, bb.max.x - bb.min.x);
+    const side = Math.abs(nx - 0.5);
+    if (side > 0.3 && Math.abs(t) < 0.6) return "หู";
+    if (t > 0.8) return "หนังศีรษะ";
+    if (t > 0.25) return "หน้าผาก";
+    if (t >= -0.2) return "ตา / คิ้ว";
+    if (t >= -0.55) return side < 0.09 ? "จมูก" : "แก้ม";
+    if (t >= -0.8) return "ปาก / ริมฝีปาก";
+    if (t >= -1.15) return "คาง";
+    if (t >= -2.2) return "คอ";
+    return "ไหล่ / หน้าอก";
+  };
+
+  // Set the brush (value + color) from the dominant relevant endpoint at a point.
+  // Returns false if no relevant endpoint applies there (nothing to paint).
+  const setBrushForRegion = (world: THREE.Vector3): boolean => {
+    const region = regionAt(world);
+    const keys = regionEndpoints(region);
+    const cands = layersRef.current.filter((L) => keys.includes(L.key));
+    if (!cands.length) return false;
+    const top = cands.reduce((a, b) => (b.score > a.score ? b : a));
+    // Same substance, different part → scale intensity by local skin sensitivity.
+    brushRef.current = Math.min(1, gain(top.score / 100) * regionSensitivity(region));
+    colorRef.current = hex01(top.color);
+    return true;
   };
 
   const isSkin = (o: THREE.Object3D) => o === skinMesh.current;
@@ -430,16 +662,29 @@ roughnessFactor = clamp(roughnessFactor + gIrr * 0.16 + gPapule * 0.22, 0.0, 1.0
       object={scene}
       onPointerDown={(e: any) => {
         if (!armed || !isSkin(e.object)) return;
+        if (!setBrushForRegion(e.point)) return;
         e.stopPropagation();
         painting.current = true;
         setControls(false);
         if (e.uv) paintAt(e.uv);
       }}
       onPointerMove={(e: any) => {
-        if (!armed || !painting.current || !isSkin(e.object)) return;
-        e.stopPropagation();
-        if (e.uv) paintAt(e.uv);
+        if (!isSkin(e.object)) return;
+        if (painting.current) {
+          if (!armed) return;
+          if (!setBrushForRegion(e.point)) return;
+          e.stopPropagation();
+          if (e.uv) paintAt(e.uv);
+          return;
+        }
+        // Not painting → report hover over painted spots (for the 2s tooltip)
+        if (onHover && e.uv) {
+          const v = sampleAt(e.uv);
+          if (v > 20) onHover({ x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY, region: regionAt(e.point) });
+          else onHover(null);
+        }
       }}
+      onPointerOut={() => onHover?.(null)}
       onPointerUp={stopPaint}
     />
   );
@@ -450,21 +695,52 @@ roughnessFactor = clamp(roughnessFactor + gIrr * 0.16 + gPapule * 0.22, 0.0, 1.0
  * on the skin and the redness blooms where painted. Self-contained wrapper.
  */
 export function FacePaintCanvas({
-  brushValue,
+  layers = [],
   armed = true,
   background = "#2A2320",
+  productName = "สูตรที่ประเมิน",
 }: {
-  brushValue: number;
+  layers?: PaintLayer[];
   armed?: boolean;
   background?: string;
+  productName?: string;
 }) {
   const apiRef = useRef<PaintApi | null>(null);
   const [painted, setPainted] = useState(false);
 
+  // Hover-hold tooltip: show a small info box after the pointer rests ~2s on a
+  // painted spot. Restart the timer only when the pointer moves far enough.
+  const [tip, setTip] = useState<{ x: number; y: number; region: string } | null>(null);
+  const hoverPos = useRef<{ x: number; y: number; region: string } | null>(null);
+  const tipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleHover = (info: { x: number; y: number; region: string } | null) => {
+    if (!info) {
+      hoverPos.current = null;
+      if (tipTimer.current) {
+        clearTimeout(tipTimer.current);
+        tipTimer.current = null;
+      }
+      setTip(null);
+      return;
+    }
+    const prev = hoverPos.current;
+    hoverPos.current = info;
+    const movedFar = !prev || Math.hypot(prev.x - info.x, prev.y - info.y) > 12;
+    if (movedFar) {
+      if (tipTimer.current) clearTimeout(tipTimer.current);
+      setTip(null);
+      tipTimer.current = setTimeout(() => {
+        if (hoverPos.current) setTip({ ...hoverPos.current });
+      }, 2000);
+    }
+  };
+  useEffect(() => () => { if (tipTimer.current) clearTimeout(tipTimer.current); }, []);
+
   return (
     <div className={`relative h-full w-full ${armed ? "cursor-crosshair" : ""}`}>
       <Canvas
-        camera={{ fov: 35, position: [0, 0, 2] }}
+        camera={{ fov: 70, position: [90, 30, 390] }}
         dpr={[1, 1.5]}
         gl={{
           antialias: true,
@@ -481,20 +757,31 @@ export function FacePaintCanvas({
         <Suspense fallback={null}>
           <Bounds fit clip observe margin={1.15}>
             <PaintFaceModel
-              brushValue={brushValue}
+              layers={layers}
               armed={armed}
               apiRef={apiRef}
               onPaintStart={() => setPainted(true)}
+              onHover={handleHover}
             />
           </Bounds>
         </Suspense>
-        <OrbitControls makeDefault enablePan={false} enableDamping dampingFactor={0.05} />
+        {/* Left–right rotation only (vertical locked, no zoom / pan) */}
+        <OrbitControls
+          makeDefault
+          enableRotate
+          enableZoom={false}
+          enablePan={false}
+          enableDamping
+          dampingFactor={0.05}
+          minPolarAngle={Math.PI / 2}
+          maxPolarAngle={Math.PI / 2}
+        />
       </Canvas>
 
       {/* Hint + clear */}
-      {armed && !painted && (
-        <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-full border border-brand/40 bg-black/55 px-4 py-1.5 text-xs text-brand-soft backdrop-blur">
-          🖌️ กดค้างแล้วลากบนใบหน้าเพื่อระบายผล ({Math.round(brushValue * 100)}%)
+      {armed && !painted && layers.length > 0 && (
+        <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-brand/40 bg-white/85 px-4 py-1.5 text-xs font-medium text-brand-dark shadow-card backdrop-blur">
+          🖌️ คลิกบนส่วนของโมเดล — ผิวจะแสดง ระคายผิว/แพ้/พิษ · ตาจะแสดงระคายตา
         </div>
       )}
       <button
@@ -502,10 +789,45 @@ export function FacePaintCanvas({
           apiRef.current?.clear();
           setPainted(false);
         }}
-        className="absolute bottom-3 right-3 rounded-lg border border-white/15 bg-black/55 px-3 py-1.5 text-xs text-gray-200 backdrop-blur hover:border-brand hover:text-brand-soft"
+        className="absolute bottom-3 right-3 rounded-lg border border-slate-200 bg-white/85 px-3 py-1.5 text-xs text-slate-700 shadow-card backdrop-blur hover:border-brand hover:text-brand"
       >
         ล้างรอย
       </button>
+
+      {/* Hover-hold tooltip: product name + all endpoint results */}
+      {tip && (
+        <div
+          className="pointer-events-none absolute z-20 w-52 rounded-lg border border-slate-200 bg-white/95 p-2.5 text-slate-800 shadow-lg backdrop-blur"
+          style={{ left: tip.x + 14, top: tip.y + 14 }}
+        >
+          <div className="truncate text-xs font-semibold">🧴 {productName}</div>
+          <div className="mb-1.5 flex items-center gap-1 text-[11px] text-brand-dark">
+            <span>📍 ตำแหน่ง:</span>
+            <span className="font-semibold">{tip.region || "—"}</span>
+          </div>
+          <div className="space-y-1">
+            {layers
+              .filter((L) => regionEndpoints(tip.region).includes(L.key))
+              .map((L) => {
+                // Score adjusted by the sensitivity of THIS part → differs by location.
+                const adj = Math.min(100, Math.round(L.score * regionSensitivity(tip.region)));
+                const band = adj < 25 ? "low" : adj < 50 ? "moderate" : adj < 75 ? "high" : "severe";
+                return (
+                  <div key={L.key} className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="flex items-center gap-1.5 text-slate-500">
+                      <span className="size-2 rounded-full" style={{ background: L.color }} />
+                      {L.label}
+                    </span>
+                    <span className="font-mono tabular-nums" style={{ color: TIP_BAND_HEX[band] }}>
+                      {adj}
+                    </span>
+                  </div>
+                );
+              })}
+            {!layers.length && <div className="text-[11px] text-slate-400">ยังไม่มีผล</div>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

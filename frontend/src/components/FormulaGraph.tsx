@@ -27,6 +27,7 @@ import ReactFlow, {
 } from "reactflow";
 
 import { FormulaItem, Region, api } from "../lib/api";
+import { SUBSTANCE_LIBRARY, type CatalogItem } from "../lib/catalog";
 
 const ENDPOINTS = ["skin", "eye", "sens", "acute"] as const;
 const ENDPOINT_LABEL_TH: Record<string, string> = {
@@ -50,15 +51,21 @@ const BAND_HEX: Record<string, string> = {
   severe: "#B91C1C",
 };
 
+type LibItem = CatalogItem;
+
 // ─────────────────────────── Substance node ───────────────────────────
 type SubstanceData = { name?: string; smiles: string; concentration: number };
 
 function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
-  const { setNodes } = useReactFlow();
+  const { setNodes, setEdges } = useReactFlow();
   const patch = (p: Partial<SubstanceData>) =>
     setNodes((nds) =>
       nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...p } } : n)),
     );
+  const remove = () => {
+    setNodes((nds) => nds.filter((n) => n.id !== id));
+    setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+  };
 
   const [valid, setValid] = useState<null | boolean>(null);
   const [mw, setMw] = useState<number | null>(null);
@@ -87,20 +94,27 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
   }, [data.smiles]);
 
   return (
-    <div className="w-56 rounded-lg border border-border bg-panel shadow-card">
-      <div className="flex items-center justify-between rounded-t-lg bg-panel2 px-3 py-1.5 text-xs font-semibold text-ink2">
+    <div className="relative w-56 rounded-lg border border-slate-200 bg-white shadow-card">
+      <button
+        onClick={remove}
+        title="ลบ node"
+        className="nodrag nopan absolute -right-2 -top-2 z-10 grid size-5 place-items-center rounded-full border border-slate-200 bg-white text-sm leading-none text-slate-400 shadow-card transition hover:border-rose-300 hover:bg-rose-500 hover:text-white"
+      >
+        ×
+      </button>
+      <div className="flex items-center justify-between rounded-t-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-800">
         <span>🧪 สาร</span>
-        <span className="font-mono text-[10px] text-ink2/45">#{id}</span>
+        <span className="font-mono text-[10px] text-slate-800/45">#{id}</span>
       </div>
       <div className="space-y-1.5 p-3">
         <input
-          className="w-full rounded border border-border bg-elevated px-2 py-1 text-xs"
+          className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-800"
           placeholder="ชื่อสาร"
           value={data.name ?? ""}
           onChange={(e) => patch({ name: e.target.value })}
         />
         <input
-          className="w-full rounded border border-border bg-elevated px-2 py-1 font-mono text-xs"
+          className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs text-slate-800"
           placeholder="SMILES เช่น CCO"
           value={data.smiles}
           onChange={(e) => patch({ smiles: e.target.value })}
@@ -111,11 +125,11 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
             min={0}
             max={100}
             step={0.1}
-            className="w-full rounded border border-border bg-elevated px-2 py-1 font-mono text-xs tabular-nums"
+            className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs tabular-nums text-slate-800"
             value={data.concentration}
             onChange={(e) => patch({ concentration: parseFloat(e.target.value) || 0 })}
           />
-          <span className="text-xs text-ink2/55">%</span>
+          <span className="text-xs text-slate-800/55">%</span>
         </div>
         {valid === true && (
           <div className="text-[10px] text-emerald-600">✓ ถูกต้อง{mw != null ? ` · MW ${mw}` : ""}</div>
@@ -191,7 +205,7 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
   const busy = data.status === "queued" || data.status === "running";
 
   return (
-    <div className="w-64 rounded-lg border-2 border-brand/50 bg-panel shadow-soft">
+    <div className="w-64 rounded-lg border-2 border-brand/50 bg-white shadow-soft">
       <Handle
         type="target"
         position={Position.Left}
@@ -201,10 +215,10 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
         🎯 ผลการประเมิน
       </div>
       <div className="space-y-2 p-3">
-        <label className="flex items-center justify-between gap-2 text-[11px] text-ink2/65">
+        <label className="flex items-center justify-between gap-2 text-[11px] text-slate-800/65">
           บริเวณ:
           <select
-            className="rounded border border-border bg-elevated px-2 py-1 text-xs"
+            className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-800"
             value={data.region}
             onChange={(e) => patch({ region: e.target.value as Region })}
           >
@@ -235,10 +249,10 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
               const band = bandOf(sc);
               return (
                 <div key={ep} className="flex items-center gap-2">
-                  <span className="w-20 shrink-0 text-[10px] text-ink2/70">
+                  <span className="w-20 shrink-0 text-[10px] text-slate-800/70">
                     {ENDPOINT_LABEL_TH[ep]}
                   </span>
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-elevated">
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
                     <div
                       className="h-full rounded-full"
                       style={{ width: `${Math.min(100, sc)}%`, background: BAND_HEX[band] }}
@@ -291,32 +305,103 @@ function GraphInner({ seed, region }: { seed: FormulaItem[]; region: Region }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
 
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // categories collapsed state — all open by default
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const toggleCat = (c: string) => setCollapsed((s) => ({ ...s, [c]: !s[c] }));
+
   const onConnect = useCallback(
     (c: Connection) => setEdges((eds) => addEdge({ ...c, animated: true }, eds)),
     [setEdges],
   );
 
-  const addSubstance = () =>
+  const addSubstance = (item?: LibItem) =>
     setNodes((nds) => [
       ...nds,
       {
         id: nextId(),
         type: "substance",
         position: { x: 40, y: 40 + Math.min(nds.length, 6) * 60 },
-        data: { name: "", smiles: "", concentration: 10 },
+        data: item
+          ? { name: item.name, smiles: item.smiles, concentration: item.conc }
+          : { name: "", smiles: "", concentration: 10 },
       },
     ]);
 
   return (
-    <div className="relative h-[75vh] min-h-[520px] w-full overflow-hidden rounded-xl border border-border bg-elevated/40">
-      <div className="absolute left-3 top-3 z-10 flex gap-2">
-        <button
-          onClick={addSubstance}
-          className="rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-medium text-brand shadow-card hover:border-brand"
-        >
-          + เพิ่ม node สาร
-        </button>
-        <span className="rounded-lg border border-border bg-panel/80 px-3 py-1.5 text-[11px] text-ink2/55 shadow-card">
+    <div className="relative h-[75vh] min-h-[520px] w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+      <div className="absolute left-3 top-3 z-10 flex items-start gap-2">
+        {/* Add-substance button + category picker */}
+        <div className="relative">
+          <button
+            onClick={() => setPickerOpen((o) => !o)}
+            className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium shadow-card transition ${
+              pickerOpen
+                ? "border-brand bg-brand text-white"
+                : "border-slate-200 bg-white text-brand hover:border-brand"
+            }`}
+          >
+            + เพิ่ม node สาร
+            <span className={`text-[9px] transition ${pickerOpen ? "rotate-180" : ""}`}>▾</span>
+          </button>
+
+          {pickerOpen && (
+            <div className="absolute left-0 top-[calc(100%+6px)] z-20 max-h-[62vh] w-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-soft">
+              <div className="mb-1 flex items-center justify-between px-1">
+                <span className="text-[11px] font-semibold text-slate-500">เลือกสารจากหมวดหมู่</span>
+                <button
+                  onClick={() => setPickerOpen(false)}
+                  className="text-slate-400 hover:text-slate-700"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* blank node option */}
+              <button
+                onClick={() => addSubstance()}
+                className="mb-1.5 w-full rounded-lg border border-dashed border-slate-300 px-2 py-1.5 text-left text-xs text-slate-500 hover:border-brand hover:text-brand"
+              >
+                ✎ สารเปล่า (กรอกเอง)
+              </button>
+
+              {SUBSTANCE_LIBRARY.map((group) => {
+                const open = !collapsed[group.category];
+                return (
+                  <div key={group.category} className="mb-1">
+                    <button
+                      onClick={() => toggleCat(group.category)}
+                      className="flex w-full items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-200"
+                    >
+                      <span>{group.icon}</span>
+                      <span className="flex-1">{group.category}</span>
+                      <span className="text-[9px] text-slate-400">{group.items.length}</span>
+                      <span className={`text-[9px] transition ${open ? "" : "-rotate-90"}`}>▾</span>
+                    </button>
+                    {open && (
+                      <div className="mt-0.5 space-y-0.5 pl-1">
+                        {group.items.map((it) => (
+                          <button
+                            key={it.smiles}
+                            onClick={() => addSubstance(it)}
+                            title={it.smiles}
+                            className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-slate-700 hover:bg-teal-50"
+                          >
+                            <span className="text-brand">◇</span>
+                            <span className="flex-1 truncate">{it.name}</span>
+                            <span className="font-mono text-[10px] text-slate-400">{it.conc}%</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <span className="rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-[11px] text-slate-500 shadow-card">
           ลากจากจุดขวาของ node สาร → จุดซ้ายของ node ผล เพื่อเชื่อม
         </span>
       </div>
@@ -330,9 +415,9 @@ function GraphInner({ seed, region }: { seed: FormulaItem[]; region: Region }) {
         fitView
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#EAE2DB" gap={18} />
+        <Background color="#CBD5E1" gap={18} />
         <Controls showInteractive={false} />
-        <MiniMap pannable zoomable className="!bg-panel !border !border-border" />
+        <MiniMap pannable zoomable className="!bg-white !border !border-slate-200" />
       </ReactFlow>
     </div>
   );

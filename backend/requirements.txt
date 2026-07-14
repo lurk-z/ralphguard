@@ -26,3 +26,6 @@ python-dotenv==1.0.1
 pytest==8.3.3
 pytest-asyncio==0.24.0
 httpx==0.27.2
+
+# Neural TTS (free, no API key) for the voice assistant
+edge-tts>=6.1.9
