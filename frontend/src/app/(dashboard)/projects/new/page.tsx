@@ -56,8 +56,10 @@ export default function NewProjectPage() {
 
   return (
     <DashboardShell
-      title="สร้างโปรเจกต์ใหม่"
-      subtitle="เพียงกรอกข้อมูลพื้นฐาน ตอนนี้ และเพิ่มข้อมูลสารเคมีหรือสูตรได้ในหน้าการทดลอง"
+      breadcrumbs={[
+        { label: "โปรเจกต์", href: "/projects" },
+        { label: "สร้างโปรเจกต์ใหม่" },
+      ]}
     >
       <div className="grid gap-6 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:px-8">
         {/* Left — form */}

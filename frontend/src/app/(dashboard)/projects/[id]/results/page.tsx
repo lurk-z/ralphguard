@@ -75,8 +75,10 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
 
   return (
     <DashboardShell
-      title="ผลการวิเคราะห์"
-      subtitle="สรุปความเสี่ยง 4 ด้านจากการประเมินด้วยแบบจำลอง (in-silico)"
+      breadcrumbs={[
+        { label: "โปรเจกต์", href: "/projects" },
+        { label: "ผลการวิเคราะห์" },
+      ]}
       actions={
         <>
           <Button

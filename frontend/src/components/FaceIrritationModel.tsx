@@ -492,6 +492,26 @@ roughnessFactor = clamp(roughnessFactor + gIrr * 0.16 + gPapule * 0.22, 0.0, 1.0
   );
 }
 
+// Reports camera zoom as a percentage relative to wherever the camera lands
+// once Bounds finishes its initial auto-fit (that first frame becomes 100%).
+// Only calls back when the rounded percentage actually changes, so it won't
+// re-render the parent every frame.
+function ZoomTracker({ onZoomChange }: { onZoomChange?: (pct: number) => void }) {
+  const baseline = useRef<number | null>(null);
+  const lastReported = useRef<number | null>(null);
+  useFrame(({ camera }) => {
+    if (!onZoomChange) return;
+    const dist = camera.position.length();
+    if (baseline.current === null) baseline.current = dist;
+    const pct = Math.round((baseline.current / dist) * 100);
+    if (pct !== lastReported.current) {
+      lastReported.current = pct;
+      onZoomChange(pct);
+    }
+  });
+  return null;
+}
+
 /**
  * Interactive paint canvas — the assessment result arms a brush; the user drags
  * on the skin and the redness blooms where painted. Self-contained wrapper.
@@ -500,10 +520,12 @@ export function FacePaintCanvas({
   brushValue,
   armed = true,
   background = "#2A2320",
+  onZoomChange,
 }: {
   brushValue: number;
   armed?: boolean;
   background?: string;
+  onZoomChange?: (pct: number) => void;
 }) {
   const apiRef = useRef<PaintApi | null>(null);
   const [painted, setPainted] = useState(false);
@@ -535,15 +557,11 @@ export function FacePaintCanvas({
             />
           </Bounds>
         </Suspense>
+        <ZoomTracker onZoomChange={onZoomChange} />
         <OrbitControls makeDefault enablePan={false} enableDamping dampingFactor={0.05} />
       </Canvas>
 
-      {/* Hint + clear */}
-      {armed && !painted && (
-        <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-full border border-brand/40 bg-black/55 px-4 py-1.5 text-xs text-brand-soft backdrop-blur">
-          🖌️ กดค้างแล้วลากบนใบหน้าเพื่อระบายผล ({Math.round(brushValue * 100)}%)
-        </div>
-      )}
+      {/* Clear */}
       <button
         onClick={() => {
           apiRef.current?.clear();
