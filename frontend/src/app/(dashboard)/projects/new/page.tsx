@@ -3,7 +3,7 @@
 // Create Project — form only; the sidebar/top bar come from DashboardShell.
 // On submit it creates the project via the API and routes into its workspace.
 // Card illustrations are intentionally left as empty placeholders.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Info } from "lucide-react";
 
@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import DashboardShell from "@/components/layout/DashboardShell";
+import ProjectCreationProgress from "@/components/ProjectCreationProgress";
 import { api } from "@/lib/api";
 
 const NAME_MAX = 100;
@@ -36,21 +37,37 @@ export default function NewProjectPage() {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [creating, setCreating] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const canCreate = name.trim().length > 0 && !creating;
 
   const create = async () => {
     if (!canCreate) return;
     setCreating(true);
+    setProgress(0);
+
+    // No real progress feed from the backend (single POST) — simulate
+    // steady progress up to 90% while the request is in flight, then
+    // snap to 100% once it resolves.
+    progressTimer.current = setInterval(() => {
+      setProgress((p) => (p >= 90 ? p : p + Math.random() * 12));
+    }, 250);
+
+    const finish = () => {
+      if (progressTimer.current) clearInterval(progressTimer.current);
+      setProgress(100);
+    };
+
     try {
       const project = await api.createProject(name.trim(), desc.trim() || undefined);
+      finish();
       router.push(`/projects/${project.id}/assess`);
     } catch {
       // Backend unreachable — continue the flow with a local id so the
       // workspace is still reachable for demos.
+      finish();
       router.push(`/projects/local-${Date.now()}/assess`);
-    } finally {
-      setCreating(false);
     }
   };
 
@@ -162,6 +179,8 @@ export default function NewProjectPage() {
           </Card>
         </aside>
       </div>
+
+      {creating && <ProjectCreationProgress progress={progress} />}
     </DashboardShell>
   );
 }

@@ -6,8 +6,10 @@
 //    brush, then drag on the face to paint the result (FacePaintCanvas)
 //  - right: detail of the active box + run/export actions
 // Chemical list is mock data; everything here drives local state only.
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
+import { Progress } from "@/components/ui/progress";
 import {
   Beaker,
   ChevronDown,
@@ -19,6 +21,10 @@ import {
   Search,
   Settings,
   Trash2,
+  Droplet,
+  Leaf,
+  Sparkles,
+  Heart,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +52,25 @@ import {
 import AiChatPanel from "@/components/AiChatPanel";
 import CanvasToolbar from "@/components/CanvasToolbar";
 import { CHEMICALS, chemById } from "@/lib/chemicals";
+import { buildMockAssessmentResult, saveMockAssessmentResult } from "@/lib/mockAssessment";
+
+function ModelLoader() {
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setProgress((prev) => (prev >= 95 ? prev : prev + 5));
+    }, 100);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="w-full max-w-[200px] text-center flex flex-col items-center">
+      <Progress value={progress} className="h-1 w-full" />
+      <p className="mt-3 text-xs font-medium text-muted-foreground">กำลังโหลดโมเดล 3 มิติ…</p>
+    </div>
+  );
+}
 
 // 3D head, paint mode (client-only WebGL): drag on the skin to apply the
 // armed formula box's strength as erythema.
@@ -54,8 +79,8 @@ const FacePaint = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="grid h-full w-full place-items-center text-sm text-muted-foreground">
-        กำลังโหลดโมเดล 3 มิติ…
+      <div className="grid h-full w-full place-items-center bg-[#F7F5F4]">
+        <ModelLoader />
       </div>
     ),
   },
@@ -73,7 +98,37 @@ const FormulaGraph = dynamic(() => import("@/components/FormulaGraph"), {
 });
 
 type FormulaBoxItem = { chemicalId: string; concentration: number };
-type FormulaBox = { id: string; name: string; items: FormulaBoxItem[] };
+type FormulaBox = {
+  id: string;
+  name: string;
+  items: FormulaBoxItem[];
+  color?: string;
+  icon?: BoxIconName;
+};
+
+const BOX_ICONS = {
+  beaker: Beaker,
+  flask: FlaskConical,
+  droplet: Droplet,
+  leaf: Leaf,
+  sparkles: Sparkles,
+  heart: Heart,
+};
+
+type BoxIconName = keyof typeof BOX_ICONS;
+
+const BOX_COLORS = [
+  "#009FA5", // Teal
+  "#3B82F6", // Blue
+  "#10B981", // Emerald
+  "#6366F1", // Indigo
+  "#8B5CF6", // Violet
+  "#F43F5E", // Rose
+  "#F59E0B", // Amber
+  "#F97316", // Orange
+  "#64748B", // Slate
+  "#EC4899", // Pink
+];
 
 // Brush strength = total concentration in the box, capped at 100%. A rough
 // stand-in for the real dose-additivity model (scientific/mixture.py) until
@@ -111,6 +166,7 @@ function bandColor(score: number) {
 }
 
 export default function ExperimentPage({ params }: { params: { id: string } }) {
+  const router = useRouter();
   const [tab, setTab] = useState<TabKey>("experiment");
   const [projectName, setProjectName] = useState("Hand Cream Formula Test");
   const [editingName, setEditingName] = useState(false);
@@ -129,11 +185,16 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   const handleClear = () => setClearTrigger((t) => t + 1);
   const handleRun = () => {
     setRunning(true);
-    // TODO: call assessment API here
+    // Mock scoring pipeline — swap for api.createAssessment once the real
+    // QSAR backend is wired up here; results/page.tsx already prefers a
+    // real API response over this mock and only falls back to it.
     setTimeout(() => {
+      const result = buildMockAssessmentResult(activeBox?.items ?? [], "face");
+      saveMockAssessmentResult(params.id, result);
       setHasAssessed(true);
       setRunning(false);
-    }, 1800);
+      router.push(`/projects/${params.id}/results`);
+    }, 1500);
   };
   const handleZoomIn = () => setZoomPct((z) => Math.min(100, z + ZOOM_STEP));
   const handleZoomOut = () => setZoomPct((z) => Math.max(0, z - ZOOM_STEP));
@@ -180,6 +241,8 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
     {
       id: "box-1",
       name: "สูตร A",
+      color: "#009FA5",
+      icon: "beaker",
       items: [
         { chemicalId: "water", concentration: 65 },
         { chemicalId: "glycerin", concentration: 20 },
@@ -215,12 +278,32 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   const addBox = () => {
     boxIdSeq.current += 1;
     const id = `box-${boxIdSeq.current}`;
-    setBoxes((prev) => [...prev, { id, name: `สูตร ${String.fromCharCode(64 + boxIdSeq.current)}`, items: [] }]);
+    const color = BOX_COLORS[(boxIdSeq.current - 1) % BOX_COLORS.length];
+    const iconsList = Object.keys(BOX_ICONS) as BoxIconName[];
+    const icon = iconsList[(boxIdSeq.current - 1) % iconsList.length];
+    setBoxes((prev) => [
+      ...prev,
+      {
+        id,
+        name: `สูตร ${String.fromCharCode(64 + boxIdSeq.current)}`,
+        items: [],
+        color,
+        icon,
+      },
+    ]);
     setActiveBoxId(id);
     setEditingBoxId(id);
     // Let the user open the chemical library themselves — show the rename
     // popover instead so a fresh box gets a name first.
     setSettingsOpenId(id);
+  };
+
+  const changeBoxColor = (id: string, color: string) => {
+    setBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, color } : b)));
+  };
+
+  const changeBoxIcon = (id: string, icon: BoxIconName) => {
+    setBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, icon } : b)));
   };
 
   const removeBox = (id: string) => {
@@ -366,6 +449,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
             {boxes.map((box) => {
               const active = box.id === activeBoxId;
               const intensity = boxIntensity(box);
+              const boxColor = box.color || "#009FA5";
               return (
                 <div
                   key={box.id}
@@ -373,19 +457,48 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                   tabIndex={0}
                   onClick={() => setActiveBoxId(box.id)}
                   onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setActiveBoxId(box.id)}
-                  className={`cursor-pointer rounded-xl border p-3 transition-colors ${active ? "border-primary bg-accent/50 ring-1 ring-primary/30" : "border-border bg-card hover:bg-secondary"
-                    }`}
+                  className={`cursor-pointer rounded-xl border p-3 transition-all duration-200 ${
+                    active
+                      ? ""
+                      : "border-border bg-card hover:bg-secondary"
+                  }`}
+                  style={
+                    active
+                      ? {
+                          borderColor: boxColor,
+                          boxShadow: `0 0 0 1px ${boxColor}33`,
+                          backgroundColor: `${boxColor}0D`,
+                        }
+                      : {}
+                  }
                 >
                   <div className="flex items-center gap-2">
-                    <span
-                      className={`grid size-7 shrink-0 place-items-center rounded-lg ${active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
-                        }`}
-                    >
-                      <Beaker className="size-3.5" />
-                    </span>
+                    {(() => {
+                      const IconComponent = BOX_ICONS[box.icon || "beaker"] || Beaker;
+                      return (
+                        <span
+                          className="grid size-7 shrink-0 place-items-center rounded-lg"
+                          style={
+                            active
+                              ? { backgroundColor: boxColor, color: "#FFFFFF" }
+                              : { backgroundColor: `${boxColor}1A`, color: boxColor }
+                          }
+                        >
+                          <IconComponent className="size-3.5" />
+                        </span>
+                      );
+                    })()}
                     <span className="min-w-0 flex-1 break-words text-sm font-semibold text-foreground">{box.name}</span>
                     {intensity > 0 && (
-                      <Badge variant={active ? "default" : "secondary"} className="shrink-0 px-1.5 py-0 text-[10px]">
+                      <Badge
+                        variant={active ? "default" : "secondary"}
+                        className="shrink-0 px-1.5 py-0 text-[10px]"
+                        style={
+                          active
+                            ? { backgroundColor: boxColor, color: "#FFFFFF" }
+                            : {}
+                        }
+                      >
                         {Math.round(intensity * 100)}%
                       </Badge>
                     )}
@@ -419,6 +532,57 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                             className="h-8 text-sm"
                           />
                         </div>
+
+                        <div className="mt-3.5 space-y-1.5">
+                          <Label className="text-xs text-muted-foreground font-semibold">
+                            สีกล่องและไอคอนสูตร
+                          </Label>
+                          <div className="grid grid-cols-5 gap-2 pt-1">
+                            {BOX_COLORS.map((color) => {
+                              const isSelected = boxColor === color;
+                              return (
+                                <button
+                                  key={color}
+                                  onClick={() => changeBoxColor(box.id, color)}
+                                  className="group relative size-7 rounded-full transition-all duration-100 active:scale-90 hover:scale-105 border border-black/5"
+                                  style={{ backgroundColor: color }}
+                                  title={color}
+                                >
+                                  {isSelected && (
+                                    <span className="absolute inset-0 m-auto size-2 rounded-full bg-white shadow-sm" />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="mt-3.5 space-y-1.5">
+                          <Label className="text-xs text-muted-foreground font-medium">
+                            ไอคอนประจำกล่องสูตร
+                          </Label>
+                          <div className="flex gap-2 pt-1 overflow-x-auto pb-1">
+                            {Object.entries(BOX_ICONS).map(([iconName, IconComponent]) => {
+                              const isSelected = (box.icon || "beaker") === iconName;
+                              return (
+                                <button
+                                  key={iconName}
+                                  onClick={() => changeBoxIcon(box.id, iconName as BoxIconName)}
+                                  className="grid size-7 shrink-0 place-items-center rounded-lg border transition-all duration-100 active:scale-90 hover:scale-105"
+                                  style={
+                                    isSelected
+                                      ? { borderColor: boxColor, backgroundColor: `${boxColor}1A`, color: boxColor }
+                                      : { borderColor: "hsl(var(--border))", color: "hsl(var(--muted-foreground))" }
+                                  }
+                                  title={iconName}
+                                >
+                                  <IconComponent className="size-3.5" />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
                         <div className="mt-3 border-t border-border pt-3">
                           <button
                             onClick={() => {

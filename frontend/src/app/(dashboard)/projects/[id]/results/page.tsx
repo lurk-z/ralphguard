@@ -28,6 +28,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, type AssessmentResultPayload, type ConfidenceLevel } from "@/lib/api";
+import { loadMockAssessmentResult } from "@/lib/mockAssessment";
 
 const BAND_HEX: Record<string, string> = {
   low: "#16A34A",
@@ -103,7 +104,9 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
         const record = await api.getAssessment(latest.id);
         if (alive) setResult(record.result);
       } catch {
-        if (alive) setResult(null);
+        // No real backend run yet (or unreachable) — fall back to the mock
+        // result saved by the assess workspace's "เริ่มทดสอบ" button, if any.
+        if (alive) setResult(loadMockAssessmentResult(params.id));
       } finally {
         if (alive) setLoading(false);
       }
