@@ -15,7 +15,7 @@
  * Asset: frontend/public/models/head.glb (Draco-compressed; drei fetches the decoder).
  */
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Bounds, OrbitControls, useAnimations, useGLTF } from "@react-three/drei";
+import { OrbitControls, useAnimations, useGLTF } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
@@ -53,6 +53,61 @@ function usePlayAllAnimations(
   }, [actions]);
 }
 
+// Frames the camera on the FACE skin mesh only (Material.001) instead of the
+// whole head+neck+shoulders+hair group, so the orbit target sits on the face
+// and the initial view looks straight at it instead of up from the chin/neck.
+// Polls every frame (rather than a single effect) so it doesn't matter whether
+// OrbitControls (which registers itself as `state.controls` via `makeDefault`)
+// has mounted yet relative to this component.
+function useFaceCameraFit(groupRef: React.RefObject<THREE.Group>) {
+  const { camera, get } = useThree();
+  const fitted = useRef(false);
+  useFrame(() => {
+    if (fitted.current) return;
+    const root = groupRef.current;
+    if (!root) return;
+    const controls = get().controls as unknown as {
+      target: THREE.Vector3;
+      minDistance: number;
+      maxDistance: number;
+      update: () => void;
+    } | null;
+    if (!controls) return;
+
+    let skinMesh: THREE.Mesh | null = null;
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!skinMesh && m.isMesh && (m.material as THREE.Material | undefined)?.name === "Material.001") {
+        skinMesh = m;
+      }
+    });
+    if (!skinMesh) return;
+
+    const box = new THREE.Box3().setFromObject(skinMesh);
+    if (box.isEmpty()) return;
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+
+    const persp = camera as THREE.PerspectiveCamera;
+    const fovRad = (persp.fov * Math.PI) / 180;
+    const distance = (maxDim / 2 / Math.tan(fovRad / 2)) * 1.5;
+
+    persp.position.set(center.x, center.y, center.z + distance);
+    persp.near = Math.max(0.01, distance / 100);
+    persp.far = distance * 100;
+    persp.updateProjectionMatrix();
+    persp.lookAt(center);
+
+    controls.target.copy(center);
+    controls.minDistance = distance * 0.6;
+    controls.maxDistance = distance * 2.5;
+    controls.update();
+
+    fitted.current = true;
+  });
+}
+
 function FaceModel({ intensity, zone }: { intensity: number; zone: SkinZone }) {
   const { scene: rawScene, animations } = useGLTF("/models/head.glb", true); // true = enable Draco decoder
   const gl = useThree((s) => s.gl);
@@ -67,6 +122,7 @@ function FaceModel({ intensity, zone }: { intensity: number; zone: SkinZone }) {
   const group = useRef<THREE.Group>(null);
   const { actions } = useAnimations(animations, group);
   usePlayAllAnimations(actions);
+  useFaceCameraFit(group);
 
   const uniforms = useRef<IrritationUniforms>({
     uIntensity: { value: 0 },
@@ -244,11 +300,16 @@ export function FaceIrritationCanvas({
       <directionalLight position={[-4, 1, -2]} intensity={0.5} color="#bcd3ff" />
       <directionalLight position={[0, 2, -5]} intensity={0.6} color="#ffffff" />
       <Suspense fallback={null}>
-        <Bounds fit clip observe margin={1.15}>
-          <FaceModel intensity={intensity} zone={zone} />
-        </Bounds>
+        <FaceModel intensity={intensity} zone={zone} />
       </Suspense>
-      <OrbitControls makeDefault enablePan={false} enableDamping dampingFactor={0.05} />
+      <OrbitControls
+        makeDefault
+        enablePan={false}
+        enableDamping
+        dampingFactor={0.05}
+        minPolarAngle={Math.PI * 0.25}
+        maxPolarAngle={Math.PI * 0.75}
+      />
     </Canvas>
   );
 }
@@ -266,11 +327,13 @@ function PaintFaceModel({
   armed,
   apiRef,
   onPaintStart,
+  brushSizePct = 50,
 }: {
   brushValue: number; // 0..1 — assessed intensity carried by the brush
   armed: boolean;
   apiRef?: React.MutableRefObject<PaintApi | null>;
   onPaintStart?: () => void;
+  brushSizePct?: number;
 }) {
   const { scene: rawScene, animations } = useGLTF("/models/head.glb", true);
   const gl = useThree((s) => s.gl);
@@ -280,6 +343,7 @@ function PaintFaceModel({
   const group = useRef<THREE.Group>(null);
   const { actions } = useAnimations(animations, group);
   usePlayAllAnimations(actions);
+  useFaceCameraFit(group);
 
   const uSkinLift = useRef({ value: SKIN_LIFT });
 
@@ -305,6 +369,11 @@ function PaintFaceModel({
   useEffect(() => {
     brushRef.current = brushValue;
   }, [brushValue]);
+
+  const brushSizeRef = useRef(brushSizePct);
+  useEffect(() => {
+    brushSizeRef.current = brushSizePct;
+  }, [brushSizePct]);
 
   const skinMesh = useRef<THREE.Mesh | null>(null);
 
@@ -409,6 +478,7 @@ roughnessFactor = clamp(roughnessFactor + gIrr * 0.16 + gPapule * 0.22, 0.0, 1.0
     if (!apiRef) return;
     apiRef.current = {
       clear: () => {
+        paint.ctx.globalCompositeOperation = "source-over";
         paint.ctx.fillStyle = "#000000";
         paint.ctx.fillRect(0, 0, paint.canvas.width, paint.canvas.height);
         paint.tex.needsUpdate = true;
@@ -431,7 +501,12 @@ roughnessFactor = clamp(roughnessFactor + gIrr * 0.16 + gPapule * 0.22, 0.0, 1.0
     const H = paint.canvas.height;
     const px = uv.x * W;
     const py = uv.y * H; // flipY=false + raw uv -> no inversion
-    const r = 0.05 * W;
+    
+    // Map brushSizePct (10 to 100) to actual scale (10 to 30)
+    const pct = brushSizeRef.current;
+    const mappedPct = 10 + ((pct - 10) * 20) / 90;
+    const r = (mappedPct / 1000) * W;
+    
     const val = Math.max(0, Math.min(255, Math.round(brushRef.current * 255)));
     const g = paint.ctx.createRadialGradient(px, py, 0, px, py, r);
     g.addColorStop(0, `rgba(${val},0,0,0.85)`);
@@ -492,23 +567,58 @@ roughnessFactor = clamp(roughnessFactor + gIrr * 0.16 + gPapule * 0.22, 0.0, 1.0
   );
 }
 
-// Reports camera zoom as a percentage relative to wherever the camera lands
-// once Bounds finishes its initial auto-fit (that first frame becomes 100%).
-// Only calls back when the rounded percentage actually changes, so it won't
-// re-render the parent every frame.
-function ZoomTracker({ onZoomChange }: { onZoomChange?: (pct: number) => void }) {
-  const baseline = useRef<number | null>(null);
-  const lastReported = useRef<number | null>(null);
-  useFrame(({ camera }) => {
-    if (!onZoomChange) return;
-    const dist = camera.position.length();
-    if (baseline.current === null) baseline.current = dist;
-    const pct = Math.round((baseline.current / dist) * 100);
-    if (pct !== lastReported.current) {
-      lastReported.current = pct;
-      onZoomChange(pct);
+function ZoomController({ zoomPct, onZoomChange }: { zoomPct: number, onZoomChange?: (pct: number) => void }) {
+  const { camera, controls } = useThree();
+  const MIN_DIST = 0.5;
+  const MAX_DIST = 2.5;
+
+  const pctToDist = (pct: number) => MAX_DIST - (pct / 100) * (MAX_DIST - MIN_DIST);
+  const distToPct = (dist: number) => Math.max(0, Math.min(100, Math.round(((MAX_DIST - dist) / (MAX_DIST - MIN_DIST)) * 100)));
+
+  const lastPctRef = useRef(zoomPct);
+
+  useEffect(() => {
+    if (zoomPct !== lastPctRef.current) {
+      lastPctRef.current = zoomPct;
+      if (controls) {
+        const ctrl = controls as any;
+        const dir = camera.position.clone().sub(ctrl.target).normalize();
+        const newPos = ctrl.target.clone().add(dir.multiplyScalar(pctToDist(zoomPct)));
+        camera.position.copy(newPos);
+        ctrl.update();
+      }
     }
-  });
+  }, [zoomPct, camera, controls]);
+
+  useEffect(() => {
+    if (!controls || !onZoomChange) return;
+    const ctrl = controls as any;
+    const onChange = () => {
+      const dist = camera.position.distanceTo(ctrl.target);
+      const newPct = distToPct(dist);
+      if (newPct !== lastPctRef.current) {
+        lastPctRef.current = newPct;
+        onZoomChange(newPct);
+      }
+    };
+    ctrl.addEventListener("change", onChange);
+    return () => ctrl.removeEventListener("change", onChange);
+  }, [controls, camera, onZoomChange]);
+
+  useEffect(() => {
+    if (controls) {
+      const ctrl = controls as any;
+      const dist = camera.position.distanceTo(ctrl.target);
+      const currentPct = distToPct(dist);
+      if (currentPct !== zoomPct) {
+        const dir = camera.position.clone().sub(ctrl.target).normalize();
+        const newPos = ctrl.target.clone().add(dir.multiplyScalar(pctToDist(zoomPct)));
+        camera.position.copy(newPos);
+        ctrl.update();
+      }
+    }
+  }, []); // eslint-disable-line
+
   return null;
 }
 
@@ -520,19 +630,39 @@ export function FacePaintCanvas({
   brushValue,
   armed = true,
   background = "#2A2320",
+  zoomPct = 50,
+  brushSizePct = 50,
+  clearTrigger = 0,
   onZoomChange,
 }: {
   brushValue: number;
   armed?: boolean;
   background?: string;
+  zoomPct?: number;
+  brushSizePct?: number;
+  clearTrigger?: number;
   onZoomChange?: (pct: number) => void;
 }) {
   const apiRef = useRef<PaintApi | null>(null);
   const [painted, setPainted] = useState(false);
 
+  useEffect(() => {
+    if (clearTrigger > 0) {
+      apiRef.current?.clear();
+      setPainted(false);
+    }
+  }, [clearTrigger]);
+
   return (
-    <div className={`relative h-full w-full ${armed ? "cursor-crosshair" : ""}`}>
+    <div className={`relative h-full w-full overflow-hidden ${armed ? "cursor-crosshair" : ""}`}>
       <Canvas
+        style={{
+          width: "100vw",
+          height: "100%",
+          left: "50%",
+          transform: "translateX(-50%)",
+          position: "absolute",
+        }}
         camera={{ fov: 35, position: [0, 0, 2] }}
         dpr={[1, 1.5]}
         gl={{
@@ -548,29 +678,26 @@ export function FacePaintCanvas({
         <directionalLight position={[-4, 1, -2]} intensity={0.5} color="#bcd3ff" />
         <directionalLight position={[0, 2, -5]} intensity={0.6} color="#ffffff" />
         <Suspense fallback={null}>
-          <Bounds fit clip observe margin={1.15}>
-            <PaintFaceModel
-              brushValue={brushValue}
-              armed={armed}
-              apiRef={apiRef}
-              onPaintStart={() => setPainted(true)}
-            />
-          </Bounds>
+          <PaintFaceModel
+            brushValue={brushValue}
+            armed={armed}
+            apiRef={apiRef}
+            onPaintStart={() => setPainted(true)}
+            brushSizePct={brushSizePct}
+          />
         </Suspense>
-        <ZoomTracker onZoomChange={onZoomChange} />
-        <OrbitControls makeDefault enablePan={false} enableDamping dampingFactor={0.05} />
+        <ZoomController zoomPct={zoomPct} onZoomChange={onZoomChange} />
+        <OrbitControls
+          makeDefault
+          enablePan={false}
+          enableDamping
+          dampingFactor={0.05}
+          minPolarAngle={Math.PI * 0.25}
+          maxPolarAngle={Math.PI * 0.75}
+          minDistance={0.5}
+          maxDistance={2.5}
+        />
       </Canvas>
-
-      {/* Clear */}
-      <button
-        onClick={() => {
-          apiRef.current?.clear();
-          setPainted(false);
-        }}
-        className="absolute bottom-3 right-3 rounded-lg border border-white/15 bg-black/55 px-3 py-1.5 text-xs text-gray-200 backdrop-blur hover:border-brand hover:text-brand-soft"
-      >
-        ล้างรอย
-      </button>
     </div>
   );
 }
