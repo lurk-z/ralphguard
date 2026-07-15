@@ -8,24 +8,16 @@
 // Chemical list is mock data; everything here drives local state only.
 import React, { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
 import {
   Beaker,
   ChevronDown,
   Download,
-  FileText,
   FlaskConical,
-  Grid2x2,
-  HelpCircle,
-  Home,
-  LayoutGrid,
-  LineChart,
   Minus,
   PanelLeft,
   Plus,
   Search,
   Settings,
-  SlidersHorizontal,
   Trash2,
 } from "lucide-react";
 
@@ -51,22 +43,9 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
-import {
-  SidebarProvider,
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuButton,
-} from "@/components/ui/sidebar";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import AiChatPanel from "@/components/AiChatPanel";
 import CanvasToolbar from "@/components/CanvasToolbar";
+import { CHEMICALS, chemById } from "@/lib/chemicals";
 
 // 3D head, paint mode (client-only WebGL): drag on the skin to apply the
 // armed formula box's strength as erythema.
@@ -92,28 +71,6 @@ const FormulaGraph = dynamic(() => import("@/components/FormulaGraph"), {
     </div>
   ),
 });
-
-type Chemical = {
-  id: string;
-  name: string;
-  cas: string;
-  role: string;
-  color: string; // flask icon tint
-};
-
-const CHEMICALS: Chemical[] = [
-  { id: "water", name: "Water (Aqua)", cas: "7732-18-5", role: "ตัวทำละลายหลัก", color: "#3B82F6" },
-  { id: "glycerin", name: "Glycerin", cas: "56-81-5", role: "สารให้ความชุ่มชื้น", color: "#0EA5E9" },
-  { id: "cetearyl", name: "Cetearyl Alcohol", cas: "67762-27-0", role: "สารเพิ่มความข้น", color: "#EC4899" },
-  { id: "cct", name: "Caprylic/Capric Triglyceride", cas: "73398-61-5", role: "สารให้ความลื่น", color: "#F97316" },
-  { id: "dimethicone", name: "Dimethicone", cas: "63148-62-9", role: "สารเคลือบผิว", color: "#22C55E" },
-  { id: "niacinamide", name: "Niacinamide", cas: "98-92-0", role: "สารออกฤทธิ์", color: "#22C55E" },
-  { id: "phenoxyethanol", name: "Phenoxyethanol", cas: "122-99-6", role: "สารกันเสีย", color: "#EC4899" },
-  { id: "carbomer", name: "Carbomer", cas: "9007-20-9", role: "สารเพิ่มความหนืด", color: "#3B82F6" },
-  { id: "tea", name: "Triethanolamine", cas: "102-71-6", role: "สารปรับค่า pH", color: "#3B82F6" },
-  { id: "allantoin", name: "Allantoin", cas: "97-59-6", role: "สารปลอบผิว", color: "#22C55E" },
-];
-const chemById = (id: string) => CHEMICALS.find((c) => c.id === id)!;
 
 type FormulaBoxItem = { chemicalId: string; concentration: number };
 type FormulaBox = { id: string; name: string; items: FormulaBoxItem[] };
@@ -153,17 +110,7 @@ function bandColor(score: number) {
   return "bg-destructive";
 }
 
-const RAIL_ICONS: { icon: React.ElementType; label: string; href?: string }[] = [
-  { icon: FlaskConical, label: "ทดลอง" },
-  { icon: Beaker, label: "สูตร" },
-  { icon: Grid2x2, label: "สารเคมี" },
-  { icon: LayoutGrid, label: "เทมเพลต" },
-  { icon: LineChart, label: "ผลลัพธ์" },
-  { icon: SlidersHorizontal, label: "เปรียบเทียบ" },
-];
-
 export default function ExperimentPage({ params }: { params: { id: string } }) {
-  const router = useRouter();
   const [tab, setTab] = useState<TabKey>("experiment");
   const [projectName, setProjectName] = useState("Hand Cream Formula Test");
   const [editingName, setEditingName] = useState(false);
@@ -176,7 +123,6 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
 
   const [brushSizePct, setBrushSizePct] = useState(10);
   const [clearTrigger, setClearTrigger] = useState(0);
-  const [showHomeConfirm, setShowHomeConfirm] = useState(false);
 
   const ZOOM_STEP = 10;
   const BRUSH_STEP = 10;
@@ -200,10 +146,11 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   const [rightWidth, setRightWidth] = useState(340);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
-  // Icon rail is a fixed w-14 (56px); the picker sheet slides out right after
-  // the rail + formula-box panel, not from the true viewport edge.
+  // The persistent icon rail (in the shared project layout) is a fixed w-14
+  // (56px) and always on screen; the picker sheet slides out right after it
+  // plus the formula-box panel, not from the true viewport edge.
   const ICON_RAIL_WIDTH = 56;
-  const pickerLeftOffset = leftCollapsed ? 0 : ICON_RAIL_WIDTH + leftWidth;
+  const pickerLeftOffset = ICON_RAIL_WIDTH + (leftCollapsed ? 0 : leftWidth);
 
   const startResize = (side: "left" | "right") => (e: React.PointerEvent) => {
     e.preventDefault();
@@ -323,70 +270,8 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   };
 
   return (
-    <SidebarProvider>
-      <div data-project-id={params.id} className="app-light relative flex h-screen w-full overflow-hidden bg-card text-foreground">
-        {/* ── Icon rail (shadcn Sidebar, icon-only, no toggle) — hidden entirely while the left panel is collapsed ── */}
-        <div
-          style={{ width: leftCollapsed ? 0 : 56 }}
-          className={`relative z-30 h-screen shrink-0 overflow-hidden bg-card ${
-            isResizing ? "" : "transition-all duration-300 ease-in-out"
-          }`}
-        >
-          <Sidebar
-            collapsible="none"
-            className="h-screen w-14 border-r border-border bg-card"
-          >
-            <SidebarContent className="py-3 gap-0">
-              {/* Home / Project Icon Placeholder */}
-              <div className="flex flex-col items-center mb-1">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <SidebarMenuButton
-                      size="default"
-                      onClick={() => setShowHomeConfirm(true)}
-                      className="size-10 justify-center p-0 text-muted-foreground hover:text-foreground active:scale-95"
-                    >
-                      <Home className="size-[18px]" />
-                    </SidebarMenuButton>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="text-white">กลับหน้าหลักโครงการ</TooltipContent>
-                </Tooltip>
-                {/* Divider Line */}
-                <div className="w-8 h-px bg-border mt-2.5 mb-1.5" />
-              </div>
-
-              <SidebarMenu className="items-center gap-1">
-                {RAIL_ICONS.map(({ icon: Icon, label, href }, i) => (
-                  <SidebarMenuItem key={label}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <SidebarMenuButton
-                          isActive={i === 0}
-                          size="default"
-                          onClick={() => {
-                            if (label === "ผลลัพธ์") router.push(`/projects/${params.id}/results`);
-                            else if (href) router.push(href);
-                          }}
-                          className="size-10 justify-center p-0"
-                        >
-                          <Icon className="size-[18px]" />
-                        </SidebarMenuButton>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="text-white">{label}</TooltipContent>
-                    </Tooltip>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarContent>
-            <SidebarFooter className="py-3 items-center">
-              <span className="grid size-9 place-items-center rounded-full bg-secondary text-xs font-semibold text-foreground">
-                A
-              </span>
-            </SidebarFooter>
-          </Sidebar>
-        </div>
-
-        {/* Figma-style floating pill — replaces the whole left side (nav + panel) while collapsed. */}
+    <div data-project-id={params.id} className="relative flex h-full w-full overflow-hidden">
+        {/* Figma-style floating pill — replaces the formula-box panel while collapsed. */}
         {leftCollapsed && (
           <button
             aria-label="เปิดแผง"
@@ -646,26 +531,6 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 >
                   ลบ
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-
-          <AlertDialog open={showHomeConfirm} onOpenChange={setShowHomeConfirm}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>ต้องการกลับไปยังหน้ารายการโครงการหรือไม่?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  การจำลองและการทดสอบสารที่คุณทำไว้อาจไม่ได้รับการบันทึก
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>ยกเลิก</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => router.push("/projects")}
-                  className="bg-primary text-primary-foreground hover:bg-primary/90"
-                >
-                  กลับหน้าหลัก
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -936,7 +801,6 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
             )}
           </div>
         </aside>
-      </div>
-    </SidebarProvider>
+    </div>
   );
 }
