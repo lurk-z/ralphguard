@@ -163,11 +163,32 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
     );
 
   const run = async () => {
-    // Collect substance nodes wired into this result node
-    const wired = new Set(getEdges().filter((e) => e.target === id).map((e) => e.source));
-    const formula: FormulaItem[] = getNodes()
-      .filter((n) => n.type === "substance" && wired.has(n.id))
-      .map((n) => n.data as SubstanceData)
+    // Walk upstream from the result → collect every substance AND modifier in the
+    // chain (supports substance → modifier → result and longer chains).
+    const allEdges = getEdges();
+    const allNodes = getNodes();
+    const incoming = (nid: string) => allEdges.filter((e) => e.target === nid).map((e) => e.source);
+    const seen = new Set<string>();
+    const stack = [id];
+    const subs: SubstanceData[] = [];
+    const mods: ModifierData[] = [];
+    while (stack.length) {
+      const cur = stack.pop()!;
+      for (const src of incoming(cur)) {
+        if (seen.has(src)) continue;
+        seen.add(src);
+        stack.push(src);
+        const n = allNodes.find((nn) => nn.id === src);
+        if (n?.type === "substance") subs.push(n.data as SubstanceData);
+        else if (n?.type === "modifier") {
+          const md = n.data as ModifierData;
+          mods.push(md);
+          if (md.smiles?.trim() && md.concentration > 0)
+            subs.push({ name: md.name, smiles: md.smiles, concentration: md.concentration });
+        }
+      }
+    }
+    const formula: FormulaItem[] = subs
       .filter((d) => d.smiles?.trim() && d.concentration > 0)
       .map((d) => ({ name: d.name, smiles: d.smiles, concentration: d.concentration }));
 
@@ -184,7 +205,7 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
           const rec = await api.getAssessment(job_id);
           if (rec.status === "completed") {
             if (pollRef.current) clearInterval(pollRef.current);
-            patch({ status: "completed", endpoints: rec.result?.endpoints as any });
+            patch({ status: "completed", endpoints: applyModifiers(rec.result?.endpoints as any, mods) });
           } else if (rec.status === "failed") {
             if (pollRef.current) clearInterval(pollRef.current);
             patch({ status: "failed", error: rec.error ?? "ประเมินล้มเหลว" });
@@ -271,7 +292,110 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
   );
 }
 
-const nodeTypes = { substance: SubstanceNode, result: ResultNode };
+// ─────────────────────────── Modifier node ───────────────────────────
+// A "ตัวปรับสูตร" inserted in the chain reduces an unwanted property (endpoint)
+// of the substances upstream of it — e.g. add a soothing agent to cut irritation
+// without removing the active ingredient.
+type ModTarget = "skin" | "eye" | "sens" | "acute" | "all";
+type ModifierData = {
+  name: string;
+  smiles: string;
+  concentration: number;
+  target: ModTarget;
+  reduce: number;
+};
+const MOD_TARGET_LABEL: Record<ModTarget, string> = {
+  skin: "ระคายเคืองผิว",
+  eye: "ระคายเคืองตา",
+  sens: "แพ้ผิวหนัง",
+  acute: "พิษเฉียบพลัน",
+  all: "ทุกด้าน",
+};
+
+function applyModifiers(
+  endpoints: Record<string, { peak_score: number }> | undefined,
+  mods: ModifierData[],
+): Record<string, { peak_score: number }> {
+  const out: Record<string, { peak_score: number }> = {};
+  ENDPOINTS.forEach((ep) => {
+    let sc = endpoints?.[ep]?.peak_score ?? 0;
+    mods.forEach((m) => {
+      if (m.target === ep || m.target === "all") sc *= 1 - m.reduce;
+    });
+    out[ep] = { ...(endpoints?.[ep] ?? {}), peak_score: Math.max(0, sc) };
+  });
+  return out;
+}
+
+function ModifierNode({ id, data }: NodeProps<ModifierData>) {
+  const { setNodes, setEdges } = useReactFlow();
+  const patch = (p: Partial<ModifierData>) =>
+    setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...p } } : n)));
+  const remove = () => {
+    setNodes((nds) => nds.filter((n) => n.id !== id));
+    setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+  };
+  return (
+    <div className="relative w-52 rounded-lg border-2 border-amber-300 bg-amber-50 shadow-card">
+      <button
+        onClick={remove}
+        title="ลบ node"
+        className="nodrag nopan absolute -right-2 -top-2 z-10 grid size-5 place-items-center rounded-full border border-slate-200 bg-white text-sm leading-none text-slate-400 shadow-card hover:border-rose-300 hover:bg-rose-500 hover:text-white"
+      >
+        ×
+      </button>
+      <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-white !bg-amber-400" />
+      <div className="rounded-t-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800">🧩 ตัวปรับสูตร</div>
+      <div className="space-y-1.5 p-3 text-xs">
+        <div className="flex items-center gap-1">
+          <span className="text-amber-600">◈</span>
+          <input
+            className="min-w-0 flex-1 rounded border border-amber-200 bg-white px-2 py-1 text-slate-800"
+            value={data.name}
+            onChange={(e) => patch({ name: e.target.value })}
+            placeholder="ชื่อสาร"
+          />
+          <input
+            type="number"
+            min={0}
+            max={100}
+            className="w-11 rounded border border-amber-200 bg-white px-1 py-1 text-right font-mono tabular-nums text-slate-800"
+            value={data.concentration}
+            onChange={(e) => patch({ concentration: parseFloat(e.target.value) || 0 })}
+          />
+          <span className="text-[10px] text-slate-500">%</span>
+        </div>
+        <div className="truncate pl-4 font-mono text-[10px] text-slate-400">{data.smiles || "—"}</div>
+        <label className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
+          ลดด้าน:
+          <select
+            className="rounded border border-amber-200 bg-white px-1 py-0.5 text-xs text-slate-800"
+            value={data.target}
+            onChange={(e) => patch({ target: e.target.value as ModTarget })}
+          >
+            {(["skin", "eye", "sens", "acute", "all"] as ModTarget[]).map((t) => (
+              <option key={t} value={t}>{MOD_TARGET_LABEL[t]}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-[11px] text-slate-600">
+          ลดลง {Math.round(data.reduce * 100)}%
+          <input
+            type="range"
+            min={0}
+            max={90}
+            value={Math.round(data.reduce * 100)}
+            onChange={(e) => patch({ reduce: Number(e.target.value) / 100 })}
+            className="w-full accent-amber-500"
+          />
+        </label>
+      </div>
+      <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-white !bg-amber-400" />
+    </div>
+  );
+}
+
+const nodeTypes = { substance: SubstanceNode, result: ResultNode, modifier: ModifierNode };
 
 let idCounter = 100;
 const nextId = () => String(++idCounter);
@@ -327,6 +451,20 @@ function GraphInner({ seed, region }: { seed: FormulaItem[]; region: Region }) {
           : { name: "", smiles: "", concentration: 10 },
       },
     ]);
+
+  const addModifierBySmiles = (smiles: string) => {
+    const it = SUBSTANCE_LIBRARY.flatMap((g) => g.items).find((s) => s.smiles === smiles);
+    if (!it) return;
+    setNodes((nds) => [
+      ...nds,
+      {
+        id: nextId(),
+        type: "modifier",
+        position: { x: 250, y: 40 + Math.min(nds.length, 6) * 60 },
+        data: { name: it.name, smiles: it.smiles, concentration: it.conc, target: "skin", reduce: 0.3 },
+      },
+    ]);
+  };
 
   return (
     <div className="relative h-[75vh] min-h-[520px] w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
@@ -401,8 +539,28 @@ function GraphInner({ seed, region }: { seed: FormulaItem[]; region: Region }) {
           )}
         </div>
 
+        {/* Add-modifier — pick a REAL substance from the catalog */}
+        <select
+          value=""
+          onChange={(e) => {
+            if (e.target.value) addModifierBySmiles(e.target.value);
+            e.currentTarget.selectedIndex = 0;
+          }}
+          title="เพิ่มตัวปรับจากคลังสารจริง"
+          className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-800 shadow-card"
+        >
+          <option value="">🧩 + ตัวปรับ (เลือกจากคลังสาร)…</option>
+          {SUBSTANCE_LIBRARY.map((g) => (
+            <optgroup key={g.category} label={`${g.icon} ${g.category}`}>
+              {g.items.map((it) => (
+                <option key={it.smiles} value={it.smiles}>{it.name}</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+
         <span className="rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-[11px] text-slate-500 shadow-card">
-          ลากจากจุดขวาของ node สาร → จุดซ้ายของ node ผล เพื่อเชื่อม
+          ลากเส้น node → node · แทรก “ตัวปรับ” ระหว่างสาร→ผล เพื่อลดฤทธิ์
         </span>
       </div>
       <ReactFlow

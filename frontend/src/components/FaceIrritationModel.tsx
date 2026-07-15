@@ -393,7 +393,7 @@ function PaintFaceModel({
       bbRef.current = { min: bb.min.clone(), max: bb.max.clone() };
       // Max swell ≈ 13% of the head size, in the mesh's own local units.
       const _sz = Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z);
-      uSwell.current.value = _sz * 0.08;
+      uSwell.current.value = _sz * 0.09;
 
       const uPaint = { value: paint.tex };
       const uB = uBloom.current;
@@ -434,22 +434,20 @@ float _pmax = max(max(_pt.r, _pt.g), _pt.b);
 float _pv = _pmax * uBloom;
 if (_pv > 0.02) {
   vec3 _hue = _pt / max(_pmax, 1e-4);
-  float _sw = 1.0; float _bf = 0.7;                                                   // skin irritation
-  if (_hue.b > 0.55 && _hue.g > 0.55 && _hue.r < 0.5) { _sw = 0.25; _bf = 0.2; }      // eye: flat/wet
-  else if (_hue.r > 0.5 && _hue.b > 0.5 && _hue.g < 0.55) { _sw = 0.85; _bf = 1.7; }  // sensitization: hives
-  else if (_hue.r > 0.6 && _hue.g > 0.35 && _hue.b < 0.35) { _sw = 0.35; _bf = 0.3; } // acute: flat
-  float _pulse = 1.0 + 0.10 * sin(uTime * 4.0);
-  // Low-frequency noise → broad, smooth, ROUNDED bumps (no sharp spikes).
-  float _bump  = vnz(position * 3.0);
-  // Reduce swelling per risk band so high scores don't distort the model:
-  // low = unchanged, กลาง −50%, สูง −60%, รุนแรง −70%.
-  // (pv thresholds ≈ score bands 25/50/75 after the gain curve)
-  float _band = 1.0;
-  if (_pv >= 0.87) _band = 0.30;       // รุนแรง (score ≥ 75)
-  else if (_pv >= 0.63) _band = 0.40;  // สูง    (score ≥ 50)
-  else if (_pv >= 0.36) _band = 0.50;  // กลาง   (score ≥ 25)
-  // Mostly uniform along the normal (rounded dome) + a little smooth variation.
-  float _rise = _pv * uSwell * _sw * _pulse * _band * (0.85 + _bf * _bump * 0.25);
+  float _sw = 1.0;                                                     // skin irritation
+  if (_hue.b > 0.55 && _hue.g > 0.55 && _hue.r < 0.5) _sw = 0.25;      // eye: flat/wet
+  else if (_hue.r > 0.5 && _hue.b > 0.5 && _hue.g < 0.55) _sw = 0.85;  // sensitization
+  else if (_hue.r > 0.6 && _hue.g > 0.35 && _hue.b < 0.35) _sw = 0.35; // acute: flat
+  float _pulse = 1.0 + 0.08 * sin(uTime * 4.0);
+  // Band scale: low = NO swelling; higher bands swell more but capped.
+  float _band = 0.0;                    // ต่ำ (score < 25) → ไม่บวม
+  if (_pv >= 0.87) _band = 0.85;        // รุนแรง
+  else if (_pv >= 0.63) _band = 0.60;   // สูง
+  else if (_pv >= 0.36) _band = 0.40;   // กลาง
+  // Smooth the profile (smoothstep) + uniform push along the normal → rounded
+  // dome with soft edges instead of faceted ridges.
+  float _s = _pv * _pv * (3.0 - 2.0 * _pv);
+  float _rise = _s * uSwell * _sw * _pulse * _band;
   transformed += objectNormal * _rise;
 }`
           );
@@ -464,6 +462,7 @@ uniform sampler2D uPaintMap;
 uniform float uBloom;
 uniform float uTime;
 uniform float uSkinLift;
+float _paintH(vec2 uv){ vec3 c = texture2D(uPaintMap, uv).rgb; return max(max(c.r, c.g), c.b); }
 float hash13(vec3 p){
   p = fract(p * 0.1031);
   p += dot(p, p.yzx + 33.33);
@@ -546,6 +545,19 @@ totalEmissiveRadiance += gNeon;`
             "#include <roughnessmap_fragment>",
             `#include <roughnessmap_fragment>
 roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
+          )
+          .replace(
+            "#include <normal_fragment_begin>",
+            `#include <normal_fragment_begin>
+{
+  // Shade the swelling as a smooth rounded dome by tilting the shading normal
+  // along the paint-height gradient (sampled from the height texture, so it's
+  // smooth across the whole patch — not just the edges). Independent of mesh res.
+  float _e = 0.004;
+  float _hx = _paintH(vPaintUv + vec2(_e, 0.0)) - _paintH(vPaintUv - vec2(_e, 0.0));
+  float _hy = _paintH(vPaintUv + vec2(0.0, _e)) - _paintH(vPaintUv - vec2(0.0, _e));
+  normal = normalize(normal - vec3(vec2(_hx, _hy) * uBloom * 16.0, 0.0));
+}`
           );
       };
       mat.needsUpdate = true;
@@ -579,9 +591,11 @@ roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
     const G = Math.round(s.G * k);
     const B = Math.round(s.B * k);
     const g = paint.ctx.createRadialGradient(s.cx, s.cy, 0, s.cx, s.cy, s.r);
-    g.addColorStop(0, `rgba(${R},${G},${B},1)`);
-    g.addColorStop(0.7, `rgba(${R},${G},${B},1)`);
-    g.addColorStop(1, `rgba(${R},${G},${B},0)`);
+    // Smooth dome falloff (no flat plateau) → rounded swelling, soft edges.
+    g.addColorStop(0.0, `rgba(${R},${G},${B},1)`);
+    g.addColorStop(0.35, `rgba(${R},${G},${B},0.88)`);
+    g.addColorStop(0.7, `rgba(${R},${G},${B},0.45)`);
+    g.addColorStop(1.0, `rgba(${R},${G},${B},0)`);
     paint.ctx.globalCompositeOperation = "source-over";
     paint.ctx.fillStyle = g;
     paint.ctx.beginPath();

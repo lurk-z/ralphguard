@@ -28,6 +28,9 @@ const FaceView = dynamic(
   },
 );
 
+// ── Inflammation trend chart (client-only, recharts) ──
+const TrendChart = dynamic(() => import("@/components/TrendChart"), { ssr: false });
+
 // ── Node graph (client-only) ──
 const FormulaGraph = dynamic(() => import("@/components/FormulaGraph"), {
   ssr: false,
@@ -70,12 +73,45 @@ const SAMPLE: FormulaItem[] = [
   { name: "Cinnamaldehyde", smiles: "O=C/C=C/c1ccccc1", concentration: 3 },
 ];
 
+const PRODUCT_TYPES = [
+  "โทนเนอร์",
+  "เซรั่ม / เอสเซนส์",
+  "ครีม / โลชั่น",
+  "เจล / โฟมล้าง",
+  "สเปรย์ / มิสต์",
+  "ครีมกันแดด",
+  "เมคอัพ",
+  "อื่นๆ",
+];
+
 export default function StudioPage() {
   const [mode, setMode] = useState<Mode>("assess");
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateRisk, setTemplateRisk] = useState<"all" | "low" | "mid" | "high">("all");
   const [eraseMode, setEraseMode] = useState(false);
-  const [formula, setFormula] = useState<FormulaItem[]>(SAMPLE);
+  const [showTrend, setShowTrend] = useState(false);
+  const [formulas, setFormulas] = useState<{ id: string; name: string; type?: string; items: FormulaItem[] }[]>([
+    { id: "f1", name: "สูตร A", type: "ครีม / โลชั่น", items: SAMPLE },
+  ]);
+  const [activeId, setActiveId] = useState("f1");
+  const [editingFormulaId, setEditingFormulaId] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [draft, setDraft] = useState<{ name: string; type: string; region: Region; from: string }>({
+    name: "",
+    type: "ครีม / โลชั่น",
+    region: "face",
+    from: "blank",
+  });
+  const activeFormula = formulas.find((f) => f.id === activeId) ?? formulas[0];
+  const formula = activeFormula?.items ?? [];
+  const setFormula = (u: FormulaItem[] | ((prev: FormulaItem[]) => FormulaItem[])) =>
+    setFormulas((prev) =>
+      prev.map((f) =>
+        f.id === activeId
+          ? { ...f, items: typeof u === "function" ? (u as (p: FormulaItem[]) => FormulaItem[])(f.items) : u }
+          : f,
+      ),
+    );
   const [region, setRegion] = useState<Region>("face");
   const [dayIdx, setDayIdx] = useState(1);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -91,6 +127,23 @@ export default function StudioPage() {
     const names = formula.map((f) => f.name?.trim()).filter(Boolean);
     return names.length ? names.join(" + ") : "สูตรที่ประเมิน";
   }, [formula]);
+
+  // Time-course trend data (Day 1/3/7) for the line chart.
+  const trendData = useMemo(() => {
+    if (!endpoints) return [];
+    return [0, 1, 2].map((i) => {
+      const row: Record<string, number | string> = { day: `วันที่ ${DAY_LABELS[i]}` };
+      ENDPOINTS.forEach((ep) => {
+        row[ep] = Math.round(endpoints[ep]?.timecourse?.[i] ?? 0);
+      });
+      return row as { day: string } & Record<string, number | string>;
+    });
+  }, [endpoints]);
+  const trendLines = ENDPOINTS.map((ep) => ({
+    key: ep,
+    label: ENDPOINT_LABEL_TH[ep],
+    color: EP_COLOR[ep],
+  }));
 
   // Per-endpoint paint layers — each endpoint paints in its own neon color.
   const paintLayers = useMemo(() => {
@@ -138,6 +191,52 @@ export default function StudioPage() {
     setFormula((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...p } : it)));
   const removeItem = (i: number) => setFormula((prev) => prev.filter((_, idx) => idx !== i));
   const addItem = () => setFormula((prev) => [...prev, { name: "", smiles: "", concentration: 10 }]);
+
+  // Create / select saved formulas
+  const openCreate = () => {
+    setDraft({
+      name: "สูตร " + String.fromCharCode(64 + Math.min(26, formulas.length + 1)),
+      type: "ครีม / โลชั่น",
+      region: "face",
+      from: "blank",
+    });
+    setShowCreate(true);
+  };
+  const createFormula = () => {
+    const id = "f" + Date.now();
+    let items: FormulaItem[] = [{ name: "", smiles: "", concentration: 10 }];
+    let reg = draft.region;
+    if (draft.from !== "blank") {
+      const t = PRODUCT_TEMPLATES.find((x) => x.id === draft.from);
+      if (t) {
+        items = t.formula.map((f) => ({ ...f }));
+        reg = t.region === "eye" ? "eye" : "face";
+      }
+    }
+    setFormulas((prev) => [...prev, { id, name: draft.name.trim() || "สูตรใหม่", type: draft.type, items }]);
+    setActiveId(id);
+    setRegion(reg);
+    setAssessment(null);
+    setJobId(null);
+    setShowCreate(false);
+  };
+  const selectFormula = (id: string) => {
+    setActiveId(id);
+    setAssessment(null);
+    setJobId(null);
+  };
+  const renameFormula = (id: string, name: string) =>
+    setFormulas((prev) => prev.map((f) => (f.id === id ? { ...f, name } : f)));
+  const deleteFormula = (id: string) => {
+    if (formulas.length <= 1) return; // keep at least one
+    const next = formulas.filter((f) => f.id !== id);
+    setFormulas(next);
+    if (id === activeId) {
+      setActiveId(next[0].id);
+      setAssessment(null);
+      setJobId(null);
+    }
+  };
 
   // Load a full product template (replaces the current formula + region).
   const loadTemplate = (id: string) => {
@@ -260,6 +359,78 @@ export default function StudioPage() {
             <div className="font-display text-sm font-semibold">การประเมินสารเคมี</div>
           </div>
 
+          <Section title="สูตรที่สร้าง">
+            <div className="space-y-1">
+              {formulas.map((f) => (
+                <div
+                  key={f.id}
+                  onClick={() => selectFormula(f.id)}
+                  className={`group flex w-full cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-2 text-sm transition ${
+                    f.id === activeId
+                      ? "border-brand bg-teal-50 text-brand-dark"
+                      : "border-slate-200 bg-white text-slate-800 hover:border-brand/50"
+                  }`}
+                >
+                  <span>🧪</span>
+                  {editingFormulaId === f.id ? (
+                    <input
+                      autoFocus
+                      value={f.name}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => renameFormula(f.id, e.target.value)}
+                      onBlur={() => setEditingFormulaId(null)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === "Escape") setEditingFormulaId(null);
+                      }}
+                      className="min-w-0 flex-1 rounded border border-brand bg-white px-1 text-sm text-slate-800 outline-none"
+                    />
+                  ) : (
+                    <div
+                      className="flex min-w-0 flex-1 flex-col"
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        setEditingFormulaId(f.id);
+                      }}
+                      title="ดับเบิลคลิกเพื่อแก้ชื่อ"
+                    >
+                      <span className="truncate font-medium">{f.name}</span>
+                      {f.type && <span className="truncate text-[9px] font-normal text-slate-400">{f.type}</span>}
+                    </div>
+                  )}
+                  <span className="font-mono text-[10px] text-slate-400">{f.items.length} สาร</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingFormulaId(f.id);
+                    }}
+                    title="แก้ชื่อสูตร"
+                    className="grid size-4 shrink-0 place-items-center rounded text-slate-300 opacity-0 transition hover:text-brand group-hover:opacity-100"
+                  >
+                    ✎
+                  </button>
+                  {formulas.length > 1 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteFormula(f.id);
+                      }}
+                      title="ลบสูตร"
+                      className="grid size-4 shrink-0 place-items-center rounded text-slate-300 opacity-0 transition hover:bg-rose-50 hover:text-rose-500 group-hover:opacity-100"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                onClick={openCreate}
+                className="w-full rounded-lg border border-dashed border-slate-300 py-1.5 text-xs font-medium text-brand transition hover:border-brand hover:bg-teal-50"
+              >
+                + สร้างสูตร
+              </button>
+            </div>
+          </Section>
+
           {showTemplates && (
             <Section title="เทมเพลตผลิตภัณฑ์">
               <div className="mb-2 flex items-center gap-2">
@@ -313,8 +484,8 @@ export default function StudioPage() {
           {/* Floating Layers panel — docked top-left inside the viewport */}
           {mode === "assess" && (
             <div className="absolute left-9 top-12 z-10 flex max-h-[calc(100%-6rem)] w-60 flex-col overflow-y-auto rounded-xl border border-slate-200 bg-white/95 shadow-soft backdrop-blur">
-              <div className="border-b border-slate-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-800/50">
-                Layers · {formula.length} สาร · 4 บริเวณ
+              <div className="border-b border-slate-200 px-3 py-2 text-[11px] font-semibold tracking-wide text-slate-800/60">
+                🧪 {activeFormula?.name ?? "สูตร"} · {formula.length} สาร
               </div>
               <div className="p-3">
                 <div className="mb-1 text-[11px] font-semibold text-slate-800/50">🧪 สูตร (Formulation)</div>
@@ -385,6 +556,53 @@ export default function StudioPage() {
                     ))}
                   </select>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Inflammation trend — slides in from the right edge (site theme) */}
+          {mode === "assess" && (
+            <div className="absolute right-0 top-12 z-20 flex items-start">
+              <div className={`overflow-hidden transition-all duration-300 ${showTrend ? "w-72" : "w-0"}`}>
+                <div className="w-72 rounded-l-xl border border-r-0 border-slate-200 bg-white p-3 text-slate-800 shadow-soft">
+                  <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold">
+                    <span>📈</span>
+                    <span>แนวโน้มการอักเสบ · Day 1/3/7</span>
+                    <button onClick={() => setShowTrend(false)} className="ml-auto text-slate-400 hover:text-slate-700">
+                      ✕
+                    </button>
+                  </div>
+                  {completed && trendData.length ? (
+                    <>
+                      <TrendChart data={trendData} lines={trendLines} />
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                        {trendLines.map((l) => (
+                          <span key={l.key} className="flex items-center gap-1 text-[10px] text-slate-500">
+                            <span className="h-0.5 w-3 rounded" style={{ background: l.color }} />
+                            {l.label}
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-slate-200 py-6 text-center text-[11px] text-slate-400">
+                      กด ▶ Run เพื่อดูแนวโน้ม
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="group relative">
+                <button
+                  onClick={() => setShowTrend((s) => !s)}
+                  className={`grid size-9 place-items-center rounded-l-lg border border-r-0 border-slate-200 text-base shadow-card transition ${
+                    showTrend ? "bg-brand text-white" : "bg-white text-slate-600 hover:text-brand"
+                  }`}
+                >
+                  📈
+                </button>
+                <span className="pointer-events-none absolute right-full top-1/2 mr-1.5 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-800 px-2 py-1 text-[11px] text-white opacity-0 shadow transition group-hover:opacity-100">
+                  กราฟแนวโน้ม
+                </span>
               </div>
             </div>
           )}
@@ -505,6 +723,117 @@ export default function StudioPage() {
           )}
         </aside>
       </div>
+
+      {/* Create-formula modal (centered, blurred backdrop) */}
+      {showCreate && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-slate-900/30 p-4 backdrop-blur-sm"
+          onClick={() => setShowCreate(false)}
+        >
+          <div
+            className="w-[min(92vw,420px)] rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center gap-2">
+              <span className="grid size-8 place-items-center rounded-lg bg-teal-50 text-brand">🧪</span>
+              <h2 className="text-base font-semibold text-slate-800">สร้างสูตรใหม่</h2>
+              <button onClick={() => setShowCreate(false)} className="ml-auto text-slate-400 hover:text-slate-700">
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-slate-600">ชื่อสูตร</span>
+                <input
+                  autoFocus
+                  value={draft.name}
+                  onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+                  onKeyDown={(e) => e.key === "Enter" && createFormula()}
+                  placeholder="เช่น ครีมบำรุงสูตร 1"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-slate-600">ประเภทผลิตภัณฑ์</span>
+                <select
+                  value={draft.type}
+                  onChange={(e) => setDraft((d) => ({ ...d, type: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand"
+                >
+                  {PRODUCT_TYPES.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-slate-600">บริเวณทดสอบ</span>
+                <select
+                  value={draft.region}
+                  onChange={(e) => setDraft((d) => ({ ...d, region: e.target.value as Region }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand"
+                >
+                  <option value="face">🙂 ใบหน้า</option>
+                  <option value="eye">👁️ ดวงตา</option>
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-slate-600">เริ่มจาก</span>
+                <select
+                  value={draft.from}
+                  onChange={(e) => setDraft((d) => ({ ...d, from: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand"
+                >
+                  <option value="blank">สูตรเปล่า (กรอกเอง)</option>
+                  {PRODUCT_TEMPLATES.map((t) => (
+                    <option key={t.id} value={t.id}>{t.icon} {t.name}</option>
+                  ))}
+                </select>
+              </label>
+
+              {draft.from === "blank" && (
+                <div className="rounded-lg border border-brand/20 bg-teal-50/60 p-3 text-[11px] leading-relaxed text-slate-600">
+                  <div className="mb-1.5 font-semibold text-brand-dark">📝 สูตรเปล่าต้องกรอกอะไรบ้าง?</div>
+                  <ul className="space-y-1">
+                    <li>
+                      • <b>ชื่อสาร</b> — ชื่อสารเคมี/INCI เช่น Glycerin (ใช้แสดงผล ไม่บังคับ)
+                    </li>
+                    <li>
+                      • <b>SMILES</b> — รหัสโครงสร้างโมเลกุล เช่น{" "}
+                      <span className="font-mono text-slate-800">OCC(O)CO</span> —{" "}
+                      <b className="text-rose-500">จำเป็น</b> เพราะโมเดลใช้คำนวณความเสี่ยง
+                    </li>
+                    <li>
+                      • <b>ความเข้มข้น (%)</b> — สัดส่วนของสารในสูตร (0–100)
+                    </li>
+                  </ul>
+                  <div className="mt-1.5 text-slate-500">
+                    ไม่รู้ SMILES? เลือกจาก “คลังสาร” ในกล่องสูตรได้ หรือถาม AI ให้ช่วยแนะนำ
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setShowCreate(false)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={createFormula}
+                className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark"
+              >
+                สร้างสูตร
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -534,12 +863,12 @@ function Viewport({
   eraseMode: boolean;
 }) {
   return (
-    <div className="absolute inset-0 p-6">
-      <div className="relative h-full w-full rounded-xl border border-brand/40 bg-[repeating-conic-gradient(#F4F1EE_0%_25%,#FFFDFB_0%_50%)] bg-[length:24px_24px]">
+    <div className="absolute inset-0">
+      <div className="relative h-full w-full bg-[repeating-conic-gradient(#F4F1EE_0%_25%,#FFFDFB_0%_50%)] bg-[length:24px_24px]">
         <div className="absolute right-3 top-2 z-10 text-xs font-semibold text-brand">
           ▢ Model Viewport · Day {DAY_LABELS[dayIdx]}
         </div>
-        <div className="absolute inset-0 pt-6">
+        <div className="absolute inset-0">
           <FaceView
             layers={layers}
             armed={ready}
