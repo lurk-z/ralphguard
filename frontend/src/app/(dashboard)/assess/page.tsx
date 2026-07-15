@@ -74,6 +74,7 @@ export default function StudioPage() {
   const [mode, setMode] = useState<Mode>("assess");
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateRisk, setTemplateRisk] = useState<"all" | "low" | "mid" | "high">("all");
+  const [eraseMode, setEraseMode] = useState(false);
   const [formula, setFormula] = useState<FormulaItem[]>(SAMPLE);
   const [region, setRegion] = useState<Region>("face");
   const [dayIdx, setDayIdx] = useState(1);
@@ -305,6 +306,7 @@ export default function StudioPage() {
               ready={completed}
               productName={productName}
               layers={paintLayers}
+              eraseMode={eraseMode}
             />
           )}
 
@@ -400,13 +402,24 @@ export default function StudioPage() {
           {mode !== "trust" && (
             <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center print:hidden">
               <div className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-soft backdrop-blur">
-                {["🧭", "➕", mode === "nodes" ? "▦" : "🧍", "📐", "💬"].map((ic, i) => (
-                  <button key={i} className="grid size-8 place-items-center rounded-lg text-sm text-slate-800/50 hover:bg-slate-100">{ic}</button>
-                ))}
+                {mode === "assess" && (
+                  <button
+                    onClick={() => setEraseMode((e) => !e)}
+                    title={eraseMode ? "โหมดลบ — คลิกจุดที่ paint เพื่อลบ" : "ยางลบ"}
+                    className={`grid size-9 place-items-center rounded-lg text-base transition ${
+                      eraseMode ? "bg-brand text-white" : "text-slate-800/50 hover:bg-slate-100"
+                    }`}
+                  >
+                    🧽
+                  </button>
+                )}
                 <button
-                  onClick={run}
+                  onClick={() => {
+                    setEraseMode(false); // กด Run = กลับมาโหมด paint ผลลัพธ์
+                    run();
+                  }}
                   disabled={running}
-                  className="ml-1 rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white shadow-soft hover:bg-brand-dark disabled:opacity-50"
+                  className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white shadow-soft hover:bg-brand-dark disabled:opacity-50"
                 >
                   {running ? "…" : mode === "nodes" ? "▶ Evaluate graph" : "▶ Run ประเมิน"}
                 </button>
@@ -511,12 +524,14 @@ function Viewport({
   ready,
   productName,
   layers,
+  eraseMode,
 }: {
   dayIdx: number;
   region: Region;
   ready: boolean;
   productName: string;
   layers: { key: string; label: string; score: number; color: string; band: string }[];
+  eraseMode: boolean;
 }) {
   return (
     <div className="absolute inset-0 p-6">
@@ -529,6 +544,7 @@ function Viewport({
             layers={layers}
             armed={ready}
             productName={productName}
+            eraseMode={eraseMode}
             background="#F4F1EE"
           />
         </div>

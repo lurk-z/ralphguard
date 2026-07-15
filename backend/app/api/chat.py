@@ -13,7 +13,7 @@ from app.core.config import settings
 
 router = APIRouter()
 
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 SYSTEM_TH = """คุณคือ "แรลฟ์" ผู้ช่วยพิษวิทยาเชิงคำนวณ (in-silico) ประจำระบบ RalphGuard
 
@@ -67,8 +67,8 @@ class ChatOut(BaseModel):
 
 @router.post("/", response_model=ChatOut)
 async def chat(body: ChatIn):
-    if not settings.GEMINI_API_KEY:
-        raise HTTPException(status_code=503, detail="GEMINI_API_KEY not configured")
+    if not settings.GROQ_API_KEY:
+        raise HTTPException(status_code=503, detail="GROQ_API_KEY not configured")
 
     question = (body.question or "").strip()
     if not question:
@@ -79,32 +79,34 @@ async def chat(body: ChatIn):
         prompt = f"ข้อมูลผลประเมินปัจจุบัน:\n{body.context}\n\nคำถาม: {question}"
 
     payload = {
-        "systemInstruction": {"parts": [{"text": SYSTEM_TH}]},
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.3,
-            "topP": 0.9,
-            "maxOutputTokens": 512,
-            # Disable "thinking" on Gemini 2.5 flash → much faster + no truncation.
-            "thinkingConfig": {"thinkingBudget": 0},
-        },
+        "model": settings.GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": SYSTEM_TH},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.3,
+        "top_p": 0.9,
+        "max_tokens": 800,
     }
-    url = GEMINI_URL.format(model=settings.GEMINI_MODEL)
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(url, params={"key": settings.GEMINI_API_KEY}, json=payload)
+            r = await client.post(
+                GROQ_URL,
+                headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
+                json=payload,
+            )
     except Exception as e:  # network / DNS / timeout
-        raise HTTPException(status_code=502, detail=f"Gemini call failed: {e}")
+        raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
 
     if r.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"Gemini error {r.status_code}: {r.text[:300]}")
+        raise HTTPException(status_code=502, detail=f"LLM error {r.status_code}: {r.text[:300]}")
 
     data = r.json()
     try:
-        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        text = data["choices"][0]["message"]["content"].strip()
     except (KeyError, IndexError):
         text = ""
     if not text:
-        raise HTTPException(status_code=502, detail="Gemini returned empty response")
+        raise HTTPException(status_code=502, detail="LLM returned empty response")
     return ChatOut(answer=text)

@@ -15,7 +15,7 @@
  * Asset: frontend/public/models/head.glb (Draco-compressed; drei fetches the decoder).
  */
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Bounds, OrbitControls, useGLTF } from "@react-three/drei";
+import { Bounds, OrbitControls, useAnimations, useGLTF } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
@@ -58,15 +58,27 @@ export function regionEndpoints(region: string): string[] {
  * substance than thick skin, so the same result paints differently by location.
  */
 export function regionSensitivity(region: string): number {
-  if (region.includes("ตา")) return 1.6; // รอบดวงตา บอบบางสุด
-  if (region.includes("ปาก")) return 1.45; // ริมฝีปาก
-  if (region.includes("จมูก")) return 1.2;
-  if (region.includes("หน้าผาก")) return 0.85;
-  if (region.includes("คาง")) return 0.8;
-  if (region.includes("หู")) return 0.65;
-  if (region.includes("คอ")) return 0.55;
-  if (region.includes("หนังศีรษะ")) return 0.5;
+  if (region.includes("ตา")) return 1.3; // รอบดวงตา บอบบางสุด
+  if (region.includes("ปาก")) return 1.2; // ริมฝีปาก
+  if (region.includes("จมูก")) return 1.1;
+  if (region.includes("หน้าผาก")) return 0.9;
+  if (region.includes("คาง")) return 0.85;
+  if (region.includes("หู")) return 0.7;
+  if (region.includes("คอ")) return 0.6;
+  if (region.includes("หนังศีรษะ")) return 0.55;
   return 1.0; // แก้ม / ทั่วไป
+}
+
+// Lift the skin albedo toward white (the brighter "frontend" look). 0 = untouched.
+const SKIN_LIFT = 0.7;
+
+/** Loop every animation clip in a GLTF (head.glb ships eye-dart clips) so the face feels alive. */
+function usePlayAllAnimations(actions: Record<string, THREE.AnimationAction | null>) {
+  useEffect(() => {
+    const started = Object.values(actions).filter(Boolean) as THREE.AnimationAction[];
+    started.forEach((a) => a.reset().setLoop(THREE.LoopRepeat, Infinity).play());
+    return () => started.forEach((a) => a.stop());
+  }, [actions]);
 }
 
 type IrritationUniforms = {
@@ -279,20 +291,37 @@ export type PaintApi = { clear: () => void };
 function PaintFaceModel({
   layers,
   armed,
+  eraseMode,
   apiRef,
   onPaintStart,
   onHover,
+  onOverModel,
 }: {
   layers: PaintLayer[]; // all endpoint scores; the brush picks by region at click time
   armed: boolean;
+  eraseMode?: boolean; // click to erase painted spots instead of painting
   apiRef?: React.MutableRefObject<PaintApi | null>;
   onPaintStart?: () => void;
   onHover?: (info: { x: number; y: number; region: string } | null) => void;
+  onOverModel?: (over: boolean) => void; // enable wheel-zoom only over the model
 }) {
-  const { scene: rawScene } = useGLTF("/models/head.glb", true);
+  const { scene: rawScene, animations } = useGLTF("/models/head.glb", true);
   const gl = useThree((s) => s.gl);
   const getState = useThree((s) => s.get); // read live state (controls) in handlers
-  const scene = useMemo(() => rawScene.clone(true), [rawScene]);
+  const scene = useMemo(() => {
+    const s = rawScene.clone(true);
+    // Center the model at the origin so OrbitControls (target 0,0,0) keeps it
+    // perfectly centered while rotating/zooming.
+    const box = new THREE.Box3().setFromObject(s);
+    const center = box.getCenter(new THREE.Vector3());
+    s.position.sub(center);
+    return s;
+  }, [rawScene]);
+
+  // Drive the GLTF's eye-dart clips against this instance's cloned scene.
+  const group = useRef<THREE.Group>(null);
+  const { actions } = useAnimations(animations, group);
+  usePlayAllAnimations(actions);
 
   // Offscreen paint canvas (self-consistent: flipY=false + raw uv both when
   // drawing and sampling, so orientation is correct regardless of the model map).
@@ -312,6 +341,7 @@ function PaintFaceModel({
   const uBloom = useRef({ value: 1 });
   const uSwell = useRef({ value: 0 }); // max displacement (local units) at full intensity
   const uTime = useRef({ value: 0 });  // drives the swelling pulse
+  const uSkinLift = useRef({ value: SKIN_LIFT }); // brighten the skin albedo
   const hasPainted = useRef(false);
   // Stamps still "developing" — each click grows 0→full over STAMP_DURATION seconds.
   const stampsRef = useRef<
@@ -324,6 +354,10 @@ function PaintFaceModel({
   useEffect(() => {
     layersRef.current = layers;
   }, [layers]);
+  const eraseRef = useRef(!!eraseMode);
+  useEffect(() => {
+    eraseRef.current = !!eraseMode;
+  }, [eraseMode]);
 
   const skinMesh = useRef<THREE.Mesh | null>(null);
   const bbRef = useRef<{ min: THREE.Vector3; max: THREE.Vector3 } | null>(null);
@@ -368,6 +402,7 @@ function PaintFaceModel({
         shader.uniforms.uBloom = uB;
         shader.uniforms.uSwell = uSwell.current;
         shader.uniforms.uTime = uTime.current;
+        shader.uniforms.uSkinLift = uSkinLift.current;
 
         shader.vertexShader = shader.vertexShader
           .replace(
@@ -403,9 +438,18 @@ if (_pv > 0.02) {
   if (_hue.b > 0.55 && _hue.g > 0.55 && _hue.r < 0.5) { _sw = 0.25; _bf = 0.2; }      // eye: flat/wet
   else if (_hue.r > 0.5 && _hue.b > 0.5 && _hue.g < 0.55) { _sw = 0.85; _bf = 1.7; }  // sensitization: hives
   else if (_hue.r > 0.6 && _hue.g > 0.35 && _hue.b < 0.35) { _sw = 0.35; _bf = 0.3; } // acute: flat
-  float _pulse = 1.0 + 0.12 * sin(uTime * 4.0); // more visible throb
-  float _bump  = vnz(position * 9.0);
-  float _rise  = _pv * uSwell * _sw * _pulse * (0.55 + _bf * _bump);
+  float _pulse = 1.0 + 0.10 * sin(uTime * 4.0);
+  // Low-frequency noise → broad, smooth, ROUNDED bumps (no sharp spikes).
+  float _bump  = vnz(position * 3.0);
+  // Reduce swelling per risk band so high scores don't distort the model:
+  // low = unchanged, กลาง −50%, สูง −60%, รุนแรง −70%.
+  // (pv thresholds ≈ score bands 25/50/75 after the gain curve)
+  float _band = 1.0;
+  if (_pv >= 0.87) _band = 0.30;       // รุนแรง (score ≥ 75)
+  else if (_pv >= 0.63) _band = 0.40;  // สูง    (score ≥ 50)
+  else if (_pv >= 0.36) _band = 0.50;  // กลาง   (score ≥ 25)
+  // Mostly uniform along the normal (rounded dome) + a little smooth variation.
+  float _rise = _pv * uSwell * _sw * _pulse * _band * (0.85 + _bf * _bump * 0.25);
   transformed += objectNormal * _rise;
 }`
           );
@@ -419,6 +463,7 @@ varying vec2 vPaintUv;
 uniform sampler2D uPaintMap;
 uniform float uBloom;
 uniform float uTime;
+uniform float uSkinLift;
 float hash13(vec3 p){
   p = fract(p * 0.1031);
   p += dot(p, p.yzx + 33.33);
@@ -438,6 +483,8 @@ float fbm(vec3 p){ float s=0.0,a=0.5; for(int i=0;i<3;i++){s+=a*vnoise(p);p*=2.0
           .replace(
             "#include <map_fragment>",
             `#include <map_fragment>
+// Skin brightening (frontend look) — lift base albedo toward white on skin only.
+diffuseColor.rgb = mix(diffuseColor.rgb, min(diffuseColor.rgb * 1.55 + 0.10, vec3(1.0)), uSkinLift);
 vec3  pTex  = texture2D(uPaintMap, vPaintUv).rgb;      // endpoint hue * intensity
 float pMax  = max(max(pTex.r, pTex.g), pTex.b);        // intensity (brightest channel)
 float gMask = clamp(pMax * uBloom, 0.0, 1.0);          // reveal with bloom
@@ -450,37 +497,44 @@ if (gMask > 0.02) {
   else if (hue.r > 0.5 && hue.b > 0.5 && hue.g < 0.55) eff = 2;       // sensitization (purple)
   else if (hue.r > 0.6 && hue.g > 0.35 && hue.b < 0.35) eff = 3;      // acute (orange)
 
+  // Severity for color — compressed at the high end (low scores stay the same),
+  // so a high score isn't overwhelmingly red. The grid (below) still uses gMask.
+  float sev = gMask * (1.0 - 0.4 * gMask);
   vec3 c = diffuseColor.rgb;
   if (eff == 0) {
     // Skin irritation: red erythema
-    c = mix(c, vec3(0.95, 0.16, 0.18), gMask * 0.75);
-    gRough = gMask * 0.10;
+    c = mix(c, vec3(0.95, 0.16, 0.18), sev * 0.75);
+    gRough = sev * 0.10;
   } else if (eff == 1) {
     // Eye irritation: glossy pink / wet
-    c = mix(c, vec3(1.0, 0.45, 0.5), gMask * 0.6);
-    c += vec3(0.14) * gMask;
-    gRough = -0.35 * gMask;
+    c = mix(c, vec3(1.0, 0.45, 0.5), sev * 0.6);
+    c += vec3(0.14) * sev;
+    gRough = -0.35 * sev;
   } else if (eff == 2) {
     // Sensitization: mottled allergic wheals
     float blotch = smoothstep(0.4, 0.8, fbm(vLocalPos * 40.0));
-    c = mix(c, vec3(0.85, 0.22, 0.55), gMask * (0.4 + 0.55 * blotch));
-    gRough = gMask * 0.25;
+    c = mix(c, vec3(0.85, 0.22, 0.55), sev * (0.4 + 0.55 * blotch));
+    gRough = sev * 0.25;
   } else {
     // Acute toxicity: pale / desaturated
     float lum = dot(c, vec3(0.299, 0.587, 0.114));
-    c = mix(c, mix(vec3(lum), vec3(0.34, 0.32, 0.29), 0.5), gMask * 0.7);
-    gRough = gMask * 0.35;
+    c = mix(c, mix(vec3(lum), vec3(0.34, 0.32, 0.29), 0.5), sev * 0.7);
+    gRough = sev * 0.35;
   }
 
   // Locator grid + endpoint-colored glow that breathes over time (interaction)
   float breathe = 0.82 + 0.24 * sin(uTime * 3.0);
-  vec2 guv = vPaintUv * 55.0;
+  vec2 guv = vPaintUv * 60.0;
   vec2 gf  = abs(fract(guv) - 0.5);
-  float grid = 1.0 - smoothstep(0.0, 0.09, min(gf.x, gf.y)); // thicker, clearer lines
-  c += hue * grid * gMask * 1.15 * breathe;   // bright grid
-  c += hue * gMask * 0.18;                      // soft base glow inside the patch
+  float grid = 1.0 - smoothstep(0.0, 0.05, min(gf.x, gf.y)); // thin, fine lines
+  vec3 gridCol = mix(hue, vec3(1.0), 0.4);       // slight whiten
+  // "present" = wherever painted (any score) → the grid stays BRIGHT as a
+  // location marker, while the redness/swelling above track the actual score.
+  float present = smoothstep(0.02, 0.12, gMask);
+  c += gridCol * grid * present * 1.6 * breathe; // bright location grid
+  c += hue * present * 0.10;                       // faint tint marking the patch
   diffuseColor.rgb = clamp(c, 0.0, 1.0);
-  gNeon = (hue * grid * 0.95 + hue * 0.22) * gMask * breathe;
+  gNeon = (gridCol * grid * 1.1 + hue * 0.2) * present * breathe;
 }`
           )
           .replace(
@@ -562,7 +616,7 @@ roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
     stampsRef.current.push({
       cx: uv.x * W,
       cy: uv.y * H, // flipY=false + raw uv → no inversion
-      r: 0.045 * W,
+      r: 0.028 * W,
       R: Math.round(cr * v * 255),
       G: Math.round(cg * v * 255),
       B: Math.round(cb * v * 255),
@@ -572,6 +626,46 @@ roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
       hasPainted.current = true;
       onPaintStart?.();
     }
+  };
+
+  // Erase the WHOLE painted blob under the click: flood-fill the connected
+  // painted pixels from the clicked point and clear them all at once.
+  const eraseWholeAt = (uv: THREE.Vector2) => {
+    const W = paint.canvas.width;
+    const H = paint.canvas.height;
+    const sx = Math.max(0, Math.min(W - 1, Math.floor(uv.x * W)));
+    const sy = Math.max(0, Math.min(H - 1, Math.floor(uv.y * H)));
+    const img = paint.ctx.getImageData(0, 0, W, H);
+    const d = img.data;
+    const TH = 12; // painted if any channel > TH
+    const painted = (x: number, y: number) => {
+      const i = (y * W + x) * 4;
+      return Math.max(d[i], d[i + 1], d[i + 2]) > TH;
+    };
+    if (!painted(sx, sy)) return; // clicked empty skin → nothing to erase
+    const seen = new Uint8Array(W * H);
+    const stack: number[] = [sy * W + sx];
+    seen[sy * W + sx] = 1;
+    while (stack.length) {
+      const p = stack.pop()!;
+      const x = p % W;
+      const y = (p / W) | 0;
+      const i = p * 4;
+      d[i] = d[i + 1] = d[i + 2] = d[i + 3] = 0; // clear pixel
+      if (x + 1 < W && !seen[p + 1] && painted(x + 1, y)) { seen[p + 1] = 1; stack.push(p + 1); }
+      if (x - 1 >= 0 && !seen[p - 1] && painted(x - 1, y)) { seen[p - 1] = 1; stack.push(p - 1); }
+      if (y + 1 < H && !seen[p + W] && painted(x, y + 1)) { seen[p + W] = 1; stack.push(p + W); }
+      if (y - 1 >= 0 && !seen[p - W] && painted(x, y - 1)) { seen[p - W] = 1; stack.push(p - W); }
+    }
+    paint.ctx.putImageData(img, 0, 0);
+    paint.tex.needsUpdate = true;
+    // Drop stamps inside the cleared blob or right next to the click.
+    const rr = 0.08 * W;
+    stampsRef.current = stampsRef.current.filter((s) => {
+      const px = Math.max(0, Math.min(W - 1, Math.round(s.cx)));
+      const py = Math.max(0, Math.min(H - 1, Math.round(s.cy)));
+      return !seen[py * W + px] && Math.hypot(s.cx - sx, s.cy - sy) > rr;
+    });
   };
 
   // Read back the painted intensity (red channel 0..255) at a UV — used to tell
@@ -658,35 +752,45 @@ roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
   }, []);
 
   return (
-    <primitive
-      object={scene}
-      onPointerDown={(e: any) => {
-        if (!armed || !isSkin(e.object)) return;
-        if (!setBrushForRegion(e.point)) return;
-        e.stopPropagation();
-        painting.current = true;
-        setControls(false);
-        if (e.uv) paintAt(e.uv);
-      }}
-      onPointerMove={(e: any) => {
-        if (!isSkin(e.object)) return;
-        if (painting.current) {
+    <group ref={group}>
+      <primitive
+        object={scene}
+        onPointerOver={() => onOverModel?.(true)}
+        onPointerDown={(e: any) => {
+          if (!isSkin(e.object)) return;
+          if (eraseRef.current) {
+            e.stopPropagation();
+            if (e.uv) eraseWholeAt(e.uv); // one click removes the whole painted blob
+            return;
+          }
           if (!armed) return;
           if (!setBrushForRegion(e.point)) return;
           e.stopPropagation();
+          painting.current = true;
+          setControls(false);
           if (e.uv) paintAt(e.uv);
-          return;
-        }
-        // Not painting → report hover over painted spots (for the 2s tooltip)
-        if (onHover && e.uv) {
-          const v = sampleAt(e.uv);
-          if (v > 20) onHover({ x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY, region: regionAt(e.point) });
-          else onHover(null);
-        }
-      }}
-      onPointerOut={() => onHover?.(null)}
-      onPointerUp={stopPaint}
-    />
+        }}
+        onPointerMove={(e: any) => {
+          if (!isSkin(e.object)) return;
+          if (painting.current) {
+            if (!armed) return;
+            if (!setBrushForRegion(e.point)) return;
+            e.stopPropagation();
+            if (e.uv) paintAt(e.uv);
+            return;
+          }
+          // Report hover on ANY skin point → tooltip shows that part's results
+          if (onHover && e.uv) {
+            onHover({ x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY, region: regionAt(e.point) });
+          }
+        }}
+        onPointerOut={() => {
+          onHover?.(null);
+          onOverModel?.(false);
+        }}
+        onPointerUp={stopPaint}
+      />
+    </group>
   );
 }
 
@@ -699,14 +803,17 @@ export function FacePaintCanvas({
   armed = true,
   background = "#2A2320",
   productName = "สูตรที่ประเมิน",
+  eraseMode = false,
 }: {
   layers?: PaintLayer[];
   armed?: boolean;
   background?: string;
   productName?: string;
+  eraseMode?: boolean;
 }) {
   const apiRef = useRef<PaintApi | null>(null);
   const [painted, setPainted] = useState(false);
+  const [zoomOn, setZoomOn] = useState(false); // wheel-zoom only while hovering the model
 
   // Hover-hold tooltip: show a small info box after the pointer rests ~2s on a
   // painted spot. Restart the timer only when the pointer moves far enough.
@@ -759,17 +866,20 @@ export function FacePaintCanvas({
             <PaintFaceModel
               layers={layers}
               armed={armed}
+              eraseMode={eraseMode}
               apiRef={apiRef}
               onPaintStart={() => setPainted(true)}
               onHover={handleHover}
+              onOverModel={setZoomOn}
             />
           </Bounds>
         </Suspense>
-        {/* Left–right rotation only (vertical locked, no zoom / pan) */}
+        {/* Left–right rotation + zoom toward the cursor (vertical locked, no pan) */}
         <OrbitControls
           makeDefault
           enableRotate
-          enableZoom={false}
+          enableZoom={zoomOn}
+          zoomSpeed={0.9}
           enablePan={false}
           enableDamping
           dampingFactor={0.05}

@@ -122,31 +122,6 @@ export default function VoiceAssistant({
     setSpeaking(false);
   };
 
-  const answer = (q: string): string => {
-    if (!ready || !layers.length) return "ยังไม่มีผลการประเมินค่ะ กรุณากด ▶ Run ประเมินก่อนนะคะ";
-    const max = layers.reduce((a, b) => (b.score > a.score ? b : a));
-    const byKey = (k: string) => layers.find((l) => l.key === k);
-    const line = (l?: Layer) => (l ? `${Math.round(l.score)} ระดับ${BAND_TH[l.band]}` : "ไม่มีข้อมูล");
-
-    if (q.includes("ตา")) return `ความเสี่ยงระคายเคืองตาอยู่ที่ ${line(byKey("eye"))} ค่ะ`;
-    if (q.includes("แพ้")) return `ความเสี่ยงแพ้ผิวหนังอยู่ที่ ${line(byKey("sens"))} ค่ะ`;
-    if (q.includes("พิษ")) return `ความเสี่ยงพิษเฉียบพลันอยู่ที่ ${line(byKey("acute"))} ค่ะ`;
-    if (q.includes("ผิว") || q.includes("ระคาย")) return `ความเสี่ยงระคายเคืองผิวอยู่ที่ ${line(byKey("skin"))} ค่ะ`;
-
-    if (q.includes("แนะนำ") || q.includes("ควร") || q.includes("ปลอดภัย")) {
-      if (max.band === "high" || max.band === "severe")
-        return `${productName} มีความเสี่ยง${BAND_TH[max.band]}ด้าน ${max.label} แนะนำให้ลดความเข้มข้น หลีกเลี่ยงบริเวณบอบบางเช่นรอบดวงตา และทำ patch test ก่อนใช้จริงค่ะ`;
-      if (max.band === "moderate")
-        return `${productName} มีความเสี่ยงปานกลางด้าน ${max.label} ควรทดสอบกับผิวบริเวณเล็กๆ ก่อนใช้งานจริงค่ะ`;
-      return `${productName} มีความเสี่ยงต่ำในทุกด้าน ค่อนข้างปลอดภัย แต่แนะนำให้ทำ patch test ตามปกติค่ะ`;
-    }
-    if (q.includes("เสี่ยง") || q.includes("สูง") || q.includes("อันไหน") || q.includes("มากสุด"))
-      return `ด้านที่เสี่ยงสูงสุดคือ ${max.label} ที่ ${Math.round(max.score)} ระดับ${BAND_TH[max.band]} ค่ะ`;
-
-    const parts = layers.map((l) => `${l.label} ${Math.round(l.score)} ระดับ${BAND_TH[l.band]}`).join(" · ");
-    return `ผลประเมินของ ${productName} มีดังนี้ค่ะ ${parts}`;
-  };
-
   const buildContext = () => {
     if (!ready || !layers.length) return "ยังไม่มีผลการประเมิน (ผู้ใช้ยังไม่ได้กด Run)";
     const rows = layers.map((l) => `- ${l.label}: ${Math.round(l.score)}/100 (ระดับ${BAND_TH[l.band]})`).join("\n");
@@ -160,6 +135,7 @@ export default function VoiceAssistant({
     setInput("");
     setThinking(true);
     let a = "";
+    let err = "";
     try {
       const res = await fetch(`${API}/api/chat/`, {
         method: "POST",
@@ -167,11 +143,16 @@ export default function VoiceAssistant({
         body: JSON.stringify({ question: text, context: buildContext() }),
       });
       if (res.ok) a = (await res.json()).answer;
-    } catch {
-      /* backend/Gemini unavailable → rule-based fallback below */
+      else err = `(${res.status}) ${await res.text()}`;
+    } catch (e) {
+      err = String(e);
     }
-    if (!a) a = answer(text);
     setThinking(false);
+    if (!a) {
+      // Gemini only — no rule-based fallback. Surface the real error to debug.
+      setMessages((m) => [...m, { role: "ai", text: `⚠️ เชื่อมต่อ AI ไม่ได้ ${err}`.slice(0, 400) }]);
+      return;
+    }
     const { clean, formula } = parseFormula(a);
     setMessages((m) => [...m, { role: "ai", text: clean, formula }]);
     speak(clean); // don't read the JSON block aloud
@@ -268,12 +249,32 @@ export default function VoiceAssistant({
                 {m.text}
               </div>
               {m.role === "ai" && m.formula && m.formula.length > 0 && (
-                <button
-                  onClick={() => onImportFormula?.(m.formula!)}
-                  className="mt-1 rounded-md border border-brand bg-teal-50 px-2 py-1 text-[10px] font-semibold text-brand-dark transition hover:bg-brand hover:text-white"
-                >
-                  ⬇ นำสูตรเข้า workspace ({m.formula.length} สาร)
-                </button>
+                <div className="mt-1.5 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                  <div className="mb-1 text-[10px] font-semibold text-slate-500">
+                    🧪 สูตรที่แนะนำ ({m.formula.length} สาร)
+                  </div>
+                  <div className="space-y-1">
+                    {m.formula.map((f, j) => (
+                      <div key={j} className="rounded border border-slate-200 bg-white px-2 py-1">
+                        <div className="flex items-center gap-1 text-[11px]">
+                          <span className="text-brand">◇</span>
+                          <span className="flex-1 truncate font-medium text-slate-800">{f.name}</span>
+                          <span className="font-mono tabular-nums text-slate-700">{f.concentration}</span>
+                          <span className="text-[9px] text-slate-400">%</span>
+                        </div>
+                        {f.smiles && (
+                          <div className="truncate pl-4 font-mono text-[9px] text-slate-400">{f.smiles}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => onImportFormula?.(m.formula!)}
+                    className="mt-1.5 w-full rounded-md bg-brand px-2 py-1.5 text-[11px] font-semibold text-white transition hover:bg-brand-dark"
+                  >
+                    ⬇ Add to workspace
+                  </button>
+                </div>
               )}
             </div>
           ))}

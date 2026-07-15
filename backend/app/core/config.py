@@ -40,10 +40,10 @@ class Settings(BaseSettings):
     # Models (read-only mount of scientific/models — used for the model card)
     MODELS_DIR: str = "/models"
 
-    # Gemini (voice assistant). Key is read from the environment / .env only —
-    # never hard-coded and never sent to the frontend.
-    GEMINI_API_KEY: str = "AQ.Ab8RN6KI7eocSBXsQrvKjufrsgcxc69FSv75xcm5Y9Rl42dQaw"
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    # LLM for the voice assistant — Groq (OpenAI-compatible, free). Key is read
+    # from the environment / .env only — never hard-coded, never sent to browser.
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
 
 
 settings = Settings()
