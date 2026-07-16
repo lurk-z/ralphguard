@@ -1,49 +1,29 @@
 "use client";
 
-// Product templates — starter formulas the user can browse for this project.
-// Mock data for now; "ใช้เทมเพลตนี้" just goes to the assess workspace
-// (prefilling a new formula box from a template is a follow-up feature).
+// Product templates — the starter formulas from catalog.ts, the same list
+// /assess offers in its "create formula" modal. Picking one hands its id to the
+// assess workspace, which builds the formula box from it.
 import { useRouter } from "next/navigation";
-import { Beaker, FlaskConical } from "lucide-react";
+import { PRODUCT_TEMPLATES, type RiskLevel } from "@/lib/catalog";
 
-type Template = {
-  id: string;
-  name: string;
-  description: string;
-  substanceCount: number;
-  color: string;
+const RISK_LABEL: Record<RiskLevel, string> = {
+  low: "ความเสี่ยงต่ำ",
+  mid: "ความเสี่ยงกลาง",
+  high: "ความเสี่ยงสูง",
 };
 
-const TEMPLATES: Template[] = [
-  {
-    id: "hand-cream",
-    name: "Hand Cream Base",
-    description: "สูตรพื้นฐานครีมทามือ เน้นความชุ่มชื้นและเนื้อครีมข้น",
-    substanceCount: 6,
-    color: "#3B82F6",
-  },
-  {
-    id: "serum",
-    name: "Facial Serum Base",
-    description: "สูตรพื้นฐานเซรั่มบำรุงผิวหน้า เนื้อเบา ซึมไว",
-    substanceCount: 5,
-    color: "#22C55E",
-  },
-  {
-    id: "sunscreen",
-    name: "Sunscreen Base",
-    description: "สูตรพื้นฐานกันแดด เน้นการกระจายตัวและความคงตัว",
-    substanceCount: 7,
-    color: "#F97316",
-  },
-  {
-    id: "cleanser",
-    name: "Facial Cleanser Base",
-    description: "สูตรพื้นฐานผลิตภัณฑ์ทำความสะอาดผิวหน้า อ่อนโยน",
-    substanceCount: 5,
-    color: "#EC4899",
-  },
-];
+const RISK_CLASS: Record<RiskLevel, string> = {
+  low: "border-emerald-500/40 text-emerald-600 dark:text-emerald-400",
+  mid: "border-amber-500/40 text-amber-600 dark:text-amber-400",
+  high: "border-rose-500/40 text-rose-600 dark:text-rose-400",
+};
+
+const REGION_LABEL: Record<string, string> = {
+  face: "ใบหน้า",
+  eye: "รอบดวงตา",
+  hand: "มือ",
+  forearm: "ท่อนแขน",
+};
 
 export default function TemplatesPage({ params }: { params: { id: string } }) {
   const router = useRouter();
@@ -59,22 +39,38 @@ export default function TemplatesPage({ params }: { params: { id: string } }) {
 
       <main className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {TEMPLATES.map((t) => (
+          {PRODUCT_TEMPLATES.map((t) => (
             <div key={t.id} className="flex flex-col rounded-xl border border-border bg-card p-4 shadow-sm">
-              <span
-                className="grid size-10 shrink-0 place-items-center rounded-lg"
-                style={{ backgroundColor: `${t.color}1A` }}
-              >
-                <Beaker className="size-5" style={{ color: t.color }} />
-              </span>
-              <p className="mt-3 text-sm font-semibold text-foreground">{t.name}</p>
-              <p className="mt-1 flex-1 text-xs text-muted-foreground">{t.description}</p>
-              <p className="mt-2 text-xs text-muted-foreground">{t.substanceCount} สาร</p>
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm font-semibold text-foreground">{t.name}</p>
+                {t.risk && (
+                  <span
+                    className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium ${RISK_CLASS[t.risk]}`}
+                  >
+                    {RISK_LABEL[t.risk]}
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 flex-1 text-xs text-muted-foreground">{t.desc}</p>
+
+              <div className="mt-3 space-y-1 border-t border-border/60 pt-2">
+                {t.formula.map((f) => (
+                  <div key={f.smiles} className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="truncate text-muted-foreground">{f.name}</span>
+                    <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
+                      {f.concentration}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                {t.formula.length} สาร · ทดสอบที่{REGION_LABEL[t.region] ?? t.region}
+              </p>
               <button
-                onClick={() => router.push(`/projects/${params.id}/assess`)}
-                className="mt-3 flex items-center justify-center gap-1.5 rounded-lg border border-primary/40 py-2 text-xs font-medium text-primary transition-colors hover:bg-accent/40"
+                onClick={() => router.push(`/projects/${params.id}/assess?template=${t.id}`)}
+                className="mt-3 rounded-lg border border-primary/40 py-2 text-xs font-medium text-primary transition-colors hover:bg-accent/40"
               >
-                <FlaskConical className="size-3.5" />
                 ใช้เทมเพลตนี้
               </button>
             </div>

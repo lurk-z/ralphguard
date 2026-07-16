@@ -8,7 +8,7 @@
 // Chemical list is mock data; everything here drives local state only.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Progress } from "@/components/ui/progress";
 import {
   Beaker,
@@ -52,8 +52,8 @@ import {
 import AiChatPanel from "@/components/AiChatPanel";
 import CanvasToolbar from "@/components/CanvasToolbar";
 import { CHEMICAL_GROUPS, chemById } from "@/lib/chemicals";
-import { isWaterItem, withWaterBase } from "@/lib/catalog";
-import type { FormulaItem } from "@/lib/api";
+import { PRODUCT_TEMPLATES, isWaterItem, withWaterBase } from "@/lib/catalog";
+import type { FormulaItem, Region } from "@/lib/api";
 import { buildMockAssessmentResult, saveMockAssessmentResult } from "@/lib/mockAssessment";
 
 function ModelLoader() {
@@ -213,7 +213,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
     // QSAR backend is wired up here; results/page.tsx already prefers a
     // real API response over this mock and only falls back to it.
     setTimeout(() => {
-      const result = buildMockAssessmentResult(activeBox?.items ?? [], "face");
+      const result = buildMockAssessmentResult(activeBox?.items ?? [], region);
       saveMockAssessmentResult(params.id, result);
       setHasAssessed(true);
       setRunning(false);
@@ -277,6 +277,9 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   ]);
   const [activeBoxId, setActiveBoxId] = useState<string | null>("box-1");
   const [editingBoxId, setEditingBoxId] = useState<string | null>(null);
+  // Which body site the formula is assessed against. Templates set it; there is
+  // no picker for it in this workspace yet (/assess has one).
+  const [region, setRegion] = useState<Region>("face");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const [pickerCategory, setPickerCategory] = useState<string>("all");
@@ -325,6 +328,40 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
     // popover instead so a fresh box gets a name first.
     setSettingsOpenId(id);
   };
+
+  // ── Arriving from the templates page with ?template=<id> ──
+  // Build a box from the catalog template, mirroring what /assess's create-
+  // formula modal does. Runs once: the param is dropped straight afterwards so
+  // a refresh (or a back-navigation) can't stack duplicate boxes.
+  const templateId = useSearchParams().get("template");
+  const templateApplied = useRef(false);
+  useEffect(() => {
+    if (!templateId || templateApplied.current) return;
+    const t = PRODUCT_TEMPLATES.find((x) => x.id === templateId);
+    if (!t) return;
+    templateApplied.current = true;
+
+    boxIdSeq.current += 1;
+    const id = `box-${boxIdSeq.current}`;
+    const iconsList = Object.keys(BOX_ICONS) as BoxIconName[];
+    setBoxes((prev) => [
+      ...prev,
+      {
+        id,
+        name: t.name,
+        color: BOX_COLORS[(boxIdSeq.current - 1) % BOX_COLORS.length],
+        icon: iconsList[(boxIdSeq.current - 1) % iconsList.length],
+        // Template formulas are actives-only and every SMILES is in the
+        // catalog, so these all resolve through chemById.
+        items: t.formula.map((f) => ({ chemicalId: f.smiles, concentration: f.concentration })),
+      },
+    ]);
+    setActiveBoxId(id);
+    // /assess narrows a template's region to what the 3D head can actually
+    // show, so hand/forearm templates are assessed as face there too.
+    setRegion(t.region === "eye" ? "eye" : "face");
+    router.replace(`/projects/${params.id}/assess`, { scroll: false });
+  }, [templateId, params.id, router]);
 
   const changeBoxColor = (id: string, color: string) => {
     setBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, color } : b)));
@@ -948,7 +985,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
             </TabsContent>
 
             <TabsContent value="nodemods" className="relative min-h-0 flex-1 mt-0">
-              <FormulaGraph region="face" />
+              <FormulaGraph region={region} />
             </TabsContent>
           </Tabs>
         </main>
