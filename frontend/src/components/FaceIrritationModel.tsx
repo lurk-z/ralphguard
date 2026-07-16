@@ -15,7 +15,7 @@
  * Asset: frontend/public/models/head.glb (Draco-compressed; drei fetches the decoder).
  */
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Bounds, OrbitControls, useAnimations, useGLTF } from "@react-three/drei";
+import { OrbitControls, useAnimations, useGLTF } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
@@ -30,6 +30,16 @@ const TIP_BAND_HEX: Record<string, string> = {
 };
 
 export type PaintLayer = { key: string; label: string; score: number; color: string; band: string };
+
+// The shader keys off the brush HUE to pick lesion morphology (flat/wet for eye,
+// hives for sensitisation, …), so anything synthesising a layer must reuse these
+// exact colours rather than an arbitrary red.
+const EP_COLOR: Record<string, string> = {
+  skin: "#FF3B5C", // แดง
+  eye: "#22D3EE", // ฟ้า
+  sens: "#A855F7", // ม่วง
+  acute: "#F59E0B", // ส้ม
+};
 
 /** #RRGGBB -> [r,g,b] in 0..1 */
 function hex01(hex: string): [number, number, number] {
@@ -362,6 +372,7 @@ function PaintFaceModel({
   onPaintStart,
   onHover,
   onOverModel,
+  brushSizePct = 50,
 }: {
   layers: PaintLayer[]; // all endpoint scores; the brush picks by region at click time
   armed: boolean;
@@ -370,6 +381,7 @@ function PaintFaceModel({
   onPaintStart?: () => void;
   onHover?: (info: { x: number; y: number; region: string } | null) => void;
   onOverModel?: (over: boolean) => void; // enable wheel-zoom only over the model
+  brushSizePct?: number; // brush diameter from the toolbar slider (10–100)
 }) {
   const { scene: rawScene, animations } = useGLTF("/models/head.glb", true);
   const gl = useThree((s) => s.gl);
@@ -388,6 +400,12 @@ function PaintFaceModel({
   const group = useRef<THREE.Group>(null);
   const { actions } = useAnimations(animations, group);
   usePlayAllAnimations(actions);
+  useFaceCameraFit(group);
+
+  const brushSizeRef = useRef(brushSizePct);
+  useEffect(() => {
+    brushSizeRef.current = brushSizePct;
+  }, [brushSizePct]);
 
   // Offscreen paint canvas (self-consistent: flipY=false + raw uv both when
   // drawing and sampling, so orientation is correct regardless of the model map).
@@ -691,12 +709,15 @@ roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
     const H = paint.canvas.height;
     const v = brushRef.current;
     const [cr, cg, cb] = colorRef.current;
+    // Map the toolbar's 10–100 slider onto a 0.010–0.030 × W stamp radius.
+    const mappedPct = 10 + ((brushSizeRef.current - 10) * 20) / 90;
+    const r = (mappedPct / 1000) * W;
     // Register a stamp at full target value/color; the frame loop grows it 0→full
     // so the swelling/redness develops gradually after the click.
     stampsRef.current.push({
       cx: uv.x * W,
       cy: uv.y * H, // flipY=false + raw uv → no inversion
-      r: 0.028 * W,
+      r,
       R: Math.round(cr * v * 255),
       G: Math.round(cg * v * 255),
       B: Math.round(cb * v * 255),
@@ -878,22 +899,117 @@ roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
  * Interactive paint canvas — the assessment result arms a brush; the user drags
  * on the skin and the redness blooms where painted. Self-contained wrapper.
  */
+// Two-way bridge between the toolbar's zoom slider and OrbitControls: pushes
+// slider changes onto the camera, and reports orbit/wheel zoom back as a
+// percentage. `lastPctRef` guards both directions against feedback loops.
+function ZoomController({ zoomPct, onZoomChange }: { zoomPct: number, onZoomChange?: (pct: number) => void }) {
+  const { camera, controls } = useThree();
+  const MIN_DIST = 0.5;
+  const MAX_DIST = 2.5;
+
+  const pctToDist = (pct: number) => MAX_DIST - (pct / 100) * (MAX_DIST - MIN_DIST);
+  const distToPct = (dist: number) => Math.max(0, Math.min(100, Math.round(((MAX_DIST - dist) / (MAX_DIST - MIN_DIST)) * 100)));
+
+  const lastPctRef = useRef(zoomPct);
+
+  useEffect(() => {
+    if (zoomPct !== lastPctRef.current) {
+      lastPctRef.current = zoomPct;
+      if (controls) {
+        const ctrl = controls as any;
+        const dir = camera.position.clone().sub(ctrl.target).normalize();
+        const newPos = ctrl.target.clone().add(dir.multiplyScalar(pctToDist(zoomPct)));
+        camera.position.copy(newPos);
+        ctrl.update();
+      }
+    }
+  }, [zoomPct, camera, controls]);
+
+  useEffect(() => {
+    if (!controls || !onZoomChange) return;
+    const ctrl = controls as any;
+    const onChange = () => {
+      const dist = camera.position.distanceTo(ctrl.target);
+      const newPct = distToPct(dist);
+      if (newPct !== lastPctRef.current) {
+        lastPctRef.current = newPct;
+        onZoomChange(newPct);
+      }
+    };
+    ctrl.addEventListener("change", onChange);
+    return () => ctrl.removeEventListener("change", onChange);
+  }, [controls, camera, onZoomChange]);
+
+  useEffect(() => {
+    if (controls) {
+      const ctrl = controls as any;
+      const dist = camera.position.distanceTo(ctrl.target);
+      const currentPct = distToPct(dist);
+      if (currentPct !== zoomPct) {
+        const dir = camera.position.clone().sub(ctrl.target).normalize();
+        const newPos = ctrl.target.clone().add(dir.multiplyScalar(pctToDist(zoomPct)));
+        camera.position.copy(newPos);
+        ctrl.update();
+      }
+    }
+  }, []); // eslint-disable-line
+
+  return null;
+}
+
 export function FacePaintCanvas({
   layers = [],
   armed = true,
   background = "#2A2320",
   productName = "สูตรที่ประเมิน",
   eraseMode = false,
+  zoomPct = 50,
+  brushSizePct = 50,
+  onZoomChange,
+  brushValue,
+  clearTrigger,
 }: {
   layers?: PaintLayer[];
   armed?: boolean;
   background?: string;
   productName?: string;
   eraseMode?: boolean;
+  zoomPct?: number; // driven by the toolbar slider (0–100)
+  brushSizePct?: number; // driven by the toolbar slider (10–100)
+  onZoomChange?: (pct: number) => void; // reports orbit-driven zoom back to the toolbar
+  /**
+   * Single 0–1 intensity for callers that have no per-endpoint breakdown yet
+   * (the project workspace still runs on mock scores). Ignored once `layers` is
+   * non-empty — that is the real, region-aware input.
+   */
+  brushValue?: number;
+  /** Clear the painted skin whenever this number changes (toolbar clear button). */
+  clearTrigger?: number;
 }) {
   const apiRef = useRef<PaintApi | null>(null);
   const [painted, setPainted] = useState(false);
   const [zoomOn, setZoomOn] = useState(false); // wheel-zoom only while hovering the model
+
+  // Fall back to a flat brush when the caller only has one number: give skin and
+  // eye the same score so every region still paints, in the endpoint colours the
+  // shader expects.
+  const effectiveLayers = useMemo(() => {
+    if (layers.length || brushValue == null) return layers;
+    const score = Math.max(0, Math.min(1, brushValue)) * 100;
+    return [
+      { key: "skin", label: "ระคายผิว", score, color: EP_COLOR.skin, band: "" },
+      { key: "eye", label: "ระคายตา", score, color: EP_COLOR.eye, band: "" },
+    ];
+  }, [layers, brushValue]);
+
+  // Toolbar-driven clear. Skip the mount pass so the canvas isn't wiped on load.
+  const lastClear = useRef(clearTrigger);
+  useEffect(() => {
+    if (clearTrigger === lastClear.current) return;
+    lastClear.current = clearTrigger;
+    apiRef.current?.clear();
+    setPainted(false);
+  }, [clearTrigger]);
 
   // Hover-hold tooltip: show a small info box after the pointer rests ~2s on a
   // painted spot. Restart the timer only when the pointer moves far enough.
@@ -925,7 +1041,7 @@ export function FacePaintCanvas({
   useEffect(() => () => { if (tipTimer.current) clearTimeout(tipTimer.current); }, []);
 
   return (
-    <div className={`relative h-full w-full ${armed ? "cursor-crosshair" : ""}`}>
+    <div className={`relative h-full w-full overflow-hidden ${armed ? "cursor-crosshair" : ""}`}>
       <Canvas
         camera={{ fov: 70, position: [90, 30, 390] }}
         dpr={[1, 1.5]}
@@ -942,19 +1058,19 @@ export function FacePaintCanvas({
         <directionalLight position={[-4, 1, -2]} intensity={0.5} color="#bcd3ff" />
         <directionalLight position={[0, 2, -5]} intensity={0.6} color="#ffffff" />
         <Suspense fallback={null}>
-          <Bounds fit clip observe margin={1.15}>
-            <PaintFaceModel
-              layers={layers}
-              armed={armed}
-              eraseMode={eraseMode}
-              apiRef={apiRef}
-              onPaintStart={() => setPainted(true)}
-              onHover={handleHover}
-              onOverModel={setZoomOn}
-            />
-          </Bounds>
+          <PaintFaceModel
+            layers={effectiveLayers}
+            armed={armed}
+            eraseMode={eraseMode}
+            apiRef={apiRef}
+            onPaintStart={() => setPainted(true)}
+            onHover={handleHover}
+            onOverModel={setZoomOn}
+            brushSizePct={brushSizePct}
+          />
         </Suspense>
-        {/* Left–right rotation + zoom toward the cursor (vertical locked, no pan) */}
+        <ZoomController zoomPct={zoomPct} onZoomChange={onZoomChange} />
+        {/* Orbit + zoom toward the cursor (zoom only while the pointer is over the model, no pan) */}
         <OrbitControls
           makeDefault
           enableRotate
@@ -963,13 +1079,15 @@ export function FacePaintCanvas({
           enablePan={false}
           enableDamping
           dampingFactor={0.05}
-          minPolarAngle={Math.PI / 2}
-          maxPolarAngle={Math.PI / 2}
+          minPolarAngle={Math.PI * 0.25}
+          maxPolarAngle={Math.PI * 0.75}
+          minDistance={0.5}
+          maxDistance={2.5}
         />
       </Canvas>
 
       {/* Hint + clear */}
-      {armed && !painted && layers.length > 0 && (
+      {armed && !painted && effectiveLayers.length > 0 && (
         <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-brand/40 bg-white/85 px-4 py-1.5 text-xs font-medium text-brand-dark shadow-card backdrop-blur">
           🖌️ คลิกบนส่วนของโมเดล — ผิวจะแสดง ระคายผิว/แพ้/พิษ · ตาจะแสดงระคายตา
         </div>
@@ -996,7 +1114,7 @@ export function FacePaintCanvas({
             <span className="font-semibold">{tip.region || "—"}</span>
           </div>
           <div className="space-y-1">
-            {layers
+            {effectiveLayers
               .filter((L) => regionEndpoints(tip.region).includes(L.key))
               .map((L) => {
                 // Score adjusted by the sensitivity of THIS part → differs by location.
@@ -1014,7 +1132,7 @@ export function FacePaintCanvas({
                   </div>
                 );
               })}
-            {!layers.length && <div className="text-[11px] text-slate-400">ยังไม่มีผล</div>}
+            {!effectiveLayers.length && <div className="text-[11px] text-slate-400">ยังไม่มีผล</div>}
           </div>
         </div>
       )}

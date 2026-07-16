@@ -17,7 +17,7 @@ const BAND_TH: Record<string, string> = {
   severe: "รุนแรง",
 };
 
-type FormulaItem = { name: string; smiles: string; concentration: number };
+import type { FormulaItem } from "@/lib/api";
 
 export default function VoiceAssistant({
   productName,
