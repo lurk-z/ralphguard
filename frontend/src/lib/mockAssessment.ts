@@ -14,7 +14,11 @@ import type {
   SubstancePayload,
 } from "@/lib/api";
 
-export type MockFormulaItem = { chemicalId: string; concentration: number };
+export type MockFormulaItem = {
+  chemicalId: string; // SMILES
+  concentration: number;
+  name?: string; // set only when the catalog doesn't carry the substance
+};
 
 // Rough baseline irritation/sensitisation weight per ingredient role
 // (0 = inert, 1 = high-risk). Not derived from any real toxicology data —
@@ -78,8 +82,10 @@ export function buildMockAssessmentResult(
   items: MockFormulaItem[],
   region = "face",
 ): AssessmentResultPayload {
-  // Drop rows that carry no dose or point at a substance the catalog dropped.
-  const validItems = items.filter((it) => it.concentration > 0 && chemById(it.chemicalId));
+  // Dose-less rows contribute nothing. Substances the catalog doesn't carry
+  // (a SMILES typed into the node graph) still count — they just fall back to
+  // the default risk weight.
+  const validItems = items.filter((it) => it.concentration > 0 && it.chemicalId.trim());
   const totalConc = validItems.reduce((s, it) => s + it.concentration, 0);
   const intensity = Math.max(0, Math.min(1, totalConc / 100));
   const avgRisk =
@@ -105,7 +111,7 @@ export function buildMockAssessmentResult(
   });
 
   const substances: SubstancePayload[] = validItems.map((it) => {
-    const chem = chemById(it.chemicalId)!; // validItems guarantees this resolves
+    const chem = chemById(it.chemicalId); // undefined for off-catalog substances
     const risk = riskOf(chem);
     const perEndpoint: SubstancePayload["per_endpoint"] = {};
     (Object.keys(ENDPOINT_META) as EndpointKey[]).forEach((key) => {
@@ -120,10 +126,10 @@ export function buildMockAssessmentResult(
       };
     });
     return {
-      smiles: chem.smiles,
+      smiles: chem?.smiles ?? it.chemicalId,
       // The real endpoint returns an RDKit-canonical SMILES here; the mock keeps
       // the display name so the results table stays readable until it's wired up.
-      canonical_smiles: chem.name,
+      canonical_smiles: chem?.name ?? it.name ?? it.chemicalId,
       descriptors: {},
       per_endpoint: perEndpoint,
     };

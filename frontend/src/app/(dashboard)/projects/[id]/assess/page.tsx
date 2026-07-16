@@ -99,7 +99,16 @@ const FormulaGraph = dynamic(() => import("@/components/FormulaGraph"), {
   ),
 });
 
-type FormulaBoxItem = { chemicalId: string; concentration: number };
+type FormulaBoxItem = {
+  chemicalId: string; // SMILES — the catalog's key
+  concentration: number;
+  /**
+   * Display name for a substance the catalog does not carry — a SMILES typed
+   * into a blank node graph node, say. Catalog substances leave this unset and
+   * read their name from the catalog instead.
+   */
+  name?: string;
+};
 type FormulaBox = {
   id: string;
   name: string;
@@ -118,6 +127,9 @@ const BOX_ICONS = {
 };
 
 type BoxIconName = keyof typeof BOX_ICONS;
+
+/** Names boxes saved out of the node graph, and counts them for numbering. */
+const GRAPH_BOX_PREFIX = "สูตรจาก Node";
 
 const BOX_COLORS = [
   "#009FA5", // Teal
@@ -140,11 +152,22 @@ function boxIntensity(box: FormulaBox) {
   return Math.max(0, Math.min(1, total / 100));
 }
 
+/**
+ * Name/SMILES/role for a row, whether or not the catalog knows the substance.
+ * Off-catalog rows still render and still reach the model — they just have no
+ * catalog blurb to show.
+ */
+function itemChemical(it: FormulaBoxItem): { name: string; smiles: string; role?: string } {
+  const c = chemById(it.chemicalId);
+  if (c) return { name: c.name, smiles: c.smiles, role: c.role };
+  return { name: it.name?.trim() || "สารกำหนดเอง", smiles: it.chemicalId };
+}
+
 /** A box's rows as the catalog/API shape. Boxes hold actives only — no water. */
 function boxToFormulaItems(box: FormulaBox): FormulaItem[] {
-  return box.items.flatMap((it) => {
-    const c = chemById(it.chemicalId);
-    return c ? [{ name: c.name, smiles: c.smiles, concentration: it.concentration }] : [];
+  return box.items.map((it) => {
+    const c = itemChemical(it);
+    return { name: c.name, smiles: c.smiles, concentration: it.concentration };
   });
 }
 
@@ -327,6 +350,37 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
     // Let the user open the chemical library themselves — show the rename
     // popover instead so a fresh box gets a name first.
     setSettingsOpenId(id);
+  };
+
+  /**
+   * "💾 บันทึกเป็นสูตร" in the node graph. The graph hands its substances back
+   * with the water base already applied; boxes hold actives only, so drop it
+   * again — /assess does exactly the same on its side.
+   */
+  const saveGraphAsFormula = (items: FormulaItem[]) => {
+    const actives = items.filter((it) => it.smiles.trim() && !isWaterItem(it));
+    if (!actives.length) return;
+    boxIdSeq.current += 1;
+    const id = `box-${boxIdSeq.current}`;
+    const iconsList = Object.keys(BOX_ICONS) as BoxIconName[];
+    const n = boxes.filter((b) => b.name.startsWith(GRAPH_BOX_PREFIX)).length + 1;
+    setBoxes((prev) => [
+      ...prev,
+      {
+        id,
+        name: `${GRAPH_BOX_PREFIX} ${n}`,
+        color: BOX_COLORS[(boxIdSeq.current - 1) % BOX_COLORS.length],
+        icon: iconsList[(boxIdSeq.current - 1) % iconsList.length],
+        // Keep the graph's own name for anything the catalog doesn't carry, so
+        // a hand-typed SMILES survives the round trip.
+        items: actives.map((f) => ({
+          chemicalId: f.smiles,
+          concentration: f.concentration,
+          ...(chemById(f.smiles) ? {} : { name: f.name }),
+        })),
+      },
+    ]);
+    setActiveBoxId(id);
   };
 
   // ── Arriving from the templates page with ?template=<id> ──
@@ -700,8 +754,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                         );
                       })()}
                       {box.items.map((it) => {
-                        const c = chemById(it.chemicalId);
-                        if (!c) return null;
+                        const c = itemChemical(it);
                         return (
                           <div
                             key={it.chemicalId}
@@ -985,7 +1038,14 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
             </TabsContent>
 
             <TabsContent value="nodemods" className="relative min-h-0 flex-1 mt-0">
-              <FormulaGraph region={region} />
+              {/* key: rebuild the graph when the active box changes, so it
+                  seeds from that box instead of keeping the old nodes. */}
+              <FormulaGraph
+                key={activeBoxId}
+                seed={activeBox ? boxToFormulaItems(activeBox) : []}
+                region={region}
+                onSaveFormula={saveGraphAsFormula}
+              />
             </TabsContent>
           </Tabs>
         </main>
