@@ -123,6 +123,39 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
 export const SUBSTANCE_FLAT: (CatalogItem & { category: string })[] =
   SUBSTANCE_LIBRARY.flatMap((g) => g.items.map((it) => ({ ...it, category: g.category })));
 
+/**
+ * Normalize an ingredient label for assistant/OCR lookups. Product-facing
+ * qualifiers such as "(Vit B5)" are intentionally ignored, so an assistant
+ * action that says "Panthenol" still resolves to the curated catalog entry
+ * "Panthenol (Vit B5)".
+ */
+export function normalizeSubstanceName(name: string): string {
+  const normalized = name
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[^a-z0-9ก-๙]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+  return SUBSTANCE_NAME_ALIASES[normalized] || normalized;
+}
+
+const SUBSTANCE_NAME_ALIASES: Record<string, string> = {
+  "d panthenol": "panthenol",
+  "pro vitamin b5": "panthenol",
+  "provitamin b5": "panthenol",
+  "vit b5": "panthenol",
+  "vitamin b5": "panthenol",
+  glycerol: "glycerin",
+};
+
+/** Resolve a model-provided name to the trusted local ingredient catalog. */
+export function resolveCatalogSubstance(name: string): (CatalogItem & { category: string }) | undefined {
+  const normalized = normalizeSubstanceName(name);
+  if (!normalized) return undefined;
+  return SUBSTANCE_FLAT.find((item) => normalizeSubstanceName(item.name) === normalized);
+}
+
 // ───────────────────────── Substance info (for hover tooltips) ─────────────────────────
 export type SubstanceInfo = { role: string; note: string };
 

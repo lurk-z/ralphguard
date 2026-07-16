@@ -195,6 +195,7 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
 // ─────────────────────────── Result node ───────────────────────────
 type ResultData = {
   region: Region;
+  projectId?: number | null;
   status?: "idle" | "queued" | "running" | "completed" | "failed";
   endpoints?: Record<string, { peak_score: number }>;
   error?: string;
@@ -218,7 +219,6 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
     const seen = new Set<string>();
     const stack = [id];
     const subs: SubstanceData[] = [];
-    const mods: ModifierData[] = [];
     while (stack.length) {
       const cur = stack.pop()!;
       for (const src of incoming(cur)) {
@@ -229,7 +229,6 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
         if (n?.type === "substance") subs.push(n.data as SubstanceData);
         else if (n?.type === "modifier") {
           const md = n.data as ModifierData;
-          mods.push(md);
           if (md.smiles?.trim() && md.concentration > 0)
             subs.push({ name: md.name, smiles: md.smiles, concentration: md.concentration });
         }
@@ -247,14 +246,14 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
     }
     patch({ status: "queued", error: undefined, endpoints: undefined });
     try {
-      const { job_id } = await api.createAssessment(formula, data.region, null);
+      const { job_id } = await api.createAssessment(formula, data.region, data.projectId ?? null);
       if (pollRef.current) clearInterval(pollRef.current);
       pollRef.current = setInterval(async () => {
         try {
           const rec = await api.getAssessment(job_id);
           if (rec.status === "completed") {
             if (pollRef.current) clearInterval(pollRef.current);
-            patch({ status: "completed", endpoints: applyModifiers(rec.result?.endpoints as any, mods) });
+            patch({ status: "completed", endpoints: rec.result?.endpoints as any });
           } else if (rec.status === "failed") {
             if (pollRef.current) clearInterval(pollRef.current);
             patch({ status: "failed", error: rec.error ?? "ประเมินล้มเหลว" });
@@ -342,39 +341,13 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
 }
 
 // ─────────────────────────── Modifier node ───────────────────────────
-// A "ตัวปรับสูตร" inserted in the chain reduces an unwanted property (endpoint)
-// of the substances upstream of it — e.g. add a soothing agent to cut irritation
-// without removing the active ingredient.
-type ModTarget = "skin" | "eye" | "sens" | "acute" | "all";
+// A formula-support node is still a real chemical input. It is included in the
+// assessment formula and never subtracts risk through an arbitrary UI slider.
 type ModifierData = {
   name: string;
   smiles: string;
   concentration: number;
-  target: ModTarget;
-  reduce: number;
 };
-const MOD_TARGET_LABEL: Record<ModTarget, string> = {
-  skin: "ระคายเคืองผิว",
-  eye: "ระคายเคืองตา",
-  sens: "แพ้ผิวหนัง",
-  acute: "พิษเฉียบพลัน",
-  all: "ทุกด้าน",
-};
-
-function applyModifiers(
-  endpoints: Record<string, { peak_score: number }> | undefined,
-  mods: ModifierData[],
-): Record<string, { peak_score: number }> {
-  const out: Record<string, { peak_score: number }> = {};
-  ENDPOINTS.forEach((ep) => {
-    let sc = endpoints?.[ep]?.peak_score ?? 0;
-    mods.forEach((m) => {
-      if (m.target === ep || m.target === "all") sc *= 1 - m.reduce;
-    });
-    out[ep] = { ...(endpoints?.[ep] ?? {}), peak_score: Math.max(0, sc) };
-  });
-  return out;
-}
 
 function ModifierNode({ id, data }: NodeProps<ModifierData>) {
   const { setNodes, setEdges } = useReactFlow();
@@ -394,7 +367,7 @@ function ModifierNode({ id, data }: NodeProps<ModifierData>) {
         ×
       </button>
       <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-white !bg-amber-400" />
-      <div className="rounded-t-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800">🧩 ตัวปรับสูตร</div>
+      <div className="rounded-t-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800">🧩 สารเสริมสูตร</div>
       <div className="nodrag nowheel space-y-1.5 p-3 text-xs">
         <div className="flex items-center gap-1">
           <span className="text-amber-600">◈</span>
@@ -415,29 +388,9 @@ function ModifierNode({ id, data }: NodeProps<ModifierData>) {
           <span className="text-[10px] text-slate-500">%</span>
         </div>
         <div className="truncate pl-4 font-mono text-[10px] text-slate-400">{data.smiles || "—"}</div>
-        <label className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
-          ลดด้าน:
-          <select
-            className="rounded border border-amber-200 bg-white px-1 py-0.5 text-xs text-slate-800"
-            value={data.target}
-            onChange={(e) => patch({ target: e.target.value as ModTarget })}
-          >
-            {(["skin", "eye", "sens", "acute", "all"] as ModTarget[]).map((t) => (
-              <option key={t} value={t}>{MOD_TARGET_LABEL[t]}</option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-[11px] text-slate-600">
-          ลดลง {Math.round(data.reduce * 100)}%
-          <input
-            type="range"
-            min={0}
-            max={90}
-            value={Math.round(data.reduce * 100)}
-            onChange={(e) => patch({ reduce: Number(e.target.value) / 100 })}
-            className="w-full accent-amber-500"
-          />
-        </label>
+        <div className="rounded border border-amber-200 bg-white/70 px-2 py-1.5 text-[10px] leading-snug text-amber-800">
+          สารนี้จะถูกส่งเข้า scientific pipeline จริง ระบบไม่ลดคะแนนด้วยค่าที่กำหนดเอง
+        </div>
       </div>
       <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-white !bg-amber-400" />
     </div>
@@ -454,7 +407,7 @@ const DEFAULT_SEED: FormulaItem[] = [
   { name: "Aspirin", smiles: "CC(=O)Oc1ccccc1C(=O)O", concentration: 5 },
 ];
 
-function buildGraph(seed: FormulaItem[], region: Region): { nodes: Node[]; edges: Edge[] } {
+function buildGraph(seed: FormulaItem[], region: Region, projectId?: number | null): { nodes: Node[]; edges: Edge[] } {
   const items = seed.length ? seed : DEFAULT_SEED;
   const nodes: Node[] = items.map((it, i) => ({
     id: `s${i + 1}`,
@@ -463,7 +416,7 @@ function buildGraph(seed: FormulaItem[], region: Region): { nodes: Node[]; edges
     data: { name: it.name, smiles: it.smiles, concentration: it.concentration },
   }));
   const cy = 40 + Math.max(0, items.length - 1) * 100;
-  nodes.push({ id: "r1", type: "result", position: { x: 460, y: cy }, data: { region, status: "idle" } });
+  nodes.push({ id: "r1", type: "result", position: { x: 460, y: cy }, data: { region, projectId, status: "idle" } });
   const edges: Edge[] = items.map((_, i) => ({
     id: `e-s${i + 1}`,
     source: `s${i + 1}`,
@@ -476,13 +429,15 @@ function buildGraph(seed: FormulaItem[], region: Region): { nodes: Node[]; edges
 function GraphInner({
   seed,
   region,
+  projectId,
   onSaveFormula,
 }: {
   seed: FormulaItem[];
   region: Region;
+  projectId?: number | null;
   onSaveFormula?: (items: FormulaItem[]) => void;
 }) {
-  const initial = useMemo(() => buildGraph(seed, region), []); // seed once on mount
+  const initial = useMemo(() => buildGraph(seed, region, projectId), []); // seed once on mount
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
 
@@ -555,7 +510,7 @@ function GraphInner({
         id: nextId(),
         type: "result",
         position: { x: 500, y: 40 + Math.min(nds.length, 6) * 90 },
-        data: { region, status: "idle" },
+        data: { region, projectId, status: "idle" },
       },
     ]);
 
@@ -568,7 +523,7 @@ function GraphInner({
         id: nextId(),
         type: "modifier",
         position: { x: 250, y: 40 + Math.min(nds.length, 6) * 60 },
-        data: { name: it.name, smiles: it.smiles, concentration: it.conc, target: "skin", reduce: 0.3 },
+        data: { name: it.name, smiles: it.smiles, concentration: it.conc },
       },
     ]);
   };
@@ -672,17 +627,17 @@ function GraphInner({
           )}
         </div>
 
-        {/* Add-modifier — pick a REAL substance from the catalog */}
+        {/* Add a real supporting ingredient from the catalog. */}
         <select
           value=""
           onChange={(e) => {
             if (e.target.value) addModifierBySmiles(e.target.value);
             e.currentTarget.selectedIndex = 0;
           }}
-          title="เพิ่มตัวปรับจากคลังสารจริง"
+          title="เพิ่มสารเสริมสูตรจากคลังสารจริง"
           className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-800 shadow-card"
         >
-          <option value="">🧩 + ตัวปรับ (เลือกจากคลังสาร)…</option>
+          <option value="">🧩 + สารเสริมสูตร…</option>
           {SUBSTANCE_LIBRARY.map((g) => (
             <optgroup key={g.category} label={`${g.icon} ${g.category}`}>
               {g.items.map((it) => (
@@ -703,7 +658,7 @@ function GraphInner({
         )}
 
         <span className="rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-[11px] text-slate-500 shadow-card">
-          ลากเส้น node → node · แทรก “ตัวปรับ” ระหว่างสาร→ผล เพื่อลดฤทธิ์
+          ลากเส้น node → node · ทุกสารที่เชื่อมถึงผลจะถูกส่งเข้า QSAR จริง
         </span>
       </div>
       <ReactFlow
@@ -742,15 +697,17 @@ function GraphInner({
 export default function FormulaGraph({
   seed = [],
   region = "face",
+  projectId = null,
   onSaveFormula,
 }: {
   seed?: FormulaItem[];
   region?: Region;
+  projectId?: number | null;
   onSaveFormula?: (items: FormulaItem[]) => void;
 }) {
   return (
     <ReactFlowProvider>
-      <GraphInner seed={seed} region={region} onSaveFormula={onSaveFormula} />
+      <GraphInner seed={seed} region={region} projectId={projectId} onSaveFormula={onSaveFormula} />
     </ReactFlowProvider>
   );
 }

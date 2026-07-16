@@ -1,14 +1,20 @@
 "use client";
 
 /**
- * VoiceAssistant — a lightweight, fully client-side helper that answers questions
- * about the current assessment and speaks the reply out loud (Thai) via the
- * browser Web Speech API. Also accepts voice input (SpeechRecognition, Chrome).
- * No external API/keys — reliable for offline demos.
+ * VoiceAssistant — grounded chat + voice controls for the current assessment.
+ * Speech recognition uses the browser, answers use the configured backend LLM,
+ * and TTS uses the backend with browser speechSynthesis as a fallback.
  */
 import { useEffect, useRef, useState } from "react";
 
-type Layer = { key: string; label: string; score: number; band: string };
+type Layer = {
+  key: string;
+  label: string;
+  score: number;
+  band: string;
+  confidenceLevel?: string;
+  inDomain?: boolean;
+};
 
 const BAND_TH: Record<string, string> = {
   low: "ต่ำ",
@@ -17,13 +23,15 @@ const BAND_TH: Record<string, string> = {
   severe: "รุนแรง",
 };
 
-type FormulaItem = { name: string; smiles: string; concentration: number };
+type FormulaItem = { name?: string; smiles: string; concentration: number };
+type AssistantAction = { type?: string; [key: string]: unknown };
 
 export default function VoiceAssistant({
   productName,
   layers,
   ready,
   formula = [],
+  coverage,
   onImportFormula,
   onAction,
 }: {
@@ -31,17 +39,20 @@ export default function VoiceAssistant({
   layers: Layer[];
   ready: boolean;
   formula?: FormulaItem[];
+  coverage?: { percentage: number; unresolved: number };
   onImportFormula?: (items: FormulaItem[]) => void;
-  onAction?: (actions: any[]) => void;
+  onAction?: (actions: AssistantAction[]) => void | Promise<void>;
 }) {
   const [messages, setMessages] = useState<
-    { role: "user" | "ai"; text: string; formula?: FormulaItem[]; acted?: number }[]
+    { role: "user" | "ai"; text: string; formula?: FormulaItem[]; actions?: AssistantAction[]; acted?: number }[]
   >([]);
   const [input, setInput] = useState("");
   const [speaking, setSpeaking] = useState(false);
   const [listening, setListening] = useState(false);
   const [voiceOn, setVoiceOn] = useState(true);
   const [thinking, setThinking] = useState(false);
+  const [actionBusy, setActionBusy] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const recogRef = useRef<any>(null);
 
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -136,10 +147,15 @@ export default function VoiceAssistant({
       : "ยังไม่มีสารในสูตร";
     const result =
       !ready || !layers.length
-        ? "ยังไม่มีผลการประเมิน (ผู้ใช้ยังไม่ได้กด Run)"
+        ? "ยังไม่มีผลการประเมินสำหรับสูตรปัจจุบัน (อาจยังไม่ได้กด Run หรือสูตรถูกแก้หลังผลครั้งก่อน)"
         : `คะแนนความเสี่ยง 0-100:\n${layers
-            .map((l) => `- ${l.label}: ${Math.round(l.score)}/100 (ระดับ${BAND_TH[l.band]})`)
-            .join("\n")}`;
+            .map(
+              (l) =>
+                `- ${l.label}: ${Math.round(l.score)}/100 (ระดับ${BAND_TH[l.band]}; ` +
+                `confidence=${l.confidenceLevel || "ไม่ระบุ"}; ${l.inDomain === false ? "out-of-domain" : "in-domain"})`,
+            )
+            .join("\n")}\nความครอบคลุมสูตร: ${coverage?.percentage ?? 100}%` +
+          `${coverage?.unresolved ? `; ยังประเมินไม่ได้ ${coverage.unresolved} รายการ` : ""}`;
     return `ผลิตภัณฑ์/สูตร: ${productName}\n${comp}\n\n${result}`;
   };
 
@@ -170,19 +186,18 @@ export default function VoiceAssistant({
     }
     const { clean: c1, formula } = parseFormula(a);
     const { clean, actions } = parseActions(c1);
-    if (actions && actions.length) onAction?.(actions); // agent: perform the actions
     setMessages((m) => [
       ...m,
-      { role: "ai", text: clean, formula, acted: actions && actions.length ? actions.length : 0 },
+      { role: "ai", text: clean, formula, actions: actions as AssistantAction[] | undefined },
     ]);
     speak(clean); // don't read the JSON blocks aloud
   };
 
   // Extract an <action>[...]</action> block (agent commands) from the reply.
-  const parseActions = (text: string): { clean: string; actions?: any[] } => {
+  const parseActions = (text: string): { clean: string; actions?: AssistantAction[] } => {
     const m = text.match(/<action>([\s\S]*?)<\/action>/i);
     if (!m) return { clean: text };
-    let actions: any[] | undefined;
+    let actions: AssistantAction[] | undefined;
     try {
       const arr = JSON.parse(m[1].trim());
       if (Array.isArray(arr)) actions = arr;
@@ -248,6 +263,39 @@ export default function VoiceAssistant({
 
   const QUICK = ["สรุปผล", "เสี่ยงสุด", "คำแนะนำ"];
 
+  const actionLabel = (action: AssistantAction) => {
+    const name = String(action.name || action.to || action.from || "").trim();
+    switch (action.type) {
+      case "add_substance": return `เพิ่ม ${name || "สาร"}`;
+      case "set_concentration": return `ปรับ ${name || "สาร"} เป็น ${action.concentration}%`;
+      case "remove_substance": return `นำ ${name || "สาร"} ออก`;
+      case "replace_substance": return `เปลี่ยน ${String(action.from || "สาร")} → ${String(action.to || "สารใหม่")}`;
+      case "rename_formula": return `ตั้งชื่อสูตร “${name}”`;
+      case "create_formula": return `สร้างสูตร “${name || "สูตรใหม่"}”`;
+      case "set_formula": return "แทนที่รายการสารทั้งสูตร";
+      case "goto": return `เปิดหน้า ${String(action.tab || "")}`;
+      case "run": return "Run การประเมินด้วยสูตรหลังแก้";
+      case "clear": return "ล้างรายการสาร";
+      default: return `คำสั่ง ${String(action.type || "ไม่ทราบชนิด")}`;
+    }
+  };
+
+  const applyActions = async (messageIndex: number, actions: AssistantAction[]) => {
+    if (!onAction || actionBusy != null) return;
+    setActionBusy(messageIndex);
+    setActionError(null);
+    try {
+      await onAction(actions);
+      setMessages((current) => current.map((message, index) =>
+        index === messageIndex ? { ...message, actions: undefined, acted: actions.length } : message,
+      ));
+    } catch (cause: any) {
+      setActionError(cause?.message || String(cause));
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
   return (
     <div className="flex h-[22rem] flex-col">
       {/* status row */}
@@ -299,6 +347,35 @@ export default function VoiceAssistant({
                       ⚡ ทำให้แล้ว {m.acted} รายการ
                     </div>
                   ) : null}
+                  {m.role === "ai" && m.actions && m.actions.length > 0 && (
+                    <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-900">
+                      <div className="mb-1 text-[10px] font-semibold">ตรวจสอบก่อนให้ AI แก้ workspace</div>
+                      <div className="space-y-0.5">
+                        {m.actions.map((action, index) => (
+                          <div key={index} className="flex gap-1 text-[10px] leading-snug">
+                            <span className="text-amber-500">{index + 1}.</span>
+                            <span>{actionLabel(action)}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-2 flex gap-1.5">
+                        <button
+                          disabled={actionBusy != null}
+                          onClick={() => applyActions(i, m.actions!)}
+                          className="flex-1 rounded-md bg-brand px-2 py-1.5 text-[10px] font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
+                        >
+                          {actionBusy === i ? "กำลังตรวจ SMILES…" : "ยืนยันการเปลี่ยนแปลง"}
+                        </button>
+                        <button
+                          disabled={actionBusy != null}
+                          onClick={() => setMessages((current) => current.map((message, index) => index === i ? { ...message, actions: undefined } : message))}
+                          className="rounded-md border border-amber-200 bg-white px-2 py-1.5 text-[10px] text-amber-800"
+                        >
+                          ยกเลิก
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {m.role === "ai" && m.formula && m.formula.length > 0 && (
                     <div className="mt-1.5 rounded-lg border border-slate-200 bg-white p-2">
                       <div className="mb-1 text-[10px] font-semibold text-slate-500">
@@ -332,6 +409,12 @@ export default function VoiceAssistant({
           </div>
         )}
       </div>
+
+      {actionError && (
+        <div className="mt-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-[10px] leading-snug text-rose-700">
+          ใช้คำสั่งไม่ได้: {actionError}
+        </div>
+      )}
 
       {/* input pill */}
       <div className="mt-2 flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1">

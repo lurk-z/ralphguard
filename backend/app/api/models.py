@@ -38,25 +38,30 @@ ENDPOINT_META = {
 
 OECD_PRINCIPLES = [
     "1. A defined endpoint",
-    "2. An unambiguous algorithm (Random Forest on Morgan fingerprints)",
+    "2. An unambiguous algorithm (endpoint-specific features + soft-voting ensemble)",
     "3. A defined domain of applicability (k-NN Tanimoto check)",
     "4. Appropriate measures of goodness-of-fit, robustness and predictivity "
-    "(5-fold CV + held-out test: accuracy, balanced accuracy, sensitivity, "
-    "specificity, ROC-AUC)",
+    "(5-fold out-of-fold metrics; nested-CV study documented separately)",
     "5. A mechanistic interpretation, where possible (structural alerts / SMARTS)",
 ]
 
 METHODOLOGY = {
-    "algorithm": "Random Forest (200 trees)",
-    "features": "Morgan/ECFP fingerprints (radius 2, 2048 bits)",
+    "algorithm": "Soft-voting ensemble (Random Forest, Extra Trees, Logistic Regression, HistGradientBoosting)",
+    "features": "Endpoint-specific Morgan, MACCS and molecular-descriptor combinations",
     "descriptors": ["MW", "logP", "TPSA", "HBD", "HBA", "rotatable bonds"],
-    "applicability_domain": "k-nearest-neighbour Tanimoto similarity (k=5, threshold 0.30)",
+    "applicability_domain": "k-nearest-neighbour Morgan/Tanimoto similarity (k=5; current screening threshold 0.18)",
     "confidence_layers": [
         "Layer 1 — Applicability Domain (in/out of domain)",
         "Layer 2 — Prediction probability extremity",
         "Layer 3 — Structural-alert agreement",
+        "Layer 4 — Ensemble member disagreement",
     ],
-    "validation": "5-fold stratified CV + 20% held-out test set",
+    "validation": "5-fold stratified out-of-fold metrics; threshold selected by Youden's J. Nested-CV results are the conservative reportable estimate.",
+    "limitations": [
+        "Small endpoint-specific datasets; results are screening-level only",
+        "Eye irritation remains preliminary and needs a larger independently sourced external set",
+        "Model scores are not calibrated clinical probabilities",
+    ],
 }
 
 
@@ -87,8 +92,9 @@ async def model_metrics():
         "available": bool(metrics),
         "endpoints": endpoints,
         "note_th": (
-            "หากค่าเมตริกเป็นว่าง ให้รัน `python data_prep.py` เพื่อฝึกโมเดล "
-            "และสร้าง validation_report.json"
+            "ค่าตารางนี้มาจาก 5-fold out-of-fold evaluation; threshold ถูกเลือกจาก OOF prediction "
+            "จึงควรใช้ผล nested-CV ในรายงานเป็นค่าประมาณหลักที่อนุรักษนิยมกว่า "
+            "และไม่ควรตีความ model score เป็นโอกาสทางคลินิก"
         ),
     }
 

@@ -122,6 +122,12 @@ vec2 worley(vec3 P, float freq, float seed){
 }`;
 
 export type PaintApi = { clear: () => void; run: () => void; fillAll: () => void };
+export type PaintHoverInfo = {
+  x: number;
+  y: number;
+  region: string;
+  symptoms: SkinKey[];
+};
 
 /** Loop every GLTF clip (head.glb ships eye-dart clips) so the face feels alive. */
 function usePlayAllAnimations(
@@ -192,6 +198,7 @@ export function PaintSymptomModel({
   eyeRight,
   apiRef,
   eraseMode = false,
+  onHover,
 }: {
   activeSymptom: SkinKey;
   sev: Record<SkinKey, number>; // 0..1 severity PER symptom (each kept independently)
@@ -200,6 +207,7 @@ export function PaintSymptomModel({
   eyeRight: number; // 0..1 — right-eye redness
   apiRef?: React.MutableRefObject<PaintApi | null>;
   eraseMode?: boolean; // when true, painting rubs the active symptom out
+  onHover?: (info: PaintHoverInfo | null) => void;
 }) {
   const { scene: rawScene, animations } = useGLTF("/models/head.glb", true);
   const gl = useThree((s) => s.gl);
@@ -223,6 +231,9 @@ export function PaintSymptomModel({
   const uEdema = useRef({ value: 0 });
   const uEyeRedL = useRef({ value: 0 });
   const uEyeRedR = useRef({ value: 0 });
+  // Interaction feedback is independent from predicted severity: the grid
+  // remains visible even when the model score rounds to zero.
+  const uScanTime = useRef({ value: 0 });
   // Each symptom keeps its OWN severity (so painted symptoms coexist, never
   // zeroed just because another symptom is active).
   useEffect(() => {
@@ -255,6 +266,9 @@ export function PaintSymptomModel({
   });
   const painting = useRef(false);
   const skinMesh = useRef<THREE.Mesh | null>(null);
+  const skinBounds = useRef<THREE.Box3 | null>(null);
+  const eyeMesh = useRef<THREE.Object3D | null>(null);
+  const faceCalibration = useRef<{ minY: number; maxY: number; eyeY: number } | null>(null);
 
   // Keep the active symptom in a ref so paint/run/clear always use the current one.
   const activeRef = useRef<SkinKey>(activeSymptom);
@@ -309,10 +323,12 @@ export function PaintSymptomModel({
       // ═══════════════ [SX:EYE] — ตาแดง (eye redness) ═══════════════
       // Eyeballs — redden the sclera (white) toward bloodshot. Per-eye and live
       // (its own category: pick a side + severity, no painting / no Run).
-      if (mesh.name === "Realtime_Eyeball_Left" || mesh.name === "Realtime_Eyeball_Right") {
+      const meshKey = mesh.name.replace(/[ _-]+/g, "").toLowerCase();
+      if (meshKey === "realtimeeyeballleft" || meshKey === "realtimeeyeballright") {
+        if (!eyeMesh.current) eyeMesh.current = mesh;
         const emat = srcMat.clone();
         mesh.material = emat;
-        const uER = mesh.name === "Realtime_Eyeball_Left" ? uEyeRedL.current : uEyeRedR.current;
+        const uER = meshKey === "realtimeeyeballleft" ? uEyeRedL.current : uEyeRedR.current;
         emat.onBeforeCompile = (shader) => {
           shader.uniforms.uEyeRed = uER;
           shader.fragmentShader = shader.fragmentShader
@@ -344,6 +360,7 @@ diffuseColor.b *= 1.0 - _e * 0.82;`
 
       mesh.geometry.computeBoundingBox();
       const bb = mesh.geometry.boundingBox!;
+      skinBounds.current = bb.clone();
       uEdemaScale.current.value = (bb.max.y - bb.min.y) * 0.06;
       // Tile repeats across the largest dimension (lower = bigger, sparser vesicles).
       uBlisterScale.current.value =
@@ -371,6 +388,7 @@ diffuseColor.b *= 1.0 - _e * 0.82;`
         shader.uniforms.uEdemaScale = uEdemaScale.current;
         shader.uniforms.uBlisterTex = { value: blisterTex };
         shader.uniforms.uBlisterScale = uBlisterScale.current;
+        shader.uniforms.uScanTime = uScanTime.current;
 
         // ── VERTEX ── puff the marked area when edema is revealed.
         shader.vertexShader = shader.vertexShader
@@ -422,6 +440,7 @@ uniform float uEdema;
 uniform float uSkinLift;
 uniform sampler2D uBlisterTex;
 uniform float uBlisterScale;
+uniform float uScanTime;
 ${NOISE_GLSL}
 ${SPOTS_GLSL}`
           )
@@ -450,6 +469,23 @@ float gTaut   = 0.0;   // edema tautness (drives the wet/stretched sheen)
 float gBumpH  = 0.0;
 
 vec3 _c = diffuseColor.rgb;
+
+// ═══════════════ [SX:SCAN-GRID] — paint interaction feedback ═══════════════
+// This locator is driven only by the masks, never by risk severity. A score of
+// zero therefore still produces clear feedback that the brush hit the model.
+float _paintPresence = smoothstep(0.015, 0.12, max(max(_mR, _mP), max(_mK, _mE)));
+vec2 _gridUv = fract(vPaintUv * 68.0);
+vec2 _edge = min(_gridUv, 1.0 - _gridUv);
+float _gridX = 1.0 - smoothstep(0.018, 0.045, _edge.x);
+float _gridY = 1.0 - smoothstep(0.018, 0.045, _edge.y);
+float _grid = max(_gridX, _gridY) * _paintPresence;
+float _scanBand = 1.0 - smoothstep(
+  0.018,
+  0.065,
+  abs(fract(vPaintUv.y * 7.0 - uScanTime * 0.72) - 0.5)
+);
+vec3 _scanColor = vec3(0.02, 0.95, 0.88);
+_c += _scanColor * (_grid * 0.42 + _scanBand * _paintPresence * 0.18);
 
 // White "test cream" marking (fades out as the symptom develops).
 _c = mix(_c, vec3(0.96, 0.95, 0.93), _cream * 0.60);
@@ -635,6 +671,7 @@ roughnessFactor = clamp(
   // Ease every symptom's reveal toward its own target (~0.9s).
   useFrame((_, dt) => {
     const k = Math.min(1, dt * 2.2);
+    uScanTime.current.value += dt;
     SKIN_KEYS.forEach((s) => {
       const ref = revealRefs[s].current;
       ref.value += (revealTargets.current[s] - ref.value) * k;
@@ -675,6 +712,65 @@ roughnessFactor = clamp(
     // before the first Run (reveal 0); after that they appear immediately.
   };
 
+  // Return the symptoms that were actually painted under this UV. Keeping this
+  // check next to the masks means a hover tooltip can never appear on untouched
+  // skin just because the pointer happens to be over the model.
+  const paintedSymptomsAt = (uv: THREE.Vector2): SkinKey[] => {
+    return SKIN_KEYS.filter((k) => {
+      const m = masks[k];
+      const x = Math.max(0, Math.min(m.canvas.width - 1, Math.floor(uv.x * m.canvas.width)));
+      const y = Math.max(0, Math.min(m.canvas.height - 1, Math.floor(uv.y * m.canvas.height)));
+      return m.ctx.getImageData(x, y, 1, 1).data[0] > 12;
+    });
+  };
+
+  // Convert a hit point to a human-readable facial region. The vertical bands
+  // are calibrated against the actual eye line, so they continue to work after
+  // rotating or resizing the 3D model.
+  const regionAt = (world: THREE.Vector3): string => {
+    const mesh = skinMesh.current;
+    const localBounds = skinBounds.current;
+    if (!mesh || !localBounds) return "ผิวหน้า";
+
+    if (!faceCalibration.current) {
+      const worldBounds = new THREE.Box3().setFromObject(mesh);
+      let eyeY = worldBounds.min.y + (worldBounds.max.y - worldBounds.min.y) * 0.62;
+      if (eyeMesh.current) {
+        eyeY = new THREE.Box3()
+          .setFromObject(eyeMesh.current)
+          .getCenter(new THREE.Vector3()).y;
+      }
+      faceCalibration.current = {
+        minY: worldBounds.min.y,
+        maxY: worldBounds.max.y,
+        eyeY,
+      };
+    }
+
+    const { minY, maxY, eyeY } = faceCalibration.current;
+    const height = Math.max(1e-4, maxY - minY);
+    const normalizedY = (world.y - minY) / height;
+    const eyeLine = (eyeY - minY) / height;
+    const eyeToCrown = Math.max(1e-4, 1 - eyeLine);
+    const relativeY = (normalizedY - eyeLine) / eyeToCrown;
+
+    const local = mesh.worldToLocal(world.clone());
+    const normalizedX =
+      (local.x - localBounds.min.x) /
+      Math.max(1e-4, localBounds.max.x - localBounds.min.x);
+    const side = Math.abs(normalizedX - 0.5);
+
+    if (side > 0.3 && Math.abs(relativeY) < 0.6) return "หู";
+    if (relativeY > 0.8) return "หนังศีรษะ";
+    if (relativeY > 0.25) return "หน้าผาก";
+    if (relativeY >= -0.2) return "ตา / คิ้ว";
+    if (relativeY >= -0.55) return side < 0.09 ? "จมูก" : "แก้ม";
+    if (relativeY >= -0.8) return "ปาก / ริมฝีปาก";
+    if (relativeY >= -1.15) return "คาง";
+    if (relativeY >= -2.2) return "คอ";
+    return "ผิวหน้า";
+  };
+
   const isSkin = (o: THREE.Object3D) => o === skinMesh.current;
 
   const setControls = (enabled: boolean) => {
@@ -700,15 +796,31 @@ roughnessFactor = clamp(
         onPointerDown={(e: any) => {
           if (!isSkin(e.object)) return;
           e.stopPropagation();
+          onHover?.(null);
           painting.current = true;
           setControls(false);
           if (e.uv) paintAt(e.uv);
         }}
         onPointerMove={(e: any) => {
-          if (!painting.current || !isSkin(e.object)) return;
-          e.stopPropagation();
-          if (e.uv) paintAt(e.uv);
+          if (!isSkin(e.object)) return;
+          if (painting.current) {
+            e.stopPropagation();
+            onHover?.(null);
+            if (e.uv) paintAt(e.uv);
+            return;
+          }
+
+          if (!e.uv) return onHover?.(null);
+          const symptoms = paintedSymptomsAt(e.uv);
+          if (!symptoms.length) return onHover?.(null);
+          onHover?.({
+            x: e.nativeEvent.offsetX,
+            y: e.nativeEvent.offsetY,
+            region: regionAt(e.point),
+            symptoms,
+          });
         }}
+        onPointerOut={() => onHover?.(null)}
         onPointerUp={stopPaint}
       />
     </group>
@@ -761,7 +873,7 @@ export default function SymptomLabModel() {
   const eyeRight = eyeSide === "right" || eyeSide === "both" ? eyeSeverity : 0;
 
   return (
-    <div className="fixed inset-0 cursor-crosshair overflow-hidden bg-white">
+    <div className="fixed inset-0 overflow-hidden bg-white">
       <Canvas
         camera={{ fov: 35, position: [0, 0, 2] }}
         dpr={[1, 1.5]}

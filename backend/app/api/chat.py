@@ -1,10 +1,11 @@
-"""
-Gemini-backed chat endpoint for the RalphGuard voice assistant.
+"""Groq-backed, context-grounded chat endpoint for the RalphGuard assistant.
 
-The API key lives only in the backend environment (settings.GEMINI_API_KEY) and
-is never exposed to the browser. The frontend posts a question + the current
-assessment context; we ground Gemini on it and return a short Thai answer.
+The API key stays in the backend environment. The frontend posts the current
+formula/assessment context and previews every mutating action before execution.
 """
+import json
+import re
+
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -14,6 +15,89 @@ from app.core.config import settings
 router = APIRouter()
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+UNSUPPORTED_COMPOSITION = re.compile(
+    r"\b(witch\s*hazel|hamamelis|aloe\s*vera|extract|leaf\s+juice|fragrance|parfum|essential\s+oil)\b",
+    re.IGNORECASE,
+)
+
+# A small, verified action palette for correcting gentle water-based formulas.
+# This is not the OCR/INCI registry; it only constrains substances the LLM is
+# allowed to create autonomously in a fallback formula.
+GENTLE_ACTION_SUBSTANCES = {
+    "Water (Aqua)": "O",
+    "Glycerin": "OCC(O)CO",
+    "Panthenol": "OCC(C)(C)C(O)C(=O)NCCCO",
+    "Betaine": "C[N+](C)(C)CC(=O)[O-]",
+    "Allantoin": "NC(=O)NC1NC(=O)NC1=O",
+    "Phenoxyethanol": "OCCOc1ccccc1",
+}
+
+
+def _parse_actions(text: str) -> list[dict]:
+    match = re.search(r"<action>([\s\S]*?)</action>", text, flags=re.IGNORECASE)
+    if not match:
+        return []
+    try:
+        actions = json.loads(match.group(1).strip())
+    except (TypeError, ValueError):
+        return []
+    return [item for item in actions if isinstance(item, dict)] if isinstance(actions, list) else []
+
+
+def _unsupported_action_ingredients(text: str) -> list[str]:
+    """Find extract/mixture names the model attempted to create as molecules."""
+    names: list[str] = []
+    for action in _parse_actions(text):
+        action_type = action.get("type")
+        candidates: list[dict] = []
+        if action_type in {"create_formula", "set_formula"}:
+            candidates = [item for item in action.get("items", []) if isinstance(item, dict)]
+        elif action_type == "add_substance":
+            candidates = [action]
+        elif action_type == "replace_substance":
+            candidates = [{"name": action.get("to") or action.get("to_name")}]
+        for candidate in candidates:
+            name = str(candidate.get("name") or "").strip()
+            if name and UNSUPPORTED_COMPOSITION.search(name) and name not in names:
+                names.append(name)
+    return names
+
+
+def _gentle_toner_fallback(question: str) -> str | None:
+    """Deterministic safe-to-execute fallback when the LLM ignores constraints."""
+    if not re.search(r"(โทนเนอร์|toner)", question, flags=re.IGNORECASE):
+        return None
+    concentrations = {
+        "Water (Aqua)": 89.9,
+        "Glycerin": 5.0,
+        "Panthenol": 2.0,
+        "Betaine": 2.0,
+        "Allantoin": 0.3,
+        "Phenoxyethanol": 0.8,
+    }
+    items = [
+        {"name": name, "smiles": smiles, "concentration": concentrations[name]}
+        for name, smiles in GENTLE_ACTION_SUBSTANCES.items()
+    ]
+    actions: list[dict] = [
+        {"type": "create_formula", "name": "โทนเนอร์สูตรตั้งต้นอ่อนโยน", "items": items}
+    ]
+    if re.search(r"\bnode\b|โหนด", question, flags=re.IGNORECASE):
+        actions.append({"type": "goto", "tab": "nodes"})
+    return (
+        "จัดเป็นสูตรตั้งต้นสำหรับคัดกรองความเสี่ยงต่ำให้แล้วค่ะ มี Glycerin 5%, "
+        "Panthenol 2%, Betaine 2%, Allantoin 0.3% และ Phenoxyethanol 0.8% "
+        "โดยใช้น้ำเป็นเบส สูตรนี้ยังต้องกด Run เพื่อประเมินแบบ in-silico นะคะ\n"
+        f"<action>{json.dumps(actions, ensure_ascii=False)}</action>"
+    )
+
+
+def _is_toner_creation_request(question: str) -> bool:
+    return bool(
+        re.search(r"(โทนเนอร์|toner)", question, flags=re.IGNORECASE)
+        and re.search(r"(สร้าง|ทำให้|จัดให้|create|make|build)", question, flags=re.IGNORECASE)
+    )
 
 SYSTEM_TH = """คุณคือ "แรลฟ์" (Ralph) เพื่อนร่วมทีมช่วยพัฒนาสูตรเครื่องสำอางในระบบ RalphGuard —
 ระบบคัดกรองความเสี่ยงการระคายเคือง/ความเป็นพิษของสารเคมีด้วยแบบจำลอง QSAR (in-silico) เพื่อลดการทดลองในสัตว์
@@ -66,6 +150,24 @@ set_formula{items} · create_formula{name,items} · goto{tab:"assess"|"nodes"|"t
 แรลฟ์: ปรับให้ครบแล้วค่ะ ลด Ethanol เหลือ 8% เปลี่ยนเป็น Vanillin ที่อ่อนโยนกว่า เติม Glycerin ปลอบผิว ตั้งชื่อสูตร "ผิวสุข" เรียบร้อย กำลัง Run ประเมินให้เลยนะคะ
 <action>[{"type":"set_concentration","name":"Ethanol","concentration":8},{"type":"replace_substance","from":"Cinnamaldehyde","to":"Vanillin","smiles":"O=Cc1ccc(O)c(OC)c1","concentration":1},{"type":"add_substance","name":"Glycerin","smiles":"OCC(O)CO","concentration":5},{"type":"rename_formula","name":"ผิวสุข"},{"type":"run"}]</action>"""
 
+# These constraints are kept separate from the conversational prompt so the
+# chemistry boundary remains explicit and easy to test/review.
+SCIENTIFIC_AGENT_GUARD = """
+
+กฎวิทยาศาสตร์และคำสั่ง Agent ที่ต้องทำตาม:
+- ห้ามรับรองสูตรว่า "ปลอดภัย" หรือ "ไม่อันตราย" ก่อนมีผลประเมิน ให้เรียกว่า
+  "สูตรตั้งต้นสำหรับคัดกรองความเสี่ยงต่ำ" และย้ำว่าเป็นผล in-silico
+- QSAR นี้รับสารที่มีโครงสร้างโมเลกุลชัดเจนเท่านั้น ห้ามแทนสารสกัดพืชหรือสารผสม
+  เช่น Witch Hazel/Hamamelis extract ด้วย SMILES ของโมเลกุลตัวแทนเพียงตัวเดียว
+- เมื่อสร้างสูตรอ่อนโยน ให้เลือกสารโครงสร้างชัดเจนก่อน เช่น
+  Glycerin = OCC(O)CO, Panthenol = OCC(C)(C)C(O)C(=O)NCCCO,
+  Allantoin = NC(=O)NC1NC(=O)NC1=O, Betaine = C[N+](C)(C)CC(=O)[O-]
+- ถ้าผู้ใช้ขอ "node" หรือ "node graph" ให้ส่ง create_formula แล้วตามด้วย
+  {"type":"goto","tab":"nodes"} ใน action ชุดเดียวกัน
+- ถ้าผลมี confidence ต่ำหรือ out-of-domain ห้ามสรุปว่าคะแนนสูงนั้นคือความรุนแรงจริง
+  ให้บอกก่อนว่าผลไม่น่าเชื่อถือและควรตรวจ structure/coverage หรือใช้วิธี fallback
+"""
+
 
 class ChatIn(BaseModel):
     question: str
@@ -78,12 +180,18 @@ class ChatOut(BaseModel):
 
 @router.post("/", response_model=ChatOut)
 async def chat(body: ChatIn):
-    if not settings.GROQ_API_KEY:
-        raise HTTPException(status_code=503, detail="GROQ_API_KEY not configured")
-
     question = (body.question or "").strip()
     if not question:
         raise HTTPException(status_code=400, detail="empty question")
+
+    # High-frequency demo intent: use a reviewed template rather than allowing
+    # stochastic LLM output to invent extracts, omit preservation, or drift in
+    # concentration on every request.
+    if _is_toner_creation_request(question):
+        return ChatOut(answer=_gentle_toner_fallback(question) or "")
+
+    if not settings.GROQ_API_KEY:
+        raise HTTPException(status_code=503, detail="GROQ_API_KEY not configured")
 
     prompt = question
     if body.context:
@@ -92,7 +200,7 @@ async def chat(body: ChatIn):
     payload = {
         "model": settings.GROQ_MODEL,
         "messages": [
-            {"role": "system", "content": SYSTEM_TH},
+            {"role": "system", "content": SYSTEM_TH + SCIENTIFIC_AGENT_GUARD},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.6,
@@ -100,24 +208,57 @@ async def chat(body: ChatIn):
         "max_tokens": 800,
     }
 
+    text = ""
+    invalid_names: list[str] = []
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(
-                GROQ_URL,
-                headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
-                json=payload,
-            )
+            for attempt in range(2):
+                r = await client.post(
+                    GROQ_URL,
+                    headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
+                    json=payload,
+                )
+                if r.status_code != 200:
+                    raise HTTPException(status_code=502, detail=f"LLM error {r.status_code}: {r.text[:300]}")
+                data = r.json()
+                try:
+                    text = data["choices"][0]["message"]["content"].strip()
+                except (KeyError, IndexError):
+                    text = ""
+                if not text:
+                    raise HTTPException(status_code=502, detail="LLM returned empty response")
+
+                invalid_names = _unsupported_action_ingredients(text)
+                if not invalid_names:
+                    break
+                if attempt == 0:
+                    allowed = ", ".join(GENTLE_ACTION_SUBSTANCES)
+                    payload["messages"].extend(
+                        [
+                            {"role": "assistant", "content": text},
+                            {
+                                "role": "user",
+                                "content": (
+                                    "คำตอบก่อนหน้าถูกระบบปฏิเสธ เพราะพยายามแทนสารสกัด/สารผสมด้วย SMILES เดี่ยว: "
+                                    f"{', '.join(invalid_names)} กรุณาตอบใหม่และสร้าง action ใหม่โดยไม่กล่าวถึงหรือใช้สารเหล่านั้น "
+                                    f"สำหรับสูตรอ่อนโยนให้เลือกจากรายการที่ตรวจสอบแล้วนี้เท่านั้น: {allowed}"
+                                ),
+                            },
+                        ]
+                    )
+    except HTTPException:
+        raise
     except Exception as e:  # network / DNS / timeout
         raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
 
-    if r.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"LLM error {r.status_code}: {r.text[:300]}")
-
-    data = r.json()
-    try:
-        text = data["choices"][0]["message"]["content"].strip()
-    except (KeyError, IndexError):
-        text = ""
-    if not text:
-        raise HTTPException(status_code=502, detail="LLM returned empty response")
+    # A model can ignore the corrective turn. Toner creation still has a
+    # deterministic, registry-backed path so the user never receives an action
+    # that is guaranteed to fail only after confirmation.
+    if invalid_names:
+        fallback = _gentle_toner_fallback(question)
+        if fallback:
+            text = fallback
+        else:
+            text = re.sub(r"<action>[\s\S]*?</action>", "", text, flags=re.IGNORECASE).strip()
+            text += "\n\nยังไม่เปลี่ยน workspace เพราะสูตรมีสารสกัดที่ไม่มีโครงสร้างโมเลกุลเดี่ยว กรุณาเลือกสารที่มีโครงสร้างยืนยันแล้วค่ะ"
     return ChatOut(answer=text)

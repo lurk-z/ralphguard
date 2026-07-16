@@ -3,7 +3,10 @@
 rdkit==2025.3.6
 
 # ML
-scikit-learn==1.5.2
+# Must match the version recorded in the persisted model bundles. Loading the
+# 1.7.2 estimators with 1.5.x emits compatibility warnings and can change model
+# behaviour across private estimator internals.
+scikit-learn==1.7.2
 numpy==2.0.2
 pandas==2.2.3
 scipy==1.14.1

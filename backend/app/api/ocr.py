@@ -268,9 +268,13 @@ def resolve(text: str, online: bool = True):
 class OcrItem(BaseModel):
     name: str
     smiles: str
-    concentration: float
+    # An INCI list normally provides ordering, not a quantitative percentage.
+    # Never invent a dose here: the user must confirm it before assessment.
+    concentration: float | None = None
     score: int
     source: str = "local"  # "local" (offline dict) or "pubchem"
+    ocr_confidence: float | None = None
+    requires_concentration: bool = True
 
 
 class OcrOut(BaseModel):
@@ -278,6 +282,55 @@ class OcrOut(BaseModel):
     items: list[OcrItem]
     recognized_no_structure: list[str]
     unmatched: list[str]
+    ocr_confidence: float | None = None
+    concentration_notice_th: str = (
+        "ฉลาก INCI ระบุลำดับส่วนผสม แต่ไม่ระบุเปอร์เซ็นต์ที่แน่นอน "
+        "กรุณายืนยันความเข้มข้นก่อนประเมินสูตร"
+    )
+
+
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/tiff"}
+
+
+def _prepare_image(data: bytes):
+    """Apply conservative preprocessing suitable for small, photographed labels."""
+    from PIL import Image, ImageOps
+
+    img = Image.open(io.BytesIO(data))
+    img = ImageOps.exif_transpose(img).convert("L")
+    # Small label text benefits from upscaling before Tesseract segmentation.
+    if img.width < 1800:
+        scale = min(3.0, 1800 / max(1, img.width))
+        img = img.resize(
+            (int(img.width * scale), int(img.height * scale)),
+            Image.Resampling.LANCZOS,
+        )
+    return ImageOps.autocontrast(img)
+
+
+def _ocr_candidate(pytesseract, img, psm: int) -> tuple[str, float]:
+    """Return OCR text and mean word confidence for one segmentation mode."""
+    from pytesseract import Output
+
+    config = f"--oem 3 --psm {psm}"
+    text = pytesseract.image_to_string(img, lang="eng", config=config).strip()
+    data = pytesseract.image_to_data(
+        img,
+        lang="eng",
+        config=config,
+        output_type=Output.DICT,
+    )
+    confidences: list[float] = []
+    for raw, token in zip(data.get("conf", []), data.get("text", [])):
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if value >= 0 and str(token).strip():
+            confidences.append(value)
+    mean_conf = sum(confidences) / len(confidences) if confidences else 0.0
+    return text, round(mean_conf, 1)
 
 
 @router.post("/", response_model=OcrOut)
@@ -285,18 +338,26 @@ async def read_label(file: UploadFile = File(...), online: bool = True):
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="empty file")
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="image exceeds 10 MB")
+    if file.content_type and file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=415, detail="unsupported image type")
 
     # OCR (lazy imports so the app still boots if the libs are missing)
     try:
         import pytesseract
-        from PIL import Image, ImageOps
     except Exception as e:  # pragma: no cover
         raise HTTPException(status_code=503, detail=f"OCR libs not installed: {e}")
 
     try:
-        img = Image.open(io.BytesIO(data)).convert("L")
-        img = ImageOps.autocontrast(img)
-        text = pytesseract.image_to_string(img, lang="eng")
+        img = _prepare_image(data)
+        # Labels vary between dense blocks and scattered text. Try both modes
+        # and keep the candidate with the strongest OCR confidence/coverage.
+        candidates = [_ocr_candidate(pytesseract, img, psm) for psm in (6, 11)]
+        text, ocr_confidence = max(
+            candidates,
+            key=lambda item: (item[1], len(item[0])),
+        )
     except pytesseract.TesseractNotFoundError:
         raise HTTPException(status_code=503, detail="tesseract binary not installed on server")
     except Exception as e:
@@ -307,19 +368,25 @@ async def read_label(file: UploadFile = File(...), online: bool = True):
     # dedupe by SMILES while keeping first (highest-%) occurrence
     items: list[OcrItem] = []
     seen: set[str] = set()
-    rank = 0
     for name, smiles, score, source in matched_ranked:
         if smiles in seen:
             continue
         seen.add(smiles)
-        # INCI lists are ordered high→low concentration; assign a decaying default %.
-        conc = max(0.5, round(18 * (0.6 ** rank), 1))
-        items.append(OcrItem(name=name.title(), smiles=smiles, concentration=conc, score=score, source=source))
-        rank += 1
+        items.append(
+            OcrItem(
+                name=name.title(),
+                smiles=smiles,
+                concentration=None,
+                score=score,
+                source=source,
+                ocr_confidence=ocr_confidence,
+            )
+        )
 
     return OcrOut(
         raw_text=text.strip(),
         items=items,
         recognized_no_structure=no_struct,
         unmatched=unmatched,
+        ocr_confidence=ocr_confidence,
     )

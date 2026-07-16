@@ -34,6 +34,8 @@ export type EndpointResultPayload = {
 };
 
 export type SubstancePayload = {
+  name?: string;
+  concentration?: number;
   smiles: string;
   canonical_smiles: string;
   descriptors: Record<string, number>;
@@ -54,10 +56,31 @@ export type SubstancePayload = {
   >;
 };
 
+export type IngredientAssessmentPayload = {
+  name: string;
+  smiles: string;
+  concentration: number;
+  recognized: boolean;
+  resolved: boolean;
+  qsar_eligible: boolean;
+  assessment_method: string;
+  unresolved_reason?: string | null;
+};
+
+export type FormulaCoveragePayload = {
+  total_ingredients: number;
+  qsar_assessed_ingredients: number;
+  known_carrier_ingredients: number;
+  unresolved_ingredients: number;
+  coverage_percentage: number;
+};
+
 export type AssessmentResultPayload = {
   region: string;
   endpoints: Record<string, EndpointResultPayload>;
   substances: SubstancePayload[];
+  ingredient_assessments?: IngredientAssessmentPayload[];
+  formula_coverage?: FormulaCoveragePayload;
   errors: string[];
   disclaimer_th: string;
 };
@@ -116,6 +139,8 @@ export const api = {
 
   listProjects: () => http<ProjectOut[]>("/api/projects/"),
 
+  getProject: (projectId: number) => http<ProjectOut>(`/api/projects/${projectId}`),
+
   createProject: (name: string, description?: string) =>
     http<ProjectOut>("/api/projects/", {
       method: "POST",
@@ -159,8 +184,12 @@ export type EndpointMetric = {
     sensitivity: number;
     specificity: number;
     auc: number | null;
-    n_train: number;
-    n_test: number;
+    mcc?: number;
+    threshold?: number;
+    n_pos?: number;
+    n_neg?: number;
+    n_train?: number;
+    n_test?: number;
   } | null;
 };
 
@@ -171,7 +200,7 @@ export type ModelMetricsPayload = {
 };
 
 export type ModelInfoPayload = {
-  methodology: Record<string, unknown>;
+  methodology: Record<string, unknown> & { limitations?: string[] };
   oecd_principles: string[];
   endpoints: Record<string, { label_en: string; label_th: string; oecd_tg: string }>;
   disclaimer_th: string;
