@@ -1092,15 +1092,19 @@ export function FacePaintCanvas({
           🖌️ คลิกบนส่วนของโมเดล — ผิวจะแสดง ระคายผิว/แพ้/พิษ · ตาจะแสดงระคายตา
         </div>
       )}
-      <button
-        onClick={() => {
-          apiRef.current?.clear();
-          setPainted(false);
-        }}
-        className="absolute bottom-3 right-3 rounded-lg border border-slate-200 bg-white/85 px-3 py-1.5 text-xs text-slate-700 shadow-card backdrop-blur hover:border-brand hover:text-brand"
-      >
-        ล้างรอย
-      </button>
+      {/* A caller passing clearTrigger owns clearing from its own toolbar, so the
+          built-in button would just be a duplicate. */}
+      {clearTrigger === undefined && (
+        <button
+          onClick={() => {
+            apiRef.current?.clear();
+            setPainted(false);
+          }}
+          className="absolute bottom-3 right-3 rounded-lg border border-slate-200 bg-white/85 px-3 py-1.5 text-xs text-slate-700 shadow-card backdrop-blur hover:border-brand hover:text-brand"
+        >
+          ล้างรอย
+        </button>
+      )}
 
       {/* Hover-hold tooltip: product name + all endpoint results */}
       {tip && (
