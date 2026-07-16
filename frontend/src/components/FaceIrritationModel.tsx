@@ -81,6 +81,61 @@ function usePlayAllAnimations(actions: Record<string, THREE.AnimationAction | nu
   }, [actions]);
 }
 
+// Frames the camera on the FACE skin mesh only (Material.001) instead of the
+// whole head+neck+shoulders+hair group, so the orbit target sits on the face
+// and the initial view looks straight at it instead of up from the chin/neck.
+// Polls every frame (rather than a single effect) so it doesn't matter whether
+// OrbitControls (which registers itself as `state.controls` via `makeDefault`)
+// has mounted yet relative to this component.
+function useFaceCameraFit(groupRef: React.RefObject<THREE.Group>) {
+  const { camera, get } = useThree();
+  const fitted = useRef(false);
+  useFrame(() => {
+    if (fitted.current) return;
+    const root = groupRef.current;
+    if (!root) return;
+    const controls = get().controls as unknown as {
+      target: THREE.Vector3;
+      minDistance: number;
+      maxDistance: number;
+      update: () => void;
+    } | null;
+    if (!controls) return;
+
+    let skinMesh: THREE.Mesh | null = null;
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!skinMesh && m.isMesh && (m.material as THREE.Material | undefined)?.name === "Material.001") {
+        skinMesh = m;
+      }
+    });
+    if (!skinMesh) return;
+
+    const box = new THREE.Box3().setFromObject(skinMesh);
+    if (box.isEmpty()) return;
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+
+    const persp = camera as THREE.PerspectiveCamera;
+    const fovRad = (persp.fov * Math.PI) / 180;
+    const distance = (maxDim / 2 / Math.tan(fovRad / 2)) * 1.5;
+
+    persp.position.set(center.x, center.y, center.z + distance);
+    persp.near = Math.max(0.01, distance / 100);
+    persp.far = distance * 100;
+    persp.updateProjectionMatrix();
+    persp.lookAt(center);
+
+    controls.target.copy(center);
+    controls.minDistance = distance * 0.6;
+    controls.maxDistance = distance * 2.5;
+    controls.update();
+
+    fitted.current = true;
+  });
+}
+
 type IrritationUniforms = {
   uIntensity: { value: number };
   uZone: { value: number };
@@ -91,6 +146,8 @@ type IrritationUniforms = {
 function FaceModel({ intensity, zone }: { intensity: number; zone: SkinZone }) {
   const { scene: rawScene } = useGLTF("/models/head.glb", true); // true = enable Draco decoder
   const gl = useThree((s) => s.gl);
+  const group = useRef<THREE.Group>(null);
+  useFaceCameraFit(group);
 
   // drei caches the loaded scene by URL and shares it across every mount, so a
   // module-level "already injected" guard would orphan later instances' uniforms
@@ -241,7 +298,11 @@ roughnessFactor = clamp(roughnessFactor + gIrr * 0.16 + gPapule * 0.22, 0.0, 1.0
     uniforms.current.uZone.value = ZONE_ID[zone];
   }, [intensity, zone]);
 
-  return <primitive object={scene} />;
+  return (
+    <group ref={group}>
+      <primitive object={scene} />
+    </group>
+  );
 }
 
 /** Bare canvas — drive it from assessment results (no built-in controls). */
@@ -271,11 +332,16 @@ export function FaceIrritationCanvas({
       <directionalLight position={[-4, 1, -2]} intensity={0.5} color="#bcd3ff" />
       <directionalLight position={[0, 2, -5]} intensity={0.6} color="#ffffff" />
       <Suspense fallback={null}>
-        <Bounds fit clip observe margin={1.15}>
-          <FaceModel intensity={intensity} zone={zone} />
-        </Bounds>
+        <FaceModel intensity={intensity} zone={zone} />
       </Suspense>
-      <OrbitControls makeDefault enablePan={false} enableDamping dampingFactor={0.05} />
+      <OrbitControls
+        makeDefault
+        enablePan={false}
+        enableDamping
+        dampingFactor={0.05}
+        minPolarAngle={Math.PI * 0.25}
+        maxPolarAngle={Math.PI * 0.75}
+      />
     </Canvas>
   );
 }

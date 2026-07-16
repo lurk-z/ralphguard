@@ -6,28 +6,25 @@
 //    brush, then drag on the face to paint the result (FacePaintCanvas)
 //  - right: detail of the active box + run/export actions
 // Chemical list is mock data; everything here drives local state only.
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
+import { Progress } from "@/components/ui/progress";
 import {
   Beaker,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Download,
-  FileText,
   FlaskConical,
-  Grid2x2,
-  HelpCircle,
-  LayoutGrid,
-  LineChart,
   Minus,
   PanelLeft,
   Plus,
   Search,
   Settings,
-  SlidersHorizontal,
   Trash2,
+  Droplet,
+  Leaf,
+  Sparkles,
+  Heart,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -36,12 +33,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerDescription,
-} from "@/components/ui/drawer";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
   AlertDialog,
@@ -53,20 +49,28 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
-import {
-  SidebarProvider,
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuButton,
-} from "@/components/ui/sidebar";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import AiChatPanel from "@/components/AiChatPanel";
+import CanvasToolbar from "@/components/CanvasToolbar";
+import { CHEMICALS, chemById } from "@/lib/chemicals";
+import { buildMockAssessmentResult, saveMockAssessmentResult } from "@/lib/mockAssessment";
+
+function ModelLoader() {
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setProgress((prev) => (prev >= 95 ? prev : prev + 5));
+    }, 100);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="w-full max-w-[200px] text-center flex flex-col items-center">
+      <Progress value={progress} className="h-1 w-full" />
+      <p className="mt-3 text-xs font-medium text-muted-foreground">กำลังโหลดโมเดล 3 มิติ…</p>
+    </div>
+  );
+}
 
 // 3D head, paint mode (client-only WebGL): drag on the skin to apply the
 // armed formula box's strength as erythema.
@@ -75,8 +79,8 @@ const FacePaint = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="grid h-full w-full place-items-center text-sm text-muted-foreground">
-        กำลังโหลดโมเดล 3 มิติ…
+      <div className="grid h-full w-full place-items-center bg-[#F7F5F4]">
+        <ModelLoader />
       </div>
     ),
   },
@@ -93,30 +97,38 @@ const FormulaGraph = dynamic(() => import("@/components/FormulaGraph"), {
   ),
 });
 
-type Chemical = {
+type FormulaBoxItem = { chemicalId: string; concentration: number };
+type FormulaBox = {
   id: string;
   name: string;
-  cas: string;
-  role: string;
-  color: string; // flask icon tint
+  items: FormulaBoxItem[];
+  color?: string;
+  icon?: BoxIconName;
 };
 
-const CHEMICALS: Chemical[] = [
-  { id: "water", name: "Water (Aqua)", cas: "7732-18-5", role: "ตัวทำละลายหลัก", color: "#3B82F6" },
-  { id: "glycerin", name: "Glycerin", cas: "56-81-5", role: "สารให้ความชุ่มชื้น", color: "#0EA5E9" },
-  { id: "cetearyl", name: "Cetearyl Alcohol", cas: "67762-27-0", role: "สารเพิ่มความข้น", color: "#EC4899" },
-  { id: "cct", name: "Caprylic/Capric Triglyceride", cas: "73398-61-5", role: "สารให้ความลื่น", color: "#F97316" },
-  { id: "dimethicone", name: "Dimethicone", cas: "63148-62-9", role: "สารเคลือบผิว", color: "#22C55E" },
-  { id: "niacinamide", name: "Niacinamide", cas: "98-92-0", role: "สารออกฤทธิ์", color: "#22C55E" },
-  { id: "phenoxyethanol", name: "Phenoxyethanol", cas: "122-99-6", role: "สารกันเสีย", color: "#EC4899" },
-  { id: "carbomer", name: "Carbomer", cas: "9007-20-9", role: "สารเพิ่มความหนืด", color: "#3B82F6" },
-  { id: "tea", name: "Triethanolamine", cas: "102-71-6", role: "สารปรับค่า pH", color: "#3B82F6" },
-  { id: "allantoin", name: "Allantoin", cas: "97-59-6", role: "สารปลอบผิว", color: "#22C55E" },
-];
-const chemById = (id: string) => CHEMICALS.find((c) => c.id === id)!;
+const BOX_ICONS = {
+  beaker: Beaker,
+  flask: FlaskConical,
+  droplet: Droplet,
+  leaf: Leaf,
+  sparkles: Sparkles,
+  heart: Heart,
+};
 
-type FormulaBoxItem = { chemicalId: string; concentration: number };
-type FormulaBox = { id: string; name: string; items: FormulaBoxItem[] };
+type BoxIconName = keyof typeof BOX_ICONS;
+
+const BOX_COLORS = [
+  "#009FA5", // Teal
+  "#3B82F6", // Blue
+  "#10B981", // Emerald
+  "#6366F1", // Indigo
+  "#8B5CF6", // Violet
+  "#F43F5E", // Rose
+  "#F59E0B", // Amber
+  "#F97316", // Orange
+  "#64748B", // Slate
+  "#EC4899", // Pink
+];
 
 // Brush strength = total concentration in the box, capped at 100%. A rough
 // stand-in for the real dose-additivity model (scientific/mixture.py) until
@@ -132,16 +144,26 @@ const TABS = [
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
-const RAIL_ICONS: { icon: React.ElementType; label: string; href?: string }[] = [
-  { icon: FlaskConical, label: "ทดลอง" },
-  { icon: Beaker, label: "สูตร" },
-  { icon: Grid2x2, label: "สารเคมี" },
-  { icon: LayoutGrid, label: "เทมเพลต" },
-  { icon: LineChart, label: "ผลลัพธ์" },
-  { icon: SlidersHorizontal, label: "เปรียบเทียบ" },
-  { icon: Settings, label: "ตั้งค่า" },
-  { icon: HelpCircle, label: "ช่วยเหลือ" },
-];
+// 4 QSAR endpoints (matches scientific/pipeline.py). Score here is a local
+// stand-in derived from box concentration, not the real assessment pipeline.
+const RESULT_ENDPOINTS = [
+  { key: "skin", label: "ระคายเคืองผิว" },
+  { key: "eye", label: "ระคายเคืองตา" },
+  { key: "sens", label: "แพ้ผิวหนัง" },
+  { key: "acute", label: "พิษเฉียบพลัน" },
+] as const;
+function bandTH(score: number) {
+  if (score <= 0) return "ไม่มี";
+  if (score <= 2) return "ต่ำ";
+  if (score <= 3) return "กลาง";
+  return "สูง";
+}
+function bandColor(score: number) {
+  if (score <= 0) return "bg-muted-foreground/40";
+  if (score <= 2) return "bg-emerald-500";
+  if (score <= 3) return "bg-amber-500";
+  return "bg-destructive";
+}
 
 export default function ExperimentPage({ params }: { params: { id: string } }) {
   const router = useRouter();
@@ -149,15 +171,51 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   const [projectName, setProjectName] = useState("Hand Cream Formula Test");
   const [editingName, setEditingName] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
-  const [zoomPct, setZoomPct] = useState(100);
+  const [zoomPct, setZoomPct] = useState(25);
+  const [dayIdx, setDayIdx] = useState<0 | 1 | 2>(1); // 0=Day1, 1=Day3, 2=Day7
+  // Results only appear after running an assessment (see handleRun / CanvasToolbar's Run button).
+  const [hasAssessed, setHasAssessed] = useState(false);
+  const [running, setRunning] = useState(false);
+
+  const [brushSizePct, setBrushSizePct] = useState(10);
+  const [clearTrigger, setClearTrigger] = useState(0);
+
+  const ZOOM_STEP = 10;
+  const BRUSH_STEP = 10;
+  const handleClear = () => setClearTrigger((t) => t + 1);
+  const handleRun = () => {
+    setRunning(true);
+    // Mock scoring pipeline — swap for api.createAssessment once the real
+    // QSAR backend is wired up here; results/page.tsx already prefers a
+    // real API response over this mock and only falls back to it.
+    setTimeout(() => {
+      const result = buildMockAssessmentResult(activeBox?.items ?? [], "face");
+      saveMockAssessmentResult(params.id, result);
+      setHasAssessed(true);
+      setRunning(false);
+      router.push(`/projects/${params.id}/results`);
+    }, 1500);
+  };
+  const handleZoomIn = () => setZoomPct((z) => Math.min(100, z + ZOOM_STEP));
+  const handleZoomOut = () => setZoomPct((z) => Math.max(0, z - ZOOM_STEP));
+  const handleZoomReset = () => setZoomPct(25);
+
+  const handleBrushSizeReset = () => setBrushSizePct(10);
 
   // ── Resizable / collapsible panels (Figma-style) ──
   const [leftWidth, setLeftWidth] = useState(300);
   const [rightWidth, setRightWidth] = useState(340);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  // The persistent icon rail (in the shared project layout) is a fixed w-14
+  // (56px) and always on screen; the picker sheet slides out right after it
+  // plus the formula-box panel, not from the true viewport edge.
+  const ICON_RAIL_WIDTH = 56;
+  const pickerLeftOffset = ICON_RAIL_WIDTH + (leftCollapsed ? 0 : leftWidth);
 
   const startResize = (side: "left" | "right") => (e: React.PointerEvent) => {
     e.preventDefault();
+    setIsResizing(true);
     const startX = e.clientX;
     const startW = side === "left" ? leftWidth : rightWidth;
     const onMove = (ev: PointerEvent) => {
@@ -170,6 +228,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
       window.removeEventListener("pointerup", onUp);
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
+      setIsResizing(false);
     };
     document.body.style.userSelect = "none";
     document.body.style.cursor = "col-resize";
@@ -182,6 +241,8 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
     {
       id: "box-1",
       name: "สูตร A",
+      color: "#009FA5",
+      icon: "beaker",
       items: [
         { chemicalId: "water", concentration: 65 },
         { chemicalId: "glycerin", concentration: 20 },
@@ -217,10 +278,32 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   const addBox = () => {
     boxIdSeq.current += 1;
     const id = `box-${boxIdSeq.current}`;
-    setBoxes((prev) => [...prev, { id, name: `สูตร ${String.fromCharCode(64 + boxIdSeq.current)}`, items: [] }]);
+    const color = BOX_COLORS[(boxIdSeq.current - 1) % BOX_COLORS.length];
+    const iconsList = Object.keys(BOX_ICONS) as BoxIconName[];
+    const icon = iconsList[(boxIdSeq.current - 1) % iconsList.length];
+    setBoxes((prev) => [
+      ...prev,
+      {
+        id,
+        name: `สูตร ${String.fromCharCode(64 + boxIdSeq.current)}`,
+        items: [],
+        color,
+        icon,
+      },
+    ]);
     setActiveBoxId(id);
     setEditingBoxId(id);
-    setPickerOpen(true);
+    // Let the user open the chemical library themselves — show the rename
+    // popover instead so a fresh box gets a name first.
+    setSettingsOpenId(id);
+  };
+
+  const changeBoxColor = (id: string, color: string) => {
+    setBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, color } : b)));
+  };
+
+  const changeBoxIcon = (id: string, icon: BoxIconName) => {
+    setBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, icon } : b)));
   };
 
   const removeBox = (id: string) => {
@@ -270,64 +353,17 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   };
 
   return (
-    <SidebarProvider>
-      <div data-project-id={params.id} className="app-light relative flex h-screen w-full overflow-hidden bg-card text-foreground">
-        {/* ── Icon rail (shadcn Sidebar, icon-only, no toggle) — hidden entirely while the left panel is collapsed ── */}
-        {!leftCollapsed && (
-          <Sidebar
-            collapsible="none"
-            className="h-screen w-14 shrink-0 border-r border-border bg-card"
-          >
-            <SidebarContent className="py-3 gap-0">
-              <SidebarMenu className="items-center gap-1">
-                {RAIL_ICONS.map(({ icon: Icon, label, href }, i) => (
-                  <SidebarMenuItem key={label}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <SidebarMenuButton
-                          isActive={i === 0}
-                          size="default"
-                          onClick={() => {
-                            if (label === "ผลลัพธ์") router.push(`/projects/${params.id}/results`);
-                            else if (href) router.push(href);
-                          }}
-                          className="size-10 justify-center p-0"
-                        >
-                          <Icon className="size-[18px]" />
-                        </SidebarMenuButton>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="text-white">{label}</TooltipContent>
-                    </Tooltip>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarContent>
-            <SidebarFooter className="py-3 items-center">
-              <span className="grid size-9 place-items-center rounded-full bg-secondary text-xs font-semibold text-foreground">
-                A
-              </span>
-            </SidebarFooter>
-          </Sidebar>
-        )}
-
-        {/* Figma-style floating pill — replaces the whole left side (nav + panel) while collapsed.
-            Clicking the name (not the icon) reopens the panel; the icon is a decorative label. */}
+    <div data-project-id={params.id} className="relative flex h-full w-full overflow-hidden">
+        {/* Figma-style floating pill — replaces the formula-box panel while collapsed. */}
         {leftCollapsed && (
-          <div className="absolute left-3 top-3 z-20 flex items-center gap-2 rounded-xl border border-border bg-card py-2 pl-2 pr-3 shadow-md">
-            <span
-              aria-hidden
-              className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground"
-            >
-              <PanelLeft className="size-4" />
-            </span>
-            <button
-              aria-label="เปิดแผง"
-              onClick={() => setLeftCollapsed(false)}
-              className="max-w-[160px] truncate rounded px-0.5 text-left text-sm font-semibold text-foreground hover:text-primary"
-            >
-              {projectName}
-            </button>
-          </div>
+          <button
+            aria-label="เปิดแผง"
+            onClick={() => setLeftCollapsed(false)}
+            className="absolute left-3 top-3 z-20 flex items-center gap-2 rounded-xl border border-border bg-card py-2.5 pl-3.5 pr-3 shadow-md text-left text-sm font-semibold text-foreground hover:text-primary transition-colors group"
+          >
+            <span>{projectName}</span>
+            <PanelLeft className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
+          </button>
         )}
 
         {/* Figma-style floating toolbar — stands in for the hidden right panel's run/export actions */}
@@ -356,7 +392,9 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
         {/* ── Formula boxes ── */}
         <aside
           style={{ width: leftCollapsed ? 0 : leftWidth }}
-          className={`flex shrink-0 flex-col ${leftCollapsed ? "overflow-hidden border-r-0" : "border-r border-border"}`}
+          className={`relative z-30 flex shrink-0 flex-col bg-card ${
+            isResizing ? "" : "transition-all duration-300 ease-in-out"
+          } ${leftCollapsed ? "overflow-hidden border-r-0" : "border-r border-border"}`}
         >
           <div className="flex items-center gap-2 px-4 py-4">
             {editingName ? (
@@ -397,7 +435,6 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
           <div className="flex items-center justify-between px-4">
             <h2 className="text-sm font-bold text-foreground">กล่องสูตร</h2>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">คลิกกล่องเพื่อใช้ทาสี</span>
               <button
                 aria-label="สร้างกล่องสูตรใหม่"
                 onClick={addBox}
@@ -412,6 +449,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
             {boxes.map((box) => {
               const active = box.id === activeBoxId;
               const intensity = boxIntensity(box);
+              const boxColor = box.color || "#009FA5";
               return (
                 <div
                   key={box.id}
@@ -419,19 +457,48 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                   tabIndex={0}
                   onClick={() => setActiveBoxId(box.id)}
                   onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setActiveBoxId(box.id)}
-                  className={`cursor-pointer rounded-xl border p-3 transition-colors ${active ? "border-primary bg-accent/50 ring-1 ring-primary/30" : "border-border bg-card hover:bg-secondary"
-                    }`}
+                  className={`cursor-pointer rounded-xl border p-3 transition-all duration-200 ${
+                    active
+                      ? ""
+                      : "border-border bg-card hover:bg-secondary"
+                  }`}
+                  style={
+                    active
+                      ? {
+                          borderColor: boxColor,
+                          boxShadow: `0 0 0 1px ${boxColor}33`,
+                          backgroundColor: `${boxColor}0D`,
+                        }
+                      : {}
+                  }
                 >
                   <div className="flex items-center gap-2">
-                    <span
-                      className={`grid size-7 shrink-0 place-items-center rounded-lg ${active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
-                        }`}
-                    >
-                      <Beaker className="size-3.5" />
-                    </span>
+                    {(() => {
+                      const IconComponent = BOX_ICONS[box.icon || "beaker"] || Beaker;
+                      return (
+                        <span
+                          className="grid size-7 shrink-0 place-items-center rounded-lg"
+                          style={
+                            active
+                              ? { backgroundColor: boxColor, color: "#FFFFFF" }
+                              : { backgroundColor: `${boxColor}1A`, color: boxColor }
+                          }
+                        >
+                          <IconComponent className="size-3.5" />
+                        </span>
+                      );
+                    })()}
                     <span className="min-w-0 flex-1 break-words text-sm font-semibold text-foreground">{box.name}</span>
                     {intensity > 0 && (
-                      <Badge variant={active ? "default" : "secondary"} className="shrink-0 px-1.5 py-0 text-[10px]">
+                      <Badge
+                        variant={active ? "default" : "secondary"}
+                        className="shrink-0 px-1.5 py-0 text-[10px]"
+                        style={
+                          active
+                            ? { backgroundColor: boxColor, color: "#FFFFFF" }
+                            : {}
+                        }
+                      >
                         {Math.round(intensity * 100)}%
                       </Badge>
                     )}
@@ -461,19 +528,73 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                             id={`box-name-${box.id}`}
                             value={box.name}
                             onChange={(e) => renameBox(box.id, e.target.value)}
+                            onFocus={(e) => e.currentTarget.select()}
                             className="h-8 text-sm"
                           />
                         </div>
+
+                        <div className="mt-3.5 space-y-1.5">
+                          <Label className="text-xs text-muted-foreground font-semibold">
+                            สีกล่องและไอคอนสูตร
+                          </Label>
+                          <div className="grid grid-cols-5 gap-2 pt-1">
+                            {BOX_COLORS.map((color) => {
+                              const isSelected = boxColor === color;
+                              return (
+                                <button
+                                  key={color}
+                                  onClick={() => changeBoxColor(box.id, color)}
+                                  className="group relative size-7 rounded-full transition-all duration-100 active:scale-90 hover:scale-105 border border-black/5"
+                                  style={{ backgroundColor: color }}
+                                  title={color}
+                                >
+                                  {isSelected && (
+                                    <span className="absolute inset-0 m-auto size-2 rounded-full bg-white shadow-sm" />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="mt-3.5 space-y-1.5">
+                          <Label className="text-xs text-muted-foreground font-medium">
+                            ไอคอนประจำกล่องสูตร
+                          </Label>
+                          <div className="flex gap-2 pt-1 overflow-x-auto pb-1">
+                            {Object.entries(BOX_ICONS).map(([iconName, IconComponent]) => {
+                              const isSelected = (box.icon || "beaker") === iconName;
+                              return (
+                                <button
+                                  key={iconName}
+                                  onClick={() => changeBoxIcon(box.id, iconName as BoxIconName)}
+                                  className="grid size-7 shrink-0 place-items-center rounded-lg border transition-all duration-100 active:scale-90 hover:scale-105"
+                                  style={
+                                    isSelected
+                                      ? { borderColor: boxColor, backgroundColor: `${boxColor}1A`, color: boxColor }
+                                      : { borderColor: "hsl(var(--border))", color: "hsl(var(--muted-foreground))" }
+                                  }
+                                  title={iconName}
+                                >
+                                  <IconComponent className="size-3.5" />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
                         <div className="mt-3 border-t border-border pt-3">
                           <button
                             onClick={() => {
                               setSettingsOpenId(null);
-                              setDeleteConfirmId(box.id);
+                              // Empty box, nothing to lose — skip the confirmation dialog.
+                              if (box.items.length === 0) removeBox(box.id);
+                              else setDeleteConfirmId(box.id);
                             }}
                             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
                           >
                             <Trash2 className="size-3.5" />
-                            ลบสูตรนี้
+                            ลบ
                           </button>
                         </div>
                       </PopoverContent>
@@ -602,17 +723,19 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
             {/* View switcher — floating pill only while the side panels are collapsed, otherwise the regular in-flow bar */}
             {leftCollapsed ? (
               <div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex justify-center">
-                <TabsList className="pointer-events-auto h-10 rounded-xl border border-border bg-card p-1.5 shadow-md">
-                  {TABS.map((t) => (
-                    <TabsTrigger
-                      key={t.key}
-                      value={t.key}
-                      className="rounded-md px-5 text-sm font-medium text-muted-foreground data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-                    >
-                      {t.label}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
+                <div className="pointer-events-auto rounded-xl border border-border bg-card p-1 shadow-md">
+                  <TabsList className="h-9 rounded-lg bg-muted p-1">
+                    {TABS.map((t) => (
+                      <TabsTrigger
+                        key={t.key}
+                        value={t.key}
+                        className="rounded-md px-5 text-sm font-medium text-muted-foreground data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+                      >
+                        {t.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </div>
               </div>
             ) : (
               <div className="flex justify-center border-b border-border py-3">
@@ -633,15 +756,27 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
             <TabsContent value="experiment" className="relative min-h-0 flex-1 mt-0">
               <>
                 <FacePaint
-                  key={activeBoxId ?? "none"}
                   brushValue={activeBox ? boxIntensity(activeBox) : 0}
                   armed={!!activeBox && activeBox.items.length > 0}
                   background="#F7F5F4"
+                  zoomPct={zoomPct}
+                  brushSizePct={brushSizePct}
+                  clearTrigger={clearTrigger}
                   onZoomChange={setZoomPct}
                 />
 
-                {/* Substance picker drawer — only visible after "เพิ่มสารลงกล่องนี้" is clicked */}
-                <Drawer
+                {/* Bottom-centred floating toolbar */}
+                <CanvasToolbar
+                  brushSizePct={brushSizePct}
+                  running={running}
+                  onRun={handleRun}
+                  onClear={handleClear}
+                  onBrushSizeReset={handleBrushSizeReset}
+                  onBrushSizeChange={setBrushSizePct}
+                />
+
+                {/* Substance picker sheet — slides out right after the formula-box panel, no dark backdrop */}
+                <Sheet
                   open={pickerOpen}
                   onOpenChange={(open) => {
                     setPickerOpen(open);
@@ -651,26 +786,19 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                     }
                   }}
                 >
-                  <DrawerContent className="mt-0 max-h-[46vh]">
-                    <DrawerHeader className="flex-row items-center justify-between gap-3 space-y-0 text-left pb-3">
-                      <DrawerTitle>คลังสารเคมี</DrawerTitle>
-                    </DrawerHeader>
-
-                    <div className="flex items-center gap-3 px-4 pb-3">
-                      <div className="relative flex-1">
-                        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                        <input
-                          value={pickerQuery}
-                          onChange={(e) => setPickerQuery(e.target.value)}
-                          placeholder="ค้นหาสารเคมี หรือ INCI"
-                          className="h-9 w-full rounded-lg border border-border bg-secondary/50 pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
-                        />
-                      </div>
+                  <SheetContent
+                    side="left"
+                    overlayClassName="z-20 bg-transparent"
+                    style={{ left: pickerLeftOffset - 28 }}
+                    className="z-20 flex w-80 flex-col gap-0 border-r border-border bg-card p-0 pl-7 sm:max-w-none"
+                  >
+                    <SheetHeader className="flex-row items-center justify-between gap-2 space-y-0 border-b border-border px-4 py-3 pr-12 text-left">
+                      <SheetTitle className="shrink-0">คลังสารเคมี</SheetTitle>
                       <div className="relative shrink-0">
                         <select
                           value={pickerCategory}
                           onChange={(e) => setPickerCategory(e.target.value)}
-                          className="h-9 appearance-none rounded-lg border border-border bg-card py-0 pl-3 pr-8 text-sm text-foreground outline-none focus:border-primary"
+                          className="h-8 appearance-none rounded-lg border border-border bg-card py-0 pl-3 pr-8 text-xs text-foreground outline-none focus:border-primary"
                         >
                           <option value="all">หมวดหมู่ทั้งหมด</option>
                           {pickerCategories.map((role) => (
@@ -681,97 +809,85 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                         </select>
                         <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                       </div>
-                    </div>
+                    </SheetHeader>
 
-                    <div className="px-4 pb-5">
-                      <div className="relative">
-                        <div
-                          onWheel={(e) => {
-                            if (e.deltaY === 0) return;
-                            e.currentTarget.scrollLeft += e.deltaY;
-                            e.preventDefault();
-                          }}
-                          className="no-scrollbar flex gap-3 overflow-x-auto"
-                        >
-                          {pickerTarget &&
-                            pickerResults.map((c) => {
-                              const already = pickerTarget.items.some((it) => it.chemicalId === c.id);
-                              return (
-                                <div
-                                  key={c.id}
-                                  role="button"
-                                  tabIndex={0}
-                                  onClick={() => !already && addItem(pickerTarget.id, c.id)}
-                                  onKeyDown={(e) => {
-                                    if ((e.key === "Enter" || e.key === " ") && !already) {
-                                      e.preventDefault();
-                                      addItem(pickerTarget.id, c.id);
-                                    }
-                                  }}
-                                  className={`flex w-60 shrink-0 items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${already
-                                    ? "border-border bg-secondary/40"
-                                    : "cursor-pointer border-border bg-card hover:border-primary/50 hover:bg-accent/40"
-                                    }`}
-                                >
-                                  <span
-                                    className={`grid size-8 shrink-0 place-items-center rounded-md ${already ? "bg-muted" : ""}`}
-                                    style={already ? undefined : { backgroundColor: `${c.color}1A` }}
-                                  >
-                                    <FlaskConical
-                                      className={`size-4 ${already ? "text-muted-foreground" : ""}`}
-                                      style={already ? undefined : { color: c.color }}
-                                    />
-                                  </span>
-                                  <span className="min-w-0 flex-1">
-                                    <span className="block truncate text-sm font-medium text-foreground">{c.name}</span>
-                                    <span className="block truncate text-[11px] text-muted-foreground">CAS {c.cas}</span>
-                                  </span>
-                                  {already ? (
-                                    <button
-                                      aria-label={`ลบ ${c.name} ออกจากกล่อง`}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        removeItem(pickerTarget.id, c.id);
-                                      }}
-                                      className="grid size-6 shrink-0 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:border-destructive hover:text-destructive"
-                                    >
-                                      <Minus className="size-3.5" />
-                                    </button>
-                                  ) : (
-                                    <span className="shrink-0 rounded-full border border-primary/40 px-2.5 py-1 text-xs font-medium text-primary">
-                                      เพิ่ม
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          {pickerTarget && pickerResults.length === 0 && (
-                            <p className="w-full py-6 text-center text-xs text-muted-foreground">
-                              ไม่พบสารเคมีที่ตรงกับคำค้นหา
-                            </p>
-                          )}
-                        </div>
-
-                        {pickerTarget && pickerResults.length > 0 && (
-                          <>
-                            <ChevronLeft
-                              aria-hidden
-                              className="pointer-events-none absolute -left-0.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/40"
-                            />
-                            <ChevronRight
-                              aria-hidden
-                              className="pointer-events-none absolute -right-0.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/40"
-                            />
-                          </>
-                        )}
+                    <div className="px-4 py-3">
+                      <div className="relative w-full">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                        <input
+                          value={pickerQuery}
+                          onChange={(e) => setPickerQuery(e.target.value)}
+                          placeholder="ค้นหาสารเคมี หรือ INCI"
+                          className="h-9 w-full rounded-lg border border-border bg-secondary/50 pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                        />
                       </div>
                     </div>
-                  </DrawerContent>
-                </Drawer>
+
+                    <div className="flex-1 space-y-2 overflow-y-auto px-4 pb-4">
+                      {pickerTarget &&
+                        pickerResults.map((c) => {
+                          const already = pickerTarget.items.some((it) => it.chemicalId === c.id);
+                          return (
+                            <div
+                              key={c.id}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => !already && addItem(pickerTarget.id, c.id)}
+                              onKeyDown={(e) => {
+                                if ((e.key === "Enter" || e.key === " ") && !already) {
+                                  e.preventDefault();
+                                  addItem(pickerTarget.id, c.id);
+                                }
+                              }}
+                              className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${already
+                                ? "border-border bg-secondary/40"
+                                : "cursor-pointer border-border bg-card hover:border-primary/50 hover:bg-accent/40"
+                                }`}
+                            >
+                              <span
+                                className={`grid size-8 shrink-0 place-items-center rounded-md ${already ? "bg-muted" : ""}`}
+                                style={already ? undefined : { backgroundColor: `${c.color}1A` }}
+                              >
+                                <FlaskConical
+                                  className={`size-4 ${already ? "text-muted-foreground" : ""}`}
+                                  style={already ? undefined : { color: c.color }}
+                                />
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm font-medium text-foreground">{c.name}</span>
+                                <span className="block truncate text-[11px] text-muted-foreground">CAS {c.cas}</span>
+                              </span>
+                              {already ? (
+                                <button
+                                  aria-label={`ลบ ${c.name} ออกจากกล่อง`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeItem(pickerTarget.id, c.id);
+                                  }}
+                                  className="grid size-6 shrink-0 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:border-destructive hover:text-destructive"
+                                >
+                                  <Minus className="size-3.5" />
+                                </button>
+                              ) : (
+                                <span className="shrink-0 rounded-full border border-primary/40 px-2.5 py-1 text-xs font-medium text-primary">
+                                  เพิ่ม
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      {pickerTarget && pickerResults.length === 0 && (
+                        <p className="py-6 text-center text-xs text-muted-foreground">
+                          ไม่พบสารเคมีที่ตรงกับคำค้นหา
+                        </p>
+                      )}
+                    </div>
+                  </SheetContent>
+                </Sheet>
               </>
             </TabsContent>
 
-            <TabsContent value="nodemods" className="min-h-0 flex-1 mt-0 overflow-auto p-4">
+            <TabsContent value="nodemods" className="relative min-h-0 flex-1 mt-0">
               <FormulaGraph region="face" />
             </TabsContent>
           </Tabs>
@@ -789,77 +905,66 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
           </div>
         )}
 
-        {/* ── Right: active box detail + actions ── */}
+        {/* ── Right: time-course selector + AI chat panel ── */}
         <aside
           style={{ width: leftCollapsed ? 0 : rightWidth }}
-          className={`flex shrink-0 flex-col overflow-y-auto ${leftCollapsed ? "overflow-x-hidden border-l-0" : "border-l border-border"}`}
+          className={`flex shrink-0 flex-col overflow-hidden bg-card ${
+            isResizing ? "" : "transition-all duration-300 ease-in-out"
+          } ${leftCollapsed ? "border-l-0" : "border-l border-border"}`}
         >
-          <div className="flex items-center gap-2 px-5 py-4">
-            <Button className="h-10 flex-1 gap-2 text-sm font-semibold">
-              <FlaskConical className="size-4" />
-              เริ่มการทดลอง
-            </Button>
-            <Button variant="outline" size="icon" aria-label="Export PDF" className="size-10 shrink-0">
-              <Download className="size-4" />
-            </Button>
+          <div className="border-b border-border px-4 py-3">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">การจำลองตามเวลา</p>
+            <div className="flex gap-1.5">
+              {[1, 3, 7].map((d, i) => (
+                <button
+                  key={d}
+                  onClick={() => setDayIdx(i as 0 | 1 | 2)}
+                  className={`flex-1 rounded-lg py-1.5 text-xs font-semibold transition-colors ${dayIdx === i
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-muted-foreground hover:bg-secondary/80"
+                    }`}
+                >
+                  Day {d}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 opacity-90">
+            <AiChatPanel />
           </div>
 
-          <button
-            onClick={() => router.push(`/projects/${params.id}/results`)}
-            className="mx-5 mt-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium text-primary transition-colors hover:bg-accent/60"
-          >
-            <LineChart className="size-4" />
-            ดูผลลัพธ์
-          </button>
-
-          {/* Active box detail */}
-          <div className="mx-5 mt-4 rounded-xl border border-border p-4">
-            {!activeBox ? (
-              <p className="py-4 text-center text-xs text-muted-foreground">
-                เลือกกล่องสูตรด้านซ้าย เพื่อโหลดความเข้มข้นลงพู่กัน
-              </p>
-            ) : (
-              <>
-                <div className="flex items-center gap-2">
-                  <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
-                    <Beaker className="size-4" />
-                  </span>
-                  <span className="truncate text-sm font-semibold text-foreground">{activeBox.name}</span>
-                  <Badge className="ml-auto shrink-0 px-1.5 py-0 text-[10px]">{activeBox.items.length} สาร</Badge>
-                </div>
-
-                {activeBox.items.length === 0 ? (
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    กล่องนี้ยังไม่มีสาร — กด “เพิ่มสารลงกล่องนี้” จากแผงซ้าย หรือแถบด้านบนโมเดล
-                  </p>
-                ) : (
-                  <dl className="mt-3 space-y-1.5 text-xs">
-                    {activeBox.items.map((it) => {
-                      const c = chemById(it.chemicalId);
-                      return (
-                        <div key={it.chemicalId} className="flex justify-between gap-3">
-                          <dt className="truncate text-muted-foreground">{c.name}</dt>
-                          <dd className="shrink-0 font-medium text-foreground">{it.concentration}%</dd>
-                        </div>
-                      );
-                    })}
-                    <div className="flex justify-between gap-3 border-t border-border pt-1.5 font-semibold">
-                      <dt className="text-foreground">ความเข้มข้นรวม</dt>
-                      <dd className="text-primary">{Math.round(boxIntensity(activeBox) * 100)}%</dd>
+          {/* Reserved results area — always visible, filled in once an assessment runs */}
+          <div className="h-64 shrink-0 overflow-y-auto border-t border-border bg-accent/30 px-4 py-4">
+            <p className="mb-3 text-sm font-bold text-foreground">ผลการประเมิน</p>
+            {hasAssessed ? (
+              <div className="space-y-3.5">
+                {RESULT_ENDPOINTS.map((ep) => {
+                  const score = activeBox ? Math.round(boxIntensity(activeBox) * 4) : 0;
+                  return (
+                    <div key={ep.key}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-foreground">{ep.label}</span>
+                        <span className="font-mono text-sm font-bold text-primary">
+                          {score} <span className="text-xs font-medium text-muted-foreground">- {bandTH(score)}</span>
+                        </span>
+                      </div>
+                      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-secondary">
+                        <div
+                          className={`h-full rounded-full ${bandColor(score)}`}
+                          style={{ width: `${(score / 4) * 100}%` }}
+                        />
+                      </div>
                     </div>
-                  </dl>
-                )}
-
-                {activeBox.items.length > 0 && (
-                  <p className="mt-3 rounded-lg bg-accent/50 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                    🖌️ กล่องนี้พร้อมทาแล้ว — ลากบนใบหน้าตรงกลางเพื่อระบายผล
-                  </p>
-                )}
-              </>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="py-6 text-center text-xs text-muted-foreground">
+                กด Run เพื่อประเมินความเสี่ยง ผลลัพธ์จะแสดงที่นี่
+              </p>
             )}
           </div>
         </aside>
-      </div>
-    </SidebarProvider>
+    </div>
   );
 }

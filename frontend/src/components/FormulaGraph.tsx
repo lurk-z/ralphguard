@@ -110,58 +110,58 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
 
   return (
     <div
-      className="relative w-56 rounded-lg border border-slate-200 bg-white shadow-card"
+      className="relative w-56 rounded-lg border border-border bg-card shadow-md"
       onMouseEnter={startHover}
       onMouseLeave={endHover}
     >
       {showInfo && (data.smiles?.trim() || data.name) && (
-        <div className="nodrag nowheel absolute left-full top-0 z-30 ml-3 w-60 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-soft">
+        <div className="nodrag nowheel absolute left-full top-0 z-30 ml-3 w-60 rounded-xl border border-border bg-card p-3 text-left shadow-md">
           <div className="flex items-center gap-1.5">
-            <span className="text-brand">◇</span>
-            <span className="flex-1 truncate text-xs font-semibold text-slate-800">{data.name || "สารไม่ระบุชื่อ"}</span>
-            {mw != null && <span className="font-mono text-[9px] text-slate-400">MW {mw}</span>}
+            <span className="text-primary">◇</span>
+            <span className="flex-1 truncate text-xs font-semibold text-foreground">{data.name || "สารไม่ระบุชื่อ"}</span>
+            {mw != null && <span className="font-mono text-[9px] text-muted-foreground">MW {mw}</span>}
           </div>
           {category && (
-            <div className="mt-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500">
+            <div className="mt-1 inline-block rounded bg-secondary px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
               {category}
             </div>
           )}
           {info ? (
             <>
-              <div className="mt-1.5 text-[11px] leading-snug text-slate-700">{info.role}</div>
+              <div className="mt-1.5 text-[11px] leading-snug text-foreground">{info.role}</div>
               <div className="mt-1 flex gap-1 text-[10px] leading-snug text-amber-700">
                 <span>⚠️</span>
                 <span>{info.note}</span>
               </div>
             </>
           ) : (
-            <div className="mt-1.5 text-[11px] leading-snug text-slate-500">
+            <div className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
               สารกำหนดเอง (SMILES: <span className="font-mono">{data.smiles || "-"}</span>) — ยังไม่มีข้อมูลรายละเอียดในคลัง
             </div>
           )}
-          <div className="mt-1.5 font-mono text-[9px] text-slate-400">SMILES: {data.smiles || "-"}</div>
+          <div className="mt-1.5 font-mono text-[9px] text-muted-foreground">SMILES: {data.smiles || "-"}</div>
         </div>
       )}
       <button
         onClick={remove}
         title="ลบ node"
-        className="nodrag nopan absolute -right-2 -top-2 z-10 grid size-5 place-items-center rounded-full border border-slate-200 bg-white text-sm leading-none text-slate-400 shadow-card transition hover:border-rose-300 hover:bg-rose-500 hover:text-white"
+        className="nodrag nopan absolute -right-2 -top-2 z-10 grid size-5 place-items-center rounded-full border border-border bg-card text-sm leading-none text-muted-foreground shadow-md transition hover:border-rose-300 hover:bg-rose-500 hover:text-white"
       >
         ×
       </button>
-      <div className="flex items-center justify-between rounded-t-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-800">
+      <div className="flex items-center justify-between rounded-t-lg bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground">
         <span>🧪 สาร</span>
-        <span className="font-mono text-[10px] text-slate-800/45">#{id}</span>
+        <span className="font-mono text-[10px] text-muted-foreground">#{id}</span>
       </div>
       <div className="nodrag nowheel space-y-1.5 p-3">
         <input
-          className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-800"
+          className="w-full rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
           placeholder="ชื่อสาร"
           value={data.name ?? ""}
           onChange={(e) => patch({ name: e.target.value })}
         />
         <input
-          className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs text-slate-800"
+          className="w-full rounded border border-border bg-background px-2 py-1 font-mono text-xs text-foreground"
           placeholder="SMILES เช่น CCO"
           value={data.smiles}
           onChange={(e) => patch({ smiles: e.target.value })}
@@ -172,11 +172,11 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
             min={0}
             max={100}
             step={0.1}
-            className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs tabular-nums text-slate-800"
+            className="w-full rounded border border-border bg-background px-2 py-1 font-mono text-xs tabular-nums text-foreground"
             value={data.concentration}
             onChange={(e) => patch({ concentration: parseFloat(e.target.value) || 0 })}
           />
-          <span className="text-xs text-slate-800/55">%</span>
+          <span className="text-xs text-muted-foreground">%</span>
         </div>
         {valid === true && (
           <div className="text-[10px] text-emerald-600">✓ ถูกต้อง{mw != null ? ` · MW ${mw}` : ""}</div>
@@ -186,7 +186,7 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
       <Handle
         type="source"
         position={Position.Right}
-        className="!h-3 !w-3 !border-2 !border-white !bg-brand"
+        className="!h-3 !w-3 !border-2 !border-background !bg-primary"
       />
     </div>
   );
@@ -275,20 +275,20 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
   const busy = data.status === "queued" || data.status === "running";
 
   return (
-    <div className="w-64 rounded-lg border-2 border-brand/50 bg-white shadow-soft">
+    <div className="w-64 rounded-lg border-2 border-primary/40 bg-card shadow-md">
       <Handle
         type="target"
         position={Position.Left}
-        className="!h-3 !w-3 !border-2 !border-white !bg-brand"
+        className="!h-3 !w-3 !border-2 !border-background !bg-primary"
       />
-      <div className="rounded-t-lg bg-brand/10 px-3 py-1.5 text-xs font-semibold text-brand-dark">
+      <div className="rounded-t-lg bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
         🎯 ผลการประเมิน
       </div>
       <div className="nodrag nowheel space-y-2 p-3">
-        <label className="flex items-center justify-between gap-2 text-[11px] text-slate-800/65">
+        <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
           บริเวณ:
           <select
-            className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-800"
+            className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
             value={data.region}
             onChange={(e) => patch({ region: e.target.value as Region })}
           >
@@ -301,7 +301,7 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
         <button
           onClick={run}
           disabled={busy}
-          className="w-full rounded-lg bg-brand py-2 text-xs font-semibold text-white transition hover:bg-brand-dark disabled:opacity-50"
+          className="w-full rounded-lg bg-primary py-2 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
         >
           {busy ? "กำลังประเมิน…" : "▶ ประเมิน"}
         </button>
@@ -319,10 +319,10 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
               const band = bandOf(sc);
               return (
                 <div key={ep} className="flex items-center gap-2">
-                  <span className="w-20 shrink-0 text-[10px] text-slate-800/70">
+                  <span className="w-20 shrink-0 text-[10px] text-muted-foreground">
                     {ENDPOINT_LABEL_TH[ep]}
                   </span>
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">
                     <div
                       className="h-full rounded-full"
                       style={{ width: `${Math.min(100, sc)}%`, background: BAND_HEX[band] }}
@@ -385,21 +385,21 @@ function ModifierNode({ id, data }: NodeProps<ModifierData>) {
     setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
   };
   return (
-    <div className="relative w-52 rounded-lg border-2 border-amber-300 bg-amber-50 shadow-card">
+    <div className="relative w-52 rounded-lg border-2 border-amber-300 bg-amber-50 shadow-md">
       <button
         onClick={remove}
         title="ลบ node"
-        className="nodrag nopan absolute -right-2 -top-2 z-10 grid size-5 place-items-center rounded-full border border-slate-200 bg-white text-sm leading-none text-slate-400 shadow-card hover:border-rose-300 hover:bg-rose-500 hover:text-white"
+        className="nodrag nopan absolute -right-2 -top-2 z-10 grid size-5 place-items-center rounded-full border border-border bg-card text-sm leading-none text-muted-foreground shadow-md hover:border-rose-300 hover:bg-rose-500 hover:text-white"
       >
         ×
       </button>
-      <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-white !bg-amber-400" />
+      <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-background !bg-amber-400" />
       <div className="rounded-t-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800">🧩 ตัวปรับสูตร</div>
       <div className="nodrag nowheel space-y-1.5 p-3 text-xs">
         <div className="flex items-center gap-1">
           <span className="text-amber-600">◈</span>
           <input
-            className="min-w-0 flex-1 rounded border border-amber-200 bg-white px-2 py-1 text-slate-800"
+            className="min-w-0 flex-1 rounded border border-amber-200 bg-card px-2 py-1 text-foreground"
             value={data.name}
             onChange={(e) => patch({ name: e.target.value })}
             placeholder="ชื่อสาร"
@@ -408,17 +408,17 @@ function ModifierNode({ id, data }: NodeProps<ModifierData>) {
             type="number"
             min={0}
             max={100}
-            className="w-11 rounded border border-amber-200 bg-white px-1 py-1 text-right font-mono tabular-nums text-slate-800"
+            className="w-11 rounded border border-amber-200 bg-card px-1 py-1 text-right font-mono tabular-nums text-foreground"
             value={data.concentration}
             onChange={(e) => patch({ concentration: parseFloat(e.target.value) || 0 })}
           />
-          <span className="text-[10px] text-slate-500">%</span>
+          <span className="text-[10px] text-muted-foreground">%</span>
         </div>
-        <div className="truncate pl-4 font-mono text-[10px] text-slate-400">{data.smiles || "—"}</div>
-        <label className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
+        <div className="truncate pl-4 font-mono text-[10px] text-muted-foreground">{data.smiles || "—"}</div>
+        <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
           ลดด้าน:
           <select
-            className="rounded border border-amber-200 bg-white px-1 py-0.5 text-xs text-slate-800"
+            className="rounded border border-amber-200 bg-card px-1 py-0.5 text-xs text-foreground"
             value={data.target}
             onChange={(e) => patch({ target: e.target.value as ModTarget })}
           >
@@ -427,7 +427,7 @@ function ModifierNode({ id, data }: NodeProps<ModifierData>) {
             ))}
           </select>
         </label>
-        <label className="block text-[11px] text-slate-600">
+        <label className="block text-[11px] text-muted-foreground">
           ลดลง {Math.round(data.reduce * 100)}%
           <input
             type="range"
@@ -439,7 +439,7 @@ function ModifierNode({ id, data }: NodeProps<ModifierData>) {
           />
         </label>
       </div>
-      <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-white !bg-amber-400" />
+      <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-background !bg-amber-400" />
     </div>
   );
 }
@@ -585,16 +585,16 @@ function GraphInner({
   };
 
   return (
-    <div className="relative h-[75vh] min-h-[520px] w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+    <div className="relative h-[75vh] min-h-[520px] w-full overflow-hidden rounded-xl border border-border bg-background">
       <div className="absolute left-3 top-3 z-10 flex items-start gap-2">
         {/* Add-substance button + category picker */}
         <div className="relative">
           <button
             onClick={() => setPickerOpen((o) => !o)}
-            className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium shadow-card transition ${
+            className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium shadow-md transition ${
               pickerOpen
-                ? "border-brand bg-brand text-white"
-                : "border-slate-200 bg-white text-brand hover:border-brand"
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-card text-primary hover:border-primary"
             }`}
           >
             + เพิ่ม node สาร
@@ -602,12 +602,12 @@ function GraphInner({
           </button>
 
           {pickerOpen && (
-            <div className="absolute left-0 top-[calc(100%+6px)] z-20 max-h-[62vh] w-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-soft">
+            <div className="absolute left-0 top-[calc(100%+6px)] z-20 max-h-[62vh] w-64 overflow-y-auto rounded-xl border border-border bg-card p-2 shadow-md">
               <div className="mb-1 flex items-center justify-between px-1">
-                <span className="text-[11px] font-semibold text-slate-500">เลือกสารจากหมวดหมู่</span>
+                <span className="text-[11px] font-semibold text-muted-foreground">เลือกสารจากหมวดหมู่</span>
                 <button
                   onClick={() => setPickerOpen(false)}
-                  className="text-slate-400 hover:text-slate-700"
+                  className="text-muted-foreground hover:text-foreground"
                 >
                   ×
                 </button>
@@ -616,7 +616,7 @@ function GraphInner({
               {/* blank node option */}
               <button
                 onClick={() => addSubstance()}
-                className="mb-1.5 w-full rounded-lg border border-dashed border-slate-300 px-2 py-1.5 text-left text-xs text-slate-500 hover:border-brand hover:text-brand"
+                className="mb-1.5 w-full rounded-lg border border-dashed border-border px-2 py-1.5 text-left text-xs text-muted-foreground hover:border-primary hover:text-primary"
               >
                 ✎ สารเปล่า (กรอกเอง)
               </button>
@@ -627,11 +627,11 @@ function GraphInner({
                   <div key={group.category} className="mb-1">
                     <button
                       onClick={() => toggleCat(group.category)}
-                      className="flex w-full items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-200"
+                      className="flex w-full items-center gap-1.5 rounded-md bg-secondary px-2 py-1 text-left text-[11px] font-semibold text-foreground hover:bg-secondary"
                     >
                       <span>{group.icon}</span>
                       <span className="flex-1">{group.category}</span>
-                      <span className="text-[9px] text-slate-400">{group.items.length}</span>
+                      <span className="text-[9px] text-muted-foreground">{group.items.length}</span>
                       <span className={`text-[9px] transition ${open ? "" : "-rotate-90"}`}>▾</span>
                     </button>
                     {open && (
@@ -641,11 +641,11 @@ function GraphInner({
                             key={it.smiles}
                             onClick={() => addSubstance(it)}
                             title={it.smiles}
-                            className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-slate-700 hover:bg-teal-50"
+                            className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-foreground hover:bg-primary/10"
                           >
-                            <span className="text-brand">◇</span>
+                            <span className="text-primary">◇</span>
                             <span className="flex-1 truncate">{it.name}</span>
-                            <span className="font-mono text-[10px] text-slate-400">{it.conc}%</span>
+                            <span className="font-mono text-[10px] text-muted-foreground">{it.conc}%</span>
                           </button>
                         ))}
                       </div>
@@ -657,15 +657,15 @@ function GraphInner({
           )}
 
           {pickerOpen && (
-            <div className="absolute left-[16.5rem] top-[calc(100%+6px)] z-20 w-52 rounded-xl border border-slate-200 bg-white p-2 shadow-soft">
-              <div className="mb-1 px-1 text-[11px] font-semibold text-slate-500">ทดสอบหลายชุดพร้อมกัน</div>
+            <div className="absolute left-[16.5rem] top-[calc(100%+6px)] z-20 w-52 rounded-xl border border-border bg-card p-2 shadow-md">
+              <div className="mb-1 px-1 text-[11px] font-semibold text-muted-foreground">ทดสอบหลายชุดพร้อมกัน</div>
               <button
                 onClick={addResult}
-                className="flex w-full items-center gap-2 rounded-md border border-brand/40 bg-teal-50 px-2 py-2 text-xs font-medium text-brand-dark transition hover:bg-brand hover:text-white"
+                className="flex w-full items-center gap-2 rounded-md border border-primary/40 bg-primary/10 px-2 py-2 text-xs font-medium text-primary transition hover:bg-primary hover:text-primary-foreground"
               >
                 🎯 เพิ่ม node ผลการประเมิน
               </button>
-              <p className="mt-1.5 px-1 text-[10px] leading-snug text-slate-400">
+              <p className="mt-1.5 px-1 text-[10px] leading-snug text-muted-foreground">
                 ต่อสารแต่ละกลุ่มไปคนละ node ผล เพื่อเทียบหลายสูตรพร้อมกัน
               </p>
             </div>
@@ -680,7 +680,7 @@ function GraphInner({
             e.currentTarget.selectedIndex = 0;
           }}
           title="เพิ่มตัวปรับจากคลังสารจริง"
-          className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-800 shadow-card"
+          className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-800 shadow-md"
         >
           <option value="">🧩 + ตัวปรับ (เลือกจากคลังสาร)…</option>
           {SUBSTANCE_LIBRARY.map((g) => (
@@ -696,13 +696,13 @@ function GraphInner({
           <button
             onClick={saveAsFormula}
             title="บันทึก node graph ปัจจุบันเป็นสูตรใหม่ในลิสต์ (น้ำเติมให้ครบ 100% อัตโนมัติ)"
-            className="flex items-center gap-1 rounded-lg border border-brand bg-white px-3 py-1.5 text-xs font-medium text-brand shadow-card transition hover:bg-brand hover:text-white"
+            className="flex items-center gap-1 rounded-lg border border-primary bg-card px-3 py-1.5 text-xs font-medium text-primary shadow-md transition hover:bg-primary hover:text-primary-foreground"
           >
             💾 บันทึกเป็นสูตร
           </button>
         )}
 
-        <span className="rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-[11px] text-slate-500 shadow-card">
+        <span className="rounded-lg border border-border bg-card/80 px-3 py-1.5 text-[11px] text-muted-foreground shadow-md">
           ลากเส้น node → node · แทรก “ตัวปรับ” ระหว่างสาร→ผล เพื่อลดฤทธิ์
         </span>
       </div>
@@ -718,9 +718,9 @@ function GraphInner({
         fitView
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#CBD5E1" gap={18} />
-        <Controls showInteractive={false} />
-        <MiniMap pannable zoomable className="!bg-white !border !border-slate-200" />
+        <Background color="#D9DEE3" gap={18} />
+        <Controls showInteractive={false} className="[&_button]:!border-border [&_button]:!bg-card [&_button]:!text-foreground [&_button:hover]:!bg-secondary" />
+        <MiniMap pannable zoomable className="!bg-card !border !border-border" />
       </ReactFlow>
 
       {edgeMenu && (
