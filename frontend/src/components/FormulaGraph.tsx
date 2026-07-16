@@ -27,7 +27,7 @@ import ReactFlow, {
 } from "reactflow";
 
 import { FormulaItem, Region, api } from "../lib/api";
-import { SUBSTANCE_LIBRARY, type CatalogItem } from "../lib/catalog";
+import { SUBSTANCE_LIBRARY, withWaterBase, substanceInfo, type CatalogItem } from "../lib/catalog";
 
 const ENDPOINTS = ["skin", "eye", "sens", "acute"] as const;
 const ENDPOINT_LABEL_TH: Record<string, string> = {
@@ -69,6 +69,21 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
 
   const [valid, setValid] = useState<null | boolean>(null);
   const [mw, setMw] = useState<number | null>(null);
+
+  // Hover >2s → show an info card on the side describing the substance.
+  const [showInfo, setShowInfo] = useState(false);
+  const hoverT = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { category, info } = substanceInfo(data.smiles);
+  const startHover = () => {
+    if (hoverT.current) clearTimeout(hoverT.current);
+    hoverT.current = setTimeout(() => setShowInfo(true), 2000);
+  };
+  const endHover = () => {
+    if (hoverT.current) clearTimeout(hoverT.current);
+    setShowInfo(false);
+  };
+  useEffect(() => () => { if (hoverT.current) clearTimeout(hoverT.current); }, []);
+
   useEffect(() => {
     const s = data.smiles?.trim();
     if (!s) {
@@ -94,7 +109,39 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
   }, [data.smiles]);
 
   return (
-    <div className="relative w-56 rounded-lg border border-slate-200 bg-white shadow-card">
+    <div
+      className="relative w-56 rounded-lg border border-slate-200 bg-white shadow-card"
+      onMouseEnter={startHover}
+      onMouseLeave={endHover}
+    >
+      {showInfo && (data.smiles?.trim() || data.name) && (
+        <div className="nodrag nowheel absolute left-full top-0 z-30 ml-3 w-60 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-soft">
+          <div className="flex items-center gap-1.5">
+            <span className="text-brand">◇</span>
+            <span className="flex-1 truncate text-xs font-semibold text-slate-800">{data.name || "สารไม่ระบุชื่อ"}</span>
+            {mw != null && <span className="font-mono text-[9px] text-slate-400">MW {mw}</span>}
+          </div>
+          {category && (
+            <div className="mt-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500">
+              {category}
+            </div>
+          )}
+          {info ? (
+            <>
+              <div className="mt-1.5 text-[11px] leading-snug text-slate-700">{info.role}</div>
+              <div className="mt-1 flex gap-1 text-[10px] leading-snug text-amber-700">
+                <span>⚠️</span>
+                <span>{info.note}</span>
+              </div>
+            </>
+          ) : (
+            <div className="mt-1.5 text-[11px] leading-snug text-slate-500">
+              สารกำหนดเอง (SMILES: <span className="font-mono">{data.smiles || "-"}</span>) — ยังไม่มีข้อมูลรายละเอียดในคลัง
+            </div>
+          )}
+          <div className="mt-1.5 font-mono text-[9px] text-slate-400">SMILES: {data.smiles || "-"}</div>
+        </div>
+      )}
       <button
         onClick={remove}
         title="ลบ node"
@@ -106,7 +153,7 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
         <span>🧪 สาร</span>
         <span className="font-mono text-[10px] text-slate-800/45">#{id}</span>
       </div>
-      <div className="space-y-1.5 p-3">
+      <div className="nodrag nowheel space-y-1.5 p-3">
         <input
           className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-800"
           placeholder="ชื่อสาร"
@@ -188,9 +235,11 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
         }
       }
     }
-    const formula: FormulaItem[] = subs
-      .filter((d) => d.smiles?.trim() && d.concentration > 0)
-      .map((d) => ({ name: d.name, smiles: d.smiles, concentration: d.concentration }));
+    const formula: FormulaItem[] = withWaterBase(
+      subs
+        .filter((d) => d.smiles?.trim() && d.concentration > 0)
+        .map((d) => ({ name: d.name || "", smiles: d.smiles, concentration: d.concentration })),
+    );
 
     if (formula.length === 0) {
       patch({ status: "failed", error: "ยังไม่มีสารที่เชื่อมเข้ามา (ลากเส้นจาก node สาร → node ผล)" });
@@ -235,7 +284,7 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
       <div className="rounded-t-lg bg-brand/10 px-3 py-1.5 text-xs font-semibold text-brand-dark">
         🎯 ผลการประเมิน
       </div>
-      <div className="space-y-2 p-3">
+      <div className="nodrag nowheel space-y-2 p-3">
         <label className="flex items-center justify-between gap-2 text-[11px] text-slate-800/65">
           บริเวณ:
           <select
@@ -346,7 +395,7 @@ function ModifierNode({ id, data }: NodeProps<ModifierData>) {
       </button>
       <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-white !bg-amber-400" />
       <div className="rounded-t-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800">🧩 ตัวปรับสูตร</div>
-      <div className="space-y-1.5 p-3 text-xs">
+      <div className="nodrag nowheel space-y-1.5 p-3 text-xs">
         <div className="flex items-center gap-1">
           <span className="text-amber-600">◈</span>
           <input
@@ -424,12 +473,59 @@ function buildGraph(seed: FormulaItem[], region: Region): { nodes: Node[]; edges
   return { nodes, edges };
 }
 
-function GraphInner({ seed, region }: { seed: FormulaItem[]; region: Region }) {
+function GraphInner({
+  seed,
+  region,
+  onSaveFormula,
+}: {
+  seed: FormulaItem[];
+  region: Region;
+  onSaveFormula?: (items: FormulaItem[]) => void;
+}) {
   const initial = useMemo(() => buildGraph(seed, region), []); // seed once on mount
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
 
+  // Keep substance nodes in sync with the formula (e.g. AI reduced a concentration).
+  // Updates matching nodes' conc/name and appends substances that have no node yet,
+  // without wiping user-added modifier/result nodes.
+  const prevSeedRef = useRef<string>(JSON.stringify(seed.map((s) => [s.smiles, s.concentration])));
+  useEffect(() => {
+    const sig = JSON.stringify(seed.map((s) => [s.smiles, s.concentration, s.name]));
+    if (sig === prevSeedRef.current) return;
+    prevSeedRef.current = sig;
+    if (!seed.length) return;
+    setNodes((nds) => {
+      let next = nds.map((n) => {
+        if (n.type !== "substance") return n;
+        const d = n.data as SubstanceData;
+        const m = seed.find((s) => s.smiles === d.smiles);
+        return m ? { ...n, data: { ...d, concentration: m.concentration, name: m.name ?? d.name } } : n;
+      });
+      const have = new Set(
+        next.filter((n) => n.type === "substance").map((n) => (n.data as SubstanceData).smiles),
+      );
+      let base = next.filter((n) => n.type === "substance").length;
+      seed
+        .filter((s) => s.smiles && !have.has(s.smiles))
+        .forEach((s) => {
+          next = [
+            ...next,
+            {
+              id: nextId(),
+              type: "substance",
+              position: { x: 40, y: 40 + base * 200 },
+              data: { name: s.name, smiles: s.smiles, concentration: s.concentration },
+            },
+          ];
+          base += 1;
+        });
+      return next;
+    });
+  }, [seed, setNodes]);
+
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [edgeMenu, setEdgeMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   // categories collapsed state — all open by default
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const toggleCat = (c: string) => setCollapsed((s) => ({ ...s, [c]: !s[c] }));
@@ -452,6 +548,17 @@ function GraphInner({ seed, region }: { seed: FormulaItem[]; region: Region }) {
       },
     ]);
 
+  const addResult = () =>
+    setNodes((nds) => [
+      ...nds,
+      {
+        id: nextId(),
+        type: "result",
+        position: { x: 500, y: 40 + Math.min(nds.length, 6) * 90 },
+        data: { region, status: "idle" },
+      },
+    ]);
+
   const addModifierBySmiles = (smiles: string) => {
     const it = SUBSTANCE_LIBRARY.flatMap((g) => g.items).find((s) => s.smiles === smiles);
     if (!it) return;
@@ -464,6 +571,17 @@ function GraphInner({ seed, region }: { seed: FormulaItem[]; region: Region }) {
         data: { name: it.name, smiles: it.smiles, concentration: it.conc, target: "skin", reduce: 0.3 },
       },
     ]);
+  };
+
+  // Save the current graph (every substance + modifier node) as a new formula.
+  const saveAsFormula = () => {
+    const items: FormulaItem[] = nodes
+      .filter((n) => n.type === "substance" || n.type === "modifier")
+      .map((n) => n.data as SubstanceData & ModifierData)
+      .filter((d) => d.smiles?.trim() && (Number(d.concentration) || 0) > 0)
+      .map((d) => ({ name: d.name || "", smiles: d.smiles, concentration: Number(d.concentration) }));
+    if (!items.length) return;
+    onSaveFormula?.(withWaterBase(items));
   };
 
   return (
@@ -537,6 +655,21 @@ function GraphInner({ seed, region }: { seed: FormulaItem[]; region: Region }) {
               })}
             </div>
           )}
+
+          {pickerOpen && (
+            <div className="absolute left-[16.5rem] top-[calc(100%+6px)] z-20 w-52 rounded-xl border border-slate-200 bg-white p-2 shadow-soft">
+              <div className="mb-1 px-1 text-[11px] font-semibold text-slate-500">ทดสอบหลายชุดพร้อมกัน</div>
+              <button
+                onClick={addResult}
+                className="flex w-full items-center gap-2 rounded-md border border-brand/40 bg-teal-50 px-2 py-2 text-xs font-medium text-brand-dark transition hover:bg-brand hover:text-white"
+              >
+                🎯 เพิ่ม node ผลการประเมิน
+              </button>
+              <p className="mt-1.5 px-1 text-[10px] leading-snug text-slate-400">
+                ต่อสารแต่ละกลุ่มไปคนละ node ผล เพื่อเทียบหลายสูตรพร้อมกัน
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Add-modifier — pick a REAL substance from the catalog */}
@@ -559,6 +692,16 @@ function GraphInner({ seed, region }: { seed: FormulaItem[]; region: Region }) {
           ))}
         </select>
 
+        {onSaveFormula && (
+          <button
+            onClick={saveAsFormula}
+            title="บันทึก node graph ปัจจุบันเป็นสูตรใหม่ในลิสต์ (น้ำเติมให้ครบ 100% อัตโนมัติ)"
+            className="flex items-center gap-1 rounded-lg border border-brand bg-white px-3 py-1.5 text-xs font-medium text-brand shadow-card transition hover:bg-brand hover:text-white"
+          >
+            💾 บันทึกเป็นสูตร
+          </button>
+        )}
+
         <span className="rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-[11px] text-slate-500 shadow-card">
           ลากเส้น node → node · แทรก “ตัวปรับ” ระหว่างสาร→ผล เพื่อลดฤทธิ์
         </span>
@@ -569,6 +712,8 @@ function GraphInner({ seed, region }: { seed: FormulaItem[]; region: Region }) {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onEdgeClick={(e, edge) => setEdgeMenu({ id: edge.id, x: e.clientX, y: e.clientY })}
+        onPaneClick={() => setEdgeMenu(null)}
         nodeTypes={nodeTypes}
         fitView
         proOptions={{ hideAttribution: true }}
@@ -577,6 +722,19 @@ function GraphInner({ seed, region }: { seed: FormulaItem[]; region: Region }) {
         <Controls showInteractive={false} />
         <MiniMap pannable zoomable className="!bg-white !border !border-slate-200" />
       </ReactFlow>
+
+      {edgeMenu && (
+        <button
+          style={{ position: "fixed", left: edgeMenu.x, top: edgeMenu.y, transform: "translate(-50%, -130%)" }}
+          onClick={() => {
+            setEdges((eds) => eds.filter((e) => e.id !== edgeMenu.id));
+            setEdgeMenu(null);
+          }}
+          className="z-50 rounded-md bg-rose-500 px-2.5 py-1 text-[11px] font-semibold text-white shadow-lg hover:bg-rose-600"
+        >
+          ✕ ลบเส้นเชื่อม
+        </button>
+      )}
     </div>
   );
 }
@@ -584,13 +742,15 @@ function GraphInner({ seed, region }: { seed: FormulaItem[]; region: Region }) {
 export default function FormulaGraph({
   seed = [],
   region = "face",
+  onSaveFormula,
 }: {
   seed?: FormulaItem[];
   region?: Region;
+  onSaveFormula?: (items: FormulaItem[]) => void;
 }) {
   return (
     <ReactFlowProvider>
-      <GraphInner seed={seed} region={region} />
+      <GraphInner seed={seed} region={region} onSaveFormula={onSaveFormula} />
     </ReactFlowProvider>
   );
 }

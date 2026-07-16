@@ -1,46 +1,46 @@
 {
   "skin": {
-    "accuracy": 0.793,
-    "balanced_accuracy": 0.669,
-    "sensitivity": 0.429,
-    "specificity": 0.909,
-    "auc": 0.779,
-    "cv_bac_mean": 0.531,
-    "cv_bac_std": 0.045,
-    "n_train": 115,
-    "n_test": 29
+    "accuracy": 0.885,
+    "balanced_accuracy": 0.896,
+    "sensitivity": 0.947,
+    "specificity": 0.845,
+    "auc": 0.926,
+    "mcc": 0.776,
+    "threshold": 0.4,
+    "n_pos": 38,
+    "n_neg": 58
   },
   "eye": {
-    "accuracy": 0.793,
-    "balanced_accuracy": 0.669,
-    "sensitivity": 0.429,
-    "specificity": 0.909,
-    "auc": 0.779,
-    "cv_bac_mean": 0.531,
-    "cv_bac_std": 0.045,
-    "n_train": 115,
-    "n_test": 29
+    "accuracy": 0.804,
+    "balanced_accuracy": 0.816,
+    "sensitivity": 0.886,
+    "specificity": 0.746,
+    "auc": 0.886,
+    "mcc": 0.623,
+    "threshold": 0.35,
+    "n_pos": 44,
+    "n_neg": 63
   },
   "sens": {
-    "accuracy": 0.759,
-    "balanced_accuracy": 0.478,
-    "sensitivity": 0.0,
-    "specificity": 0.957,
-    "auc": 0.757,
-    "cv_bac_mean": 0.509,
-    "cv_bac_std": 0.033,
-    "n_train": 115,
-    "n_test": 29
+    "accuracy": 0.802,
+    "balanced_accuracy": 0.825,
+    "sensitivity": 0.9,
+    "specificity": 0.75,
+    "auc": 0.896,
+    "mcc": 0.62,
+    "threshold": 0.3,
+    "n_pos": 30,
+    "n_neg": 56
   },
   "acute": {
-    "accuracy": 0.828,
-    "balanced_accuracy": 0.645,
-    "sensitivity": 0.333,
-    "specificity": 0.957,
-    "auc": 0.772,
-    "cv_bac_mean": 0.666,
-    "cv_bac_std": 0.12,
-    "n_train": 115,
-    "n_test": 29
+    "accuracy": 0.877,
+    "balanced_accuracy": 0.873,
+    "sensitivity": 0.862,
+    "specificity": 0.885,
+    "auc": 0.903,
+    "mcc": 0.736,
+    "threshold": 0.45,
+    "n_pos": 29,
+    "n_neg": 52
   }
 }

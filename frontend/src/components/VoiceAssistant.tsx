@@ -23,14 +23,20 @@ export default function VoiceAssistant({
   productName,
   layers,
   ready,
+  formula = [],
   onImportFormula,
+  onAction,
 }: {
   productName: string;
   layers: Layer[];
   ready: boolean;
+  formula?: FormulaItem[];
   onImportFormula?: (items: FormulaItem[]) => void;
+  onAction?: (actions: any[]) => void;
 }) {
-  const [messages, setMessages] = useState<{ role: "user" | "ai"; text: string; formula?: FormulaItem[] }[]>([]);
+  const [messages, setMessages] = useState<
+    { role: "user" | "ai"; text: string; formula?: FormulaItem[]; acted?: number }[]
+  >([]);
   const [input, setInput] = useState("");
   const [speaking, setSpeaking] = useState(false);
   const [listening, setListening] = useState(false);
@@ -123,9 +129,18 @@ export default function VoiceAssistant({
   };
 
   const buildContext = () => {
-    if (!ready || !layers.length) return "ยังไม่มีผลการประเมิน (ผู้ใช้ยังไม่ได้กด Run)";
-    const rows = layers.map((l) => `- ${l.label}: ${Math.round(l.score)}/100 (ระดับ${BAND_TH[l.band]})`).join("\n");
-    return `ผลิตภัณฑ์/สูตร: ${productName}\nคะแนนความเสี่ยง 0-100:\n${rows}`;
+    const comp = formula.length
+      ? `สูตรปัจจุบัน (สาร + %):\n${formula
+          .map((f) => `- ${f.name || f.smiles} ${f.concentration}%`)
+          .join("\n")}\n(หมายเหตุ: Water (Aqua) เป็นเบสเติมอัตโนมัติให้ครบ 100% ไม่ต้องสั่งเอง)`
+      : "ยังไม่มีสารในสูตร";
+    const result =
+      !ready || !layers.length
+        ? "ยังไม่มีผลการประเมิน (ผู้ใช้ยังไม่ได้กด Run)"
+        : `คะแนนความเสี่ยง 0-100:\n${layers
+            .map((l) => `- ${l.label}: ${Math.round(l.score)}/100 (ระดับ${BAND_TH[l.band]})`)
+            .join("\n")}`;
+    return `ผลิตภัณฑ์/สูตร: ${productName}\n${comp}\n\n${result}`;
   };
 
   const ask = async (q: string) => {
@@ -153,9 +168,28 @@ export default function VoiceAssistant({
       setMessages((m) => [...m, { role: "ai", text: `⚠️ เชื่อมต่อ AI ไม่ได้ ${err}`.slice(0, 400) }]);
       return;
     }
-    const { clean, formula } = parseFormula(a);
-    setMessages((m) => [...m, { role: "ai", text: clean, formula }]);
-    speak(clean); // don't read the JSON block aloud
+    const { clean: c1, formula } = parseFormula(a);
+    const { clean, actions } = parseActions(c1);
+    if (actions && actions.length) onAction?.(actions); // agent: perform the actions
+    setMessages((m) => [
+      ...m,
+      { role: "ai", text: clean, formula, acted: actions && actions.length ? actions.length : 0 },
+    ]);
+    speak(clean); // don't read the JSON blocks aloud
+  };
+
+  // Extract an <action>[...]</action> block (agent commands) from the reply.
+  const parseActions = (text: string): { clean: string; actions?: any[] } => {
+    const m = text.match(/<action>([\s\S]*?)<\/action>/i);
+    if (!m) return { clean: text };
+    let actions: any[] | undefined;
+    try {
+      const arr = JSON.parse(m[1].trim());
+      if (Array.isArray(arr)) actions = arr;
+    } catch {
+      /* ignore malformed block */
+    }
+    return { clean: text.replace(m[0], "").trim(), actions };
   };
 
   // Extract a <formula>[...]</formula> JSON block from the AI reply (if any).
@@ -215,93 +249,98 @@ export default function VoiceAssistant({
   const QUICK = ["สรุปผล", "เสี่ยงสุด", "คำแนะนำ"];
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
-          🎙️ ผู้ช่วย AI (เสียง)
-          {thinking && <span className="text-brand">● กำลังคิด…</span>}
-          {!thinking && speaking && <span className="text-brand">● กำลังพูด</span>}
-        </div>
+    <div className="flex h-[22rem] flex-col">
+      {/* status row */}
+      <div className="mb-1 flex h-4 items-center justify-end gap-2 text-[10px] text-brand">
+        {thinking ? <span>● กำลังคิด…</span> : speaking ? <span>● กำลังพูด</span> : null}
         <button
           onClick={() => {
             setVoiceOn((v) => !v);
             if (voiceOn) stopSpeak();
           }}
-          className="text-[11px] text-slate-500 hover:text-brand"
+          className="text-slate-400 hover:text-brand"
           title={voiceOn ? "ปิดเสียง" : "เปิดเสียง"}
         >
           {voiceOn ? "🔊" : "🔇"}
         </button>
       </div>
 
-      {/* transcript */}
-      {messages.length > 0 && (
-        <div className="max-h-40 space-y-1.5 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-2">
-          {messages.map((m, i) => (
-            <div
-              key={i}
-              className={`text-[11px] leading-snug ${
-                m.role === "user" ? "text-right text-slate-500" : "text-slate-800"
-              }`}
-            >
-              <div>
-                {m.role === "ai" ? "🤖 " : ""}
-                {m.text}
-              </div>
-              {m.role === "ai" && m.formula && m.formula.length > 0 && (
-                <div className="mt-1.5 rounded-lg border border-slate-200 bg-slate-50 p-2">
-                  <div className="mb-1 text-[10px] font-semibold text-slate-500">
-                    🧪 สูตรที่แนะนำ ({m.formula.length} สาร)
-                  </div>
-                  <div className="space-y-1">
-                    {m.formula.map((f, j) => (
-                      <div key={j} className="rounded border border-slate-200 bg-white px-2 py-1">
-                        <div className="flex items-center gap-1 text-[11px]">
-                          <span className="text-brand">◇</span>
-                          <span className="flex-1 truncate font-medium text-slate-800">{f.name}</span>
-                          <span className="font-mono tabular-nums text-slate-700">{f.concentration}</span>
-                          <span className="text-[9px] text-slate-400">%</span>
-                        </div>
-                        {f.smiles && (
-                          <div className="truncate pl-4 font-mono text-[9px] text-slate-400">{f.smiles}</div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <button
-                    onClick={() => onImportFormula?.(m.formula!)}
-                    className="mt-1.5 w-full rounded-md bg-brand px-2 py-1.5 text-[11px] font-semibold text-white transition hover:bg-brand-dark"
-                  >
-                    ⬇ Add to workspace
-                  </button>
-                </div>
-              )}
+      {/* messages / empty state */}
+      <div className="flex-1 overflow-y-auto">
+        {messages.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-2 text-center">
+            <span className="grid size-11 place-items-center rounded-xl bg-slate-100 text-lg text-slate-500">💬</span>
+            <div className="text-sm font-semibold text-slate-700">ฉันคือ AI ผู้ช่วยคุณ</div>
+            <div className="text-xs text-slate-400">วันนี้จะให้ช่วยอะไรดี?</div>
+            <div className="mt-2 flex flex-wrap justify-center gap-1">
+              {QUICK.map((q) => (
+                <button
+                  key={q}
+                  onClick={() => ask(q)}
+                  className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] text-slate-500 transition hover:border-brand hover:text-brand"
+                >
+                  {q}
+                </button>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* quick asks */}
-      <div className="flex flex-wrap gap-1">
-        {QUICK.map((q) => (
-          <button
-            key={q}
-            onClick={() => ask(q)}
-            className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] text-slate-600 transition hover:border-brand hover:text-brand"
-          >
-            {q}
-          </button>
-        ))}
+          </div>
+        ) : (
+          <div className="space-y-2 px-0.5 py-1">
+            {messages.map((m, i) => (
+              <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+                <div
+                  className={`max-w-[88%] rounded-2xl px-3 py-1.5 text-[11px] leading-snug ${
+                    m.role === "user" ? "bg-brand text-white" : "bg-slate-100 text-slate-800"
+                  }`}
+                >
+                  <div>{m.text}</div>
+                  {m.role === "ai" && m.acted ? (
+                    <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-semibold text-brand-dark">
+                      ⚡ ทำให้แล้ว {m.acted} รายการ
+                    </div>
+                  ) : null}
+                  {m.role === "ai" && m.formula && m.formula.length > 0 && (
+                    <div className="mt-1.5 rounded-lg border border-slate-200 bg-white p-2">
+                      <div className="mb-1 text-[10px] font-semibold text-slate-500">
+                        🧪 สูตรที่แนะนำ ({m.formula.length} สาร)
+                      </div>
+                      <div className="space-y-1">
+                        {m.formula.map((f, j) => (
+                          <div key={j} className="flex items-center gap-1 text-[11px] text-slate-700">
+                            <span className="text-brand">◇</span>
+                            <span className="flex-1 truncate font-medium">{f.name}</span>
+                            <span className="font-mono tabular-nums text-slate-500">{f.concentration}%</span>
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => onImportFormula?.(m.formula!)}
+                        className="mt-1.5 w-full rounded-md bg-brand px-2 py-1.5 text-[10px] font-semibold text-white transition hover:bg-brand-dark"
+                      >
+                        ⬇ Add to workspace
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {thinking && (
+              <div className="flex justify-start">
+                <div className="rounded-2xl bg-slate-100 px-3 py-1.5 text-[11px] text-slate-400">กำลังคิด…</div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* input + mic */}
-      <div className="flex items-center gap-1">
+      {/* input pill */}
+      <div className="mt-2 flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1">
         <button
           onClick={toggleListen}
-          className={`grid size-8 shrink-0 place-items-center rounded-lg border text-sm transition ${
-            listening ? "animate-pulse border-brand bg-teal-50 text-brand" : "border-slate-200 text-slate-500 hover:border-brand hover:text-brand"
-          }`}
           title="พูดเพื่อถาม"
+          className={`grid size-7 shrink-0 place-items-center rounded-full text-sm transition ${
+            listening ? "animate-pulse bg-teal-50 text-brand" : "text-slate-400 hover:text-brand"
+          }`}
         >
           🎤
         </button>
@@ -309,14 +348,16 @@ export default function VoiceAssistant({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && ask(input)}
-          placeholder="พิมพ์ถาม เช่น เสี่ยงสุด…"
-          className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-brand"
+          placeholder="พิมพ์ข้อความ…"
+          className="min-w-0 flex-1 bg-transparent px-1 text-xs text-slate-800 outline-none"
         />
         <button
           onClick={() => ask(input)}
-          className="rounded-lg bg-brand px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark"
+          disabled={thinking}
+          title="ส่ง"
+          className="grid size-7 shrink-0 place-items-center rounded-full bg-brand text-sm text-white transition hover:bg-brand-dark disabled:opacity-50"
         >
-          ถาม
+          ↑
         </button>
       </div>
     </div>

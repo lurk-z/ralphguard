@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { FlaskConical, User } from 'lucide-react'
+import { FlaskConical, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -36,15 +36,15 @@ export default function Navbar() {
           </span>
         </a>
 
-        {/* Right side — login only */}
+        {/* Right side — enter the app (login removed) */}
         <Button
           asChild
           variant="outline"
           className="rounded-full bg-transparent border-brand/40 text-foreground hover:bg-brand/10 hover:border-brand/70"
         >
-          <a href="/login">
-            <User className="text-brand" />
-            เข้าสู่ระบบ
+          <a href="/projects">
+            เข้าใช้งาน
+            <ArrowRight className="text-brand" />
           </a>
         </Button>
       </div>

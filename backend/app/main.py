@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import assessments, chat, health, models, projects, substances, tts
+from app.api import assessments, chat, health, models, ocr, projects, substances, tts
 from app.core.config import settings
 
 
@@ -50,6 +50,7 @@ app.include_router(assessments.router, prefix="/api/assessments", tags=["assessm
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(tts.router, prefix="/api/tts", tags=["tts"])
+app.include_router(ocr.router, prefix="/api/ocr", tags=["ocr"])
 
 
 @app.get("/")

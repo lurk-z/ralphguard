@@ -6,6 +6,7 @@ import gsap from 'gsap'
 import { ArrowRight, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CHAPTERS, type Chapter } from './chapters'
+import { InputTrioMockup, DescriptorMockup, LabMockup } from './LandingMockups'
 import { scrollState } from '@/app/_lib/scroll'
 import { storyState, smoothstep } from '@/app/_lib/story'
 
@@ -18,6 +19,25 @@ function scrollToSection1() {
 }
 
 const TRANSITIONS = CHAPTERS.length - 1
+
+/** Mockup image placed next to a chapter's copy (steps 1–3). */
+function mockupFor(i: number) {
+  const base = 'pointer-events-none absolute w-[19rem] max-w-[80vw]'
+  const noShadow: React.CSSProperties = { textShadow: 'none' }
+  if (i === 2)
+    return (
+      <div className={base} style={{ ...noShadow, right: '10%', top: '50%', transform: 'translateY(-50%)' }}>
+        <DescriptorMockup />
+      </div>
+    )
+  if (i === 3)
+    return (
+      <div className={base} style={{ ...noShadow, left: '10%', top: '58%', transform: 'translateY(-50%)' }}>
+        <LabMockup />
+      </div>
+    )
+  return null
+}
 
 const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
@@ -60,18 +80,18 @@ function HeroChapter({ c }: { c: Chapter }) {
       {c.eyebrow && (
         <p
           data-eyebrow
-          className="font-mono text-xs tracking-widest uppercase text-[#0B6258] opacity-0"
+          className="font-mono text-xs tracking-widest uppercase text-white/80 opacity-0"
           style={{ transform: 'translateY(8px)' }}
         >
           {c.eyebrow}
         </p>
       )}
 
-      <h1 className="mt-3 font-sans font-bold leading-[1.08] tracking-tight text-[#16324A] text-[clamp(2.5rem,6.5vw,4.5rem)]">
+      <h1 className="mt-3 font-sans font-bold leading-[1.08] tracking-tight text-white text-[clamp(2.5rem,6.5vw,4.5rem)]">
         {c.titleLines.map((line, i) => (
           <span key={i} className="block overflow-hidden pt-2 pb-1">
             <span data-line className="block" style={{ opacity: 0 }}>
-              {renderTitle(line, c.highlight, 'font-display text-[#21BFAF]')}
+              {renderTitle(line, c.highlight, 'font-display text-brand')}
             </span>
           </span>
         ))}
@@ -80,7 +100,7 @@ function HeroChapter({ c }: { c: Chapter }) {
       <p
         data-fade
         data-sub
-        className="mx-auto mt-5 max-w-2xl font-sans leading-relaxed text-[#526477] text-[clamp(0.9rem,1.4vw,1.125rem)] opacity-0"
+        className="mx-auto mt-5 max-w-2xl font-sans leading-relaxed text-white/75 text-[clamp(0.9rem,1.4vw,1.125rem)] opacity-0"
       >
         {c.body}
       </p>
@@ -93,7 +113,7 @@ function HeroChapter({ c }: { c: Chapter }) {
           size="lg"
           className="rounded-full px-7 opacity-0 shadow-none"
         >
-          <Link href="/login">
+          <Link href="/assess">
             เริ่มวิเคราะห์
             <ArrowRight />
           </Link>
@@ -103,7 +123,7 @@ function HeroChapter({ c }: { c: Chapter }) {
           data-cta
           size="lg"
           variant="outline"
-          className="rounded-full border-[#21BFAF]/45 bg-transparent px-7 text-[#16324A] opacity-0 shadow-none hover:border-[#21BFAF]/70 hover:bg-[#21BFAF]/10"
+          className="rounded-full border-[#21BFAF]/45 bg-transparent px-7 text-white opacity-0 shadow-none hover:border-[#21BFAF]/70 hover:bg-[#21BFAF]/10"
           onClick={scrollToSection1}
         >
           ดูฟีเจอร์ทั้งหมด
@@ -116,14 +136,14 @@ function HeroChapter({ c }: { c: Chapter }) {
 function DetailChapter({ c }: { c: Chapter }) {
   return (
     <>
-      <h2 className="mt-5 font-sans font-bold leading-[1.1] tracking-tight text-foreground text-[clamp(1.9rem,4.6vw,3.1rem)]">
+      <h2 className="mt-5 font-sans font-bold leading-[1.1] tracking-tight text-white text-[clamp(1.9rem,4.6vw,3.1rem)]">
         {c.titleLines.map((line, i) => (
           <span key={i} className="block">
             {renderTitle(line, c.highlight)}
           </span>
         ))}
       </h2>
-      <p className="mx-auto mt-4 max-w-xl font-sans leading-relaxed text-foreground/65 text-[clamp(0.9rem,1.4vw,1.1rem)]">
+      <p className="mx-auto mt-4 max-w-xl font-sans leading-relaxed text-white/80 text-[clamp(0.9rem,1.4vw,1.1rem)]">
         {c.body}
       </p>
     </>
@@ -134,22 +154,22 @@ function CTAChapter({ c }: { c: Chapter }) {
   return (
     <>
       {c.eyebrow && (
-        <p className="font-mono text-xs tracking-widest uppercase text-[#0B6258]">
+        <p className="font-mono text-xs tracking-widest uppercase text-white/80">
           {c.eyebrow}
         </p>
       )}
 
-      <h2 className="mt-3 font-sans font-bold leading-[1.08] tracking-tight text-[#16324A] text-[clamp(2.25rem,6vw,4rem)]">
+      <h2 className="mt-3 font-sans font-bold leading-[1.08] tracking-tight text-white text-[clamp(2.25rem,6vw,4rem)]">
         {c.titleLines.map((line, i) => (
           <span key={i} className="block overflow-hidden pt-2 pb-1">
             <span className="block">
-              {renderTitle(line, c.highlight, 'font-display text-[#21BFAF]')}
+              {renderTitle(line, c.highlight, 'font-display text-brand')}
             </span>
           </span>
         ))}
       </h2>
 
-      <p className="mx-auto mt-5 max-w-2xl font-sans leading-relaxed text-[#526477] text-[clamp(0.9rem,1.4vw,1.125rem)]">
+      <p className="mx-auto mt-5 max-w-2xl font-sans leading-relaxed text-white/75 text-[clamp(0.9rem,1.4vw,1.125rem)]">
         {c.body}
       </p>
 
@@ -166,7 +186,7 @@ function Chapter5Layout({ c }: { c: Chapter }) {
   return (
     <div className="absolute inset-0">
       <div className="absolute inset-x-0 top-[10%] text-center px-6">
-        <h2 className="font-sans font-bold leading-[1.1] tracking-tight text-foreground text-[clamp(1.6rem,3.6vw,2.6rem)]">
+        <h2 className="font-sans font-bold leading-[1.1] tracking-tight text-white text-[clamp(1.6rem,3.6vw,2.6rem)]">
           {c.titleLines.map((line, i) => (
             <span key={i} className="block">{renderTitle(line, c.highlight)}</span>
           ))}
@@ -282,7 +302,24 @@ export default function ScrollStory() {
         if (isHero) {
           innerClass = 'w-full max-w-2xl px-4 sm:px-6'
         } else if (i === 1) {
-          innerClass = 'w-full max-w-2xl px-6 text-center'
+          return (
+            <div
+              key={i}
+              ref={(el) => { chapterRefs.current[i] = el }}
+              className="absolute inset-0"
+              style={{ opacity: 0, willChange: 'opacity, transform', textShadow: '0 1px 14px rgba(8,20,24,0.6), 0 1px 3px rgba(8,20,24,0.55)' }}
+            >
+              <div className="absolute inset-x-0 top-[12%] px-6 text-center">
+                <DetailChapter c={c} />
+              </div>
+              <div
+                className="absolute inset-x-0 top-[42%] flex justify-center px-4"
+                style={{ textShadow: 'none' }}
+              >
+                <InputTrioMockup />
+              </div>
+            </div>
+          )
         } else if (i === 2) {
           innerClass = 'absolute text-left max-w-2xl px-6'
           innerStyle = { left: '15%', top: '42%', transform: 'translateY(-50%)' }
@@ -297,7 +334,7 @@ export default function ScrollStory() {
               key={i}
               ref={(el) => { chapterRefs.current[i] = el }}
               className="absolute inset-0"
-              style={{ opacity: 0, willChange: 'opacity, transform' }}
+              style={{ opacity: 0, willChange: 'opacity, transform', textShadow: '0 1px 14px rgba(8,20,24,0.6), 0 1px 3px rgba(8,20,24,0.55)' }}
             >
               <Chapter5Layout c={c} />
             </div>
@@ -315,11 +352,12 @@ export default function ScrollStory() {
             key={i}
             ref={(el) => { chapterRefs.current[i] = el }}
             className={wrapperClass}
-            style={{ opacity: 0, willChange: 'opacity, transform' }}
+            style={{ opacity: 0, willChange: 'opacity, transform', textShadow: '0 1px 14px rgba(8,20,24,0.6), 0 1px 3px rgba(8,20,24,0.55)' }}
           >
             <div className={innerClass} style={innerStyle}>
               {isHero ? <HeroChapter c={c} /> : c.cta ? <CTAChapter c={c} /> : <DetailChapter c={c} />}
             </div>
+            {mockupFor(i)}
           </div>
         )
       })}
@@ -329,7 +367,7 @@ export default function ScrollStory() {
         className="absolute bottom-5 left-0 right-0 z-10 flex justify-center"
         style={{ opacity: 0 }}
       >
-        <ChevronDown className="h-5 w-5 text-[#526477] animate-scroll-hint" />
+        <ChevronDown className="h-5 w-5 text-white/75 animate-scroll-hint" />
       </div>
     </div>
   )

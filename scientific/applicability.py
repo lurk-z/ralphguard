@@ -20,7 +20,7 @@ def check_applicability_domain(
     query_fp: np.ndarray,
     training_fps: List[np.ndarray],
     k: int = 5,
-    threshold: float = 0.30,
+    threshold: float = 0.18,  # tuned for the current (small) training sets
 ) -> Tuple[bool, float]:
     """
     Check whether query molecule is within the AD of a trained model.

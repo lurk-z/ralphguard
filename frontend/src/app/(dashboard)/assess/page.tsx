@@ -12,8 +12,9 @@ import {
   Region,
   api,
 } from "@/lib/api";
-import { PRODUCT_TEMPLATES, SUBSTANCE_LIBRARY } from "@/lib/catalog";
+import { PRODUCT_TEMPLATES, SUBSTANCE_LIBRARY, withWaterBase, isWaterItem } from "@/lib/catalog";
 import VoiceAssistant from "@/components/VoiceAssistant";
+import LabelScanModal from "@/components/LabelScanModal";
 
 // ── 3D head (client-only). Auto-fills irritation by the result intensity. ──
 const FaceView = dynamic(
@@ -60,6 +61,10 @@ const DAY_LABELS = [1, 3, 7];
 const bandOf = (s: number) => (s < 25 ? "low" : s < 50 ? "moderate" : s < 75 ? "high" : "severe");
 const BAND_HEX: Record<string, string> = { low: "#16A34A", moderate: "#E08A00", high: "#DC2626", severe: "#B91C1C" };
 const BAND_LABEL: Record<string, string> = { low: "ต่ำ", moderate: "กลาง", high: "สูง", severe: "รุนแรง" };
+// Applicability-domain / model confidence display
+const CONF_TH: Record<string, string> = { High: "สูง", Medium: "กลาง", Low: "ต่ำ" };
+const CONF_HEX: Record<string, string> = { High: "#16A34A", Medium: "#E08A00", Low: "#DC2626" };
+const CONF_ORDER: Record<string, number> = { High: 2, Medium: 1, Low: 0 };
 // Distinct neon color per endpoint so painted layers are visually different.
 const EP_COLOR: Record<string, string> = {
   skin: "#FF3B5C",  // แดง
@@ -83,6 +88,16 @@ const PRODUCT_TYPES = [
   "เมคอัพ",
   "อื่นๆ",
 ];
+
+// ประเภทที่ปกติต้องมีน้ำเป็นเบส — ใช้เตือนเมื่อสัดส่วนสารเต็ม 100% จนไม่เหลือที่ให้น้ำ
+const WATER_BASED_TYPES = new Set([
+  "โทนเนอร์",
+  "เซรั่ม / เอสเซนส์",
+  "ครีม / โลชั่น",
+  "เจล / โฟมล้าง",
+  "สเปรย์ / มิสต์",
+  "ครีมกันแดด",
+]);
 
 export default function StudioPage() {
   const [mode, setMode] = useState<Mode>("assess");
@@ -128,6 +143,14 @@ export default function StudioPage() {
     return names.length ? names.join(" + ") : "สูตรที่ประเมิน";
   }, [formula]);
 
+  // Water base = balance to 100% (formula stores actives only).
+  const waterPct = Math.max(
+    0,
+    Math.round((100 - formula.reduce((s, it) => s + (Number(it.concentration) || 0), 0)) * 10) / 10,
+  );
+  // ประเภทต้องมีน้ำ แต่สารเต็ม 100% จนไม่เหลือที่ให้น้ำ → เตือน
+  const waterMissing = WATER_BASED_TYPES.has(activeFormula?.type || "") && waterPct <= 0;
+
   // Time-course trend data (Day 1/3/7) for the line chart.
   const trendData = useMemo(() => {
     if (!endpoints) return [];
@@ -154,6 +177,42 @@ export default function StudioPage() {
     });
   }, [endpoints, dayIdx]);
 
+  // Per-substance confidence / applicability-domain (worst endpoint), keyed by SMILES.
+  const subConf = useMemo(() => {
+    const map = new Map<string, { level: string; inDomain: boolean; reason: string }>();
+    const subs = assessment?.result?.substances;
+    if (!subs) return map;
+    for (const s of subs) {
+      let level = "High";
+      let inDomain = true;
+      let reason = "";
+      for (const ep of Object.keys(s.per_endpoint || {})) {
+        const pe = (s.per_endpoint as any)[ep];
+        if (!pe?.confidence) continue;
+        if (CONF_ORDER[pe.confidence.level] < CONF_ORDER[level]) {
+          level = pe.confidence.level;
+          reason = pe.confidence.reason_th;
+        }
+        if (pe.in_domain === false) inDomain = false;
+      }
+      const rec = { level, inDomain, reason };
+      map.set(s.smiles, rec);
+      map.set(s.canonical_smiles, rec);
+    }
+    return map;
+  }, [assessment]);
+
+  // Formula-level reliability: true when most endpoints are Low-confidence / out-of-domain.
+  const lowConfidence = useMemo(() => {
+    const eps = assessment?.result?.endpoints;
+    if (!eps) return false;
+    const list = Object.values(eps);
+    const bad = list.filter(
+      (e) => e.confidence && (e.confidence.level === "Low" || e.confidence.in_domain === false),
+    ).length;
+    return list.length > 0 && bad >= Math.ceil(list.length / 2);
+  }, [assessment]);
+
   // Poll
   useEffect(() => {
     if (!jobId) return;
@@ -176,8 +235,9 @@ export default function StudioPage() {
     setJobId(null);
     setRunning(true);
     try {
-      const cleaned = formula.filter((it) => it.smiles.trim() && it.concentration > 0);
-      if (!cleaned.length) throw new Error("เพิ่มอย่างน้อย 1 สาร + ความเข้มข้น");
+      const actives = formula.filter((it) => it.smiles.trim() && it.concentration > 0 && !isWaterItem(it));
+      if (!actives.length) throw new Error("เพิ่มอย่างน้อย 1 สาร + ความเข้มข้น");
+      const cleaned = withWaterBase(actives); // น้ำเป็นเบส เติมให้รวม 100%
       const { job_id } = await api.createAssessment(cleaned, region, null);
       setJobId(job_id);
     } catch (e: any) {
@@ -220,6 +280,17 @@ export default function StudioPage() {
     setJobId(null);
     setShowCreate(false);
   };
+  // Save the current node graph as a brand-new formula (from node mode).
+  const saveGraphAsFormula = (items: FormulaItem[]) => {
+    const actives = items.filter((it) => it.smiles.trim() && !isWaterItem(it));
+    if (!actives.length) return;
+    const id = "f" + Date.now();
+    const n = formulas.filter((f) => (f.type || "").includes("Node")).length + 1;
+    setFormulas((prev) => [...prev, { id, name: `สูตรจาก Node ${n}`, type: "จาก Node graph", items: actives }]);
+    setActiveId(id);
+    setAssessment(null);
+    setJobId(null);
+  };
   const selectFormula = (id: string) => {
     setActiveId(id);
     setAssessment(null);
@@ -260,11 +331,109 @@ export default function StudioPage() {
           concentration: it.concentration,
         };
       })
-      .filter((it) => it.smiles);
+      .filter((it) => it.smiles && !isWaterItem(it));
     if (!mapped.length) return;
     setFormula(mapped);
     setAssessment(null);
     setJobId(null);
+  };
+
+  // Agent: execute actions the AI assistant returns (create/add/run/switch).
+  const runAssistantAction = (actions: any[]) => {
+    const toItems = (arr: any): FormulaItem[] =>
+      Array.isArray(arr)
+        ? arr
+            .map((it: any) => ({
+              name: it?.name || "",
+              smiles: String(it?.smiles || ""),
+              concentration: Number(it?.concentration) || 0,
+            }))
+            .filter((it) => it.smiles && !isWaterItem(it))
+        : [];
+    actions.forEach((a) => {
+      switch (a?.type) {
+        case "add_substance":
+          if (a.smiles)
+            setFormula((prev) => [
+              ...prev,
+              { name: a.name || "", smiles: String(a.smiles), concentration: Number(a.concentration) || 10 },
+            ]);
+          break;
+        case "set_concentration": {
+          const key = String(a.name || a.smiles || "").trim().toLowerCase();
+          const c = Number(a.concentration);
+          if (key && !Number.isNaN(c))
+            setFormula((prev) =>
+              prev.map((it) =>
+                (it.name || "").trim().toLowerCase() === key || it.smiles.trim().toLowerCase() === key
+                  ? { ...it, concentration: c }
+                  : it,
+              ),
+            );
+          break;
+        }
+        case "remove_substance": {
+          const key = String(a.name || a.smiles || "").trim().toLowerCase();
+          if (key)
+            setFormula((prev) =>
+              prev.filter(
+                (it) =>
+                  (it.name || "").trim().toLowerCase() !== key && it.smiles.trim().toLowerCase() !== key,
+              ),
+            );
+          break;
+        }
+        case "set_formula": {
+          const items = toItems(a.items);
+          if (items.length) setFormula(items);
+          break;
+        }
+        case "create_formula": {
+          const id = "f" + Date.now();
+          const items = toItems(a.items);
+          setFormulas((prev) => [
+            ...prev,
+            { id, name: a.name || "สูตรใหม่", type: "อื่นๆ", items: items.length ? items : [{ name: "", smiles: "", concentration: 10 }] },
+          ]);
+          setActiveId(id);
+          setAssessment(null);
+          setJobId(null);
+          break;
+        }
+        case "rename_formula": {
+          const name = String(a.name || "").trim();
+          if (name && activeId) renameFormula(activeId, name);
+          break;
+        }
+        case "replace_substance": {
+          const key = String(a.from || a.name || "").trim().toLowerCase();
+          const newSmiles = String(a.smiles || a.to_smiles || "").trim();
+          if (key && newSmiles && !isWaterItem({ smiles: newSmiles, name: a.to })) {
+            setFormula((prev) =>
+              prev.map((it) =>
+                (it.name || "").trim().toLowerCase() === key || it.smiles.trim().toLowerCase() === key
+                  ? {
+                      name: a.to || a.to_name || it.name,
+                      smiles: newSmiles,
+                      concentration: a.concentration != null ? Number(a.concentration) : it.concentration,
+                    }
+                  : it,
+              ),
+            );
+          }
+          break;
+        }
+        case "goto":
+          if (a.tab === "assess" || a.tab === "nodes" || a.tab === "trust") setMode(a.tab);
+          break;
+        case "run":
+          run();
+          break;
+        case "clear":
+          setFormula([]);
+          break;
+      }
+    });
   };
 
   // Add one ingredient (picked from the catalog dropdown) as a new formula row.
@@ -272,6 +441,191 @@ export default function StudioPage() {
     const it = SUBSTANCE_LIBRARY.flatMap((g) => g.items).find((s) => s.smiles === smiles);
     if (!it) return;
     setFormula((prev) => [...prev, { name: it.name, smiles: it.smiles, concentration: it.conc }]);
+  };
+
+  // OCR: read an ingredient-label photo (via the LabelScanModal popup).
+  const [scanOpen, setScanOpen] = useState(false);
+  const importScannedItems = (scanned: { name: string; smiles: string; concentration: number }[]) => {
+    const items = scanned
+      .filter((it) => it.smiles && !isWaterItem(it))
+      .map((it) => ({ name: it.name, smiles: String(it.smiles), concentration: Number(it.concentration) || 1 }));
+    if (!items.length) return;
+    setFormula(items);
+    setAssessment(null);
+    setJobId(null);
+  };
+
+  // AI: auto-adjust the % of each substance to realistic/safest cosmetic levels.
+  const [optBusy, setOptBusy] = useState(false);
+  const [optMsg, setOptMsg] = useState<string | null>(null);
+  const optimizeFormula = async () => {
+    const actives = formula.filter((it) => it.smiles.trim() && !isWaterItem(it));
+    if (!actives.length) return;
+    setOptBusy(true);
+    setOptMsg(null);
+    try {
+      const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const list = actives
+        .map((it) => `- ${it.name || it.smiles} (SMILES ${it.smiles}) ปัจจุบัน ${it.concentration}%`)
+        .join("\n");
+      const question =
+        "ช่วยปรับอัตราส่วน % ของสารในสูตรนี้ให้สมจริงตามมาตรฐานเครื่องสำอางและปลอดภัยที่สุด " +
+        "(ลดสารก่อระคายเคือง/สารกันเสียลงสู่ระดับที่ใช้จริง เช่น สารกันเสีย <1%, กรด 2-10%, humectant 3-15%). " +
+        "ห้ามเพิ่มหรือลบสาร คงสารเดิมและ SMILES เดิมไว้ทุกตัว ไม่ต้องใส่ Water. " +
+        'ตอบกลับเป็น <formula>[{"name","smiles","concentration"}]</formula> เท่านั้น:\n' +
+        list;
+      const r = await fetch(`${API}/api/chat/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question, context: null }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d?.detail || `HTTP ${r.status}`);
+      }
+      const { answer } = await r.json();
+      const block =
+        answer.match(/<formula>([\s\S]*?)<\/formula>/i) || answer.match(/<action>([\s\S]*?)<\/action>/i);
+      if (!block) throw new Error("AI ไม่ได้ส่งสูตรกลับมา");
+      let raw = JSON.parse(block[1].trim());
+      // <action> form → pull the items array out of a set_formula/create_formula command
+      if (!Array.isArray(raw)) raw = [raw];
+      if (raw[0] && raw[0].items) raw = raw[0].items;
+      const items = raw
+        .filter((x: any) => x && x.smiles && !isWaterItem(x))
+        .map((x: any) => ({ name: String(x.name || ""), smiles: String(x.smiles), concentration: Number(x.concentration) || 0 }));
+      if (!items.length) throw new Error("สูตรที่ได้ว่างเปล่า");
+      setFormula(items);
+      setAssessment(null);
+      setJobId(null);
+      setOptMsg("✓ AI ปรับอัตราส่วนให้แล้ว — ตรวจ % แล้วกด ▶ Run ประเมินได้เลย");
+    } catch (e: any) {
+      setOptMsg("✗ ปรับไม่สำเร็จ: " + (e?.message || String(e)));
+    } finally {
+      setOptBusy(false);
+    }
+  };
+
+  // Build a real, data-filled PDF report from a template (not a screenshot) and
+  // print it via a hidden iframe → the user picks "Save as PDF".
+  const exportPdf = () => {
+    const esc = (s: unknown) =>
+      String(s ?? "").replace(/[&<>]/g, (c) => (c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;"));
+    const regionLabel = REGIONS.find((r) => r.value === region)?.label ?? region;
+    const items = withWaterBase(
+      formula.filter((it) => it.smiles.trim() && it.concentration > 0 && !isWaterItem(it)),
+    );
+    const eps = endpoints as Record<string, { peak_score?: number; timecourse?: number[] }> | null;
+    const scoreAt = (ep: string, d: number) =>
+      Math.round((eps?.[ep]?.timecourse?.[d] ?? eps?.[ep]?.peak_score ?? 0) as number);
+    const now = new Date();
+    const dateStr = now.toLocaleString("th-TH", { dateStyle: "long", timeStyle: "short" });
+
+    const ingredientRows = items
+      .map(
+        (it) =>
+          `<tr><td>${esc(it.name || "-")}</td><td class="mono">${esc(it.smiles)}</td><td class="num">${it.concentration}%</td></tr>`,
+      )
+      .join("");
+
+    let resultBlock: string;
+    let noteBlock = "";
+    if (completed && eps) {
+      resultBlock = `<table class="tbl">
+        <thead><tr><th style="text-align:left">ปลายทางความเสี่ยง</th><th>Day 1</th><th>Day 3</th><th>Day 7</th></tr></thead>
+        <tbody>${ENDPOINTS.map((ep) => {
+          const cells = [0, 1, 2]
+            .map((d) => {
+              const sc = scoreAt(ep, d);
+              const b = bandOf(sc);
+              return `<td class="num"><span class="pill" style="background:${BAND_HEX[b]}">${sc} · ${BAND_LABEL[b]}</span></td>`;
+            })
+            .join("");
+          return `<tr><td>${ENDPOINT_LABEL_TH[ep]}</td>${cells}</tr>`;
+        }).join("")}</tbody></table>`;
+      const top = ENDPOINTS.map((ep) => ({ label: ENDPOINT_LABEL_TH[ep], sc: scoreAt(ep, dayIdx) })).sort(
+        (a, b) => b.sc - a.sc,
+      )[0];
+      const b = bandOf(top.sc);
+      noteBlock = `<div class="note"><b>ข้อสังเกต:</b> ความเสี่ยงเด่นที่สุด (Day ${DAY_LABELS[dayIdx]}) คือ “${esc(top.label)}” ที่ ${top.sc}/100 (ระดับ${BAND_LABEL[b]})${
+        top.sc >= 50 ? " — ควรทบทวน/ลดความเข้มข้นของสารหลักก่อนพัฒนาต่อ" : " — อยู่ในเกณฑ์ที่จัดการได้"
+      }</div>`;
+    } else {
+      resultBlock = `<p class="muted">ยังไม่ได้กด ▶ Run ประเมิน — รายงานนี้แสดงเฉพาะข้อมูลสูตร</p>`;
+    }
+
+    const html = `<!doctype html><html lang="th"><head><meta charset="utf-8">
+<title>RalphGuard — รายงานการประเมิน</title>
+<style>
+  @page { size: A4; margin: 15mm; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin:0; font-family:'LINE Seed Sans TH','Sarabun','Segoe UI',system-ui,sans-serif; color:#0F1C1E; font-size:12px; line-height:1.5; }
+  .head { display:flex; align-items:center; justify-content:space-between; border-bottom:3px solid #0D9488; padding-bottom:10px; }
+  .brand { display:flex; align-items:center; gap:8px; }
+  .logo { width:30px; height:30px; border-radius:7px; background:#0D9488; color:#fff; font-weight:800; display:flex; align-items:center; justify-content:center; font-size:16px; }
+  .brand b { font-size:18px; }
+  .brand span { display:block; font-size:10px; color:#5b7075; }
+  .date { font-size:10px; color:#5b7075; text-align:right; }
+  h2 { font-size:13px; color:#0D9488; margin:20px 0 8px; border-left:4px solid #2DD4BF; padding-left:8px; }
+  .meta { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:14px; }
+  .meta div { background:#F0FaF9; border:1px solid #d7ebe8; border-radius:8px; padding:8px 10px; }
+  .meta .k { font-size:9px; text-transform:uppercase; letter-spacing:.04em; color:#6b8085; }
+  .meta .v { font-size:13px; font-weight:600; margin-top:2px; }
+  table.tbl { width:100%; border-collapse:collapse; }
+  table.tbl th, table.tbl td { border:1px solid #e2e8ea; padding:6px 8px; font-size:11.5px; }
+  table.tbl th { background:#0D9488; color:#fff; font-weight:600; }
+  table.tbl td.num { text-align:center; }
+  table.tbl .mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:10px; color:#556; }
+  .pill { display:inline-block; color:#fff; border-radius:999px; padding:2px 8px; font-size:10px; font-weight:600; }
+  .muted { color:#8a9a9e; font-style:italic; }
+  .note { margin-top:10px; background:#FFF7ED; border:1px solid #fed7aa; border-radius:8px; padding:8px 10px; font-size:11.5px; }
+  .foot { margin-top:26px; border-top:1px solid #e2e8ea; padding-top:8px; font-size:9.5px; color:#8a9a9e; line-height:1.5; }
+</style></head><body>
+  <div class="head">
+    <div class="brand"><div class="logo">R</div><div><b>RalphGuard</b><span>รายงานการประเมินความเสี่ยงสารเคมี (In-silico QSAR)</span></div></div>
+    <div class="date">ออกรายงาน<br>${esc(dateStr)}</div>
+  </div>
+
+  <div class="meta">
+    <div><div class="k">ชื่อสูตร</div><div class="v">${esc(activeFormula?.name ?? "-")}</div></div>
+    <div><div class="k">ประเภท</div><div class="v">${esc(activeFormula?.type ?? "-")}</div></div>
+    <div><div class="k">บริเวณทดสอบ</div><div class="v">${esc(regionLabel)}</div></div>
+    <div><div class="k">จำนวนสาร</div><div class="v">${items.length} รายการ</div></div>
+  </div>
+
+  <h2>ส่วนผสม (Formula)</h2>
+  <table class="tbl">
+    <thead><tr><th style="text-align:left">สาร</th><th style="text-align:left">SMILES</th><th style="text-align:center">สัดส่วน</th></tr></thead>
+    <tbody>${ingredientRows}</tbody>
+  </table>
+
+  <h2>ผลการประเมินความเสี่ยง</h2>
+  ${resultBlock}
+  ${noteBlock}
+
+  <div class="foot">
+    เอกสารนี้สร้างจากการคัดกรองด้วยแบบจำลอง QSAR (in-silico) เพื่อประเมินความเสี่ยงเบื้องต้นเท่านั้น
+    ไม่สามารถทดแทนการทดสอบจริงตามมาตรฐาน และไม่ใช่คำวินิจฉัยทางการแพทย์ · RalphGuard · NSC 2026 (28P14E01438)
+  </div>
+</body></html>`;
+
+    const iframe = document.createElement("iframe");
+    Object.assign(iframe.style, { position: "fixed", right: "0", bottom: "0", width: "0", height: "0", border: "0" });
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document;
+    if (!doc) return;
+    doc.open();
+    doc.write(html);
+    doc.close();
+    const go = () => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } finally {
+        setTimeout(() => iframe.remove(), 1500);
+      }
+    };
+    setTimeout(go, 350);
   };
 
   return (
@@ -315,7 +669,7 @@ export default function StudioPage() {
         {/* right actions */}
         <div className="mb-1 ml-auto flex items-center gap-2 pr-1">
           <button onClick={run} className="grid size-7 place-items-center rounded-lg border border-slate-200 bg-white text-slate-800/70 hover:border-brand hover:text-brand" title="Run">▶</button>
-          <button onClick={() => window.print()} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark">
+          <button onClick={exportPdf} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark" title="ส่งออกรายงาน PDF จากข้อมูลการประเมิน">
             แชร์ / PDF
           </button>
         </div>
@@ -490,24 +844,40 @@ export default function StudioPage() {
               <div className="p-3">
                 <div className="mb-1 text-[11px] font-semibold text-slate-800/50">🧪 สูตร (Formulation)</div>
                 <div className="space-y-1.5">
+                  <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-1.5">
+                    <div className="flex items-center gap-1 text-xs">
+                      <span className="text-sky-500">💧</span>
+                      <span className="flex-1 font-medium text-slate-700">Water (Aqua)</span>
+                      <span className="font-mono tabular-nums text-slate-600">{waterPct}</span>
+                      <span className="text-[10px] text-slate-400">%</span>
+                    </div>
+                    <div className="pl-4 text-[9px] text-slate-400">เบส · ปรับอัตโนมัติให้รวม 100%</div>
+                  </div>
+                  {waterMissing && (
+                    <div className="rounded-lg border border-amber-300 bg-amber-50 p-1.5 text-[10px] leading-snug text-amber-700">
+                      ⚠️ สูตรประเภท “{activeFormula?.type}” ปกติต้องมีน้ำเป็นเบส แต่สัดส่วนสารตอนนี้รวม ≥ 100% แล้ว
+                      จึงไม่เหลือที่ให้น้ำ — ลองลดความเข้มข้นลง
+                    </div>
+                  )}
                   {formula.map((it, i) => (
                     <div key={i} className="rounded-lg border border-slate-200 bg-slate-100/50 p-1.5">
                       <div className="flex items-center gap-1">
-                        <span className="text-brand">◇</span>
+                        <span className="shrink-0 text-brand">◇</span>
                         <input
                           className="min-w-0 flex-1 bg-transparent text-xs outline-none"
                           placeholder="ชื่อสาร"
+                          title={it.name}
                           value={it.name ?? ""}
                           onChange={(e) => patchItem(i, { name: e.target.value })}
                         />
                         <input
                           type="number"
-                          className="w-10 bg-transparent text-right font-mono text-xs tabular-nums outline-none"
+                          className="w-12 shrink-0 bg-transparent text-right font-mono text-xs tabular-nums outline-none"
                           value={it.concentration}
                           onChange={(e) => patchItem(i, { concentration: parseFloat(e.target.value) || 0 })}
                         />
-                        <span className="text-[10px] text-slate-800/40">%</span>
-                        <button onClick={() => removeItem(i)} className="text-slate-800/30 hover:text-rose-500">×</button>
+                        <span className="shrink-0 text-[10px] text-slate-800/40">%</span>
+                        <button onClick={() => removeItem(i)} className="shrink-0 text-slate-800/30 hover:text-rose-500">×</button>
                       </div>
                       <input
                         className="mt-1 w-full bg-transparent font-mono text-[10px] text-slate-800/45 outline-none"
@@ -515,6 +885,16 @@ export default function StudioPage() {
                         value={it.smiles}
                         onChange={(e) => patchItem(i, { smiles: e.target.value })}
                       />
+                      {completed && subConf.get(it.smiles) && (() => {
+                        const c = subConf.get(it.smiles)!;
+                        return (
+                          <div className="mt-0.5 flex items-center gap-1 text-[9px]" title={c.reason}>
+                            <span className="size-1.5 rounded-full" style={{ background: CONF_HEX[c.level] }} />
+                            <span className="text-slate-400">ความเชื่อมั่น {CONF_TH[c.level] ?? c.level}</span>
+                            {!c.inDomain && <span className="font-medium text-rose-500">· ⚠ นอกขอบเขตโมเดล</span>}
+                          </div>
+                        );
+                      })()}
                     </div>
                   ))}
                   <div className="flex items-center gap-2 pt-0.5">
@@ -540,21 +920,17 @@ export default function StudioPage() {
                       ))}
                     </select>
                   </div>
-                </div>
 
-                <div className="mt-3 flex items-center gap-2">
-                  <span className="text-[11px] font-semibold text-slate-800/50">🧍 บริเวณ</span>
-                  <select
-                    value={region}
-                    onChange={(e) => setRegion(e.target.value as Region)}
-                    className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-800"
-                  >
-                    {REGIONS.filter((r) => r.value === "face" || r.value === "eye").map((r) => (
-                      <option key={r.value} value={r.value}>
-                        {r.icon} {r.label}
-                      </option>
-                    ))}
-                  </select>
+                  {/* OCR — open the label-scanner popup */}
+                  <div className="pt-1">
+                    <button
+                      onClick={() => setScanOpen(true)}
+                      className="w-full rounded-lg border border-dashed border-brand/40 py-1.5 text-xs font-medium text-brand transition hover:bg-teal-50"
+                    >
+                      📷 อ่านฉลากส่วนผสมจากรูป (OCR)
+                    </button>
+                  </div>
+
                 </div>
               </div>
             </div>
@@ -611,13 +987,13 @@ export default function StudioPage() {
               <div className="absolute left-4 top-3 z-10 text-xs font-semibold text-slate-800/60">
                 Assessment Node Graph <span className="font-normal text-slate-800/40">· in-silico pipeline</span>
               </div>
-              <FormulaGraph seed={formula} region={region} />
+              <FormulaGraph key={activeId} seed={formula} region={region} onSaveFormula={saveGraphAsFormula} />
             </div>
           )}
           {mode === "trust" && <TrustReport />}
 
-          {/* Bottom floating toolbar (assess & nodes) */}
-          {mode !== "trust" && (
+          {/* Bottom floating toolbar (assess only — nodes evaluate via each Result node) */}
+          {mode === "assess" && (
             <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center print:hidden">
               <div className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-soft backdrop-blur">
                 {mode === "assess" && (
@@ -639,7 +1015,7 @@ export default function StudioPage() {
                   disabled={running}
                   className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white shadow-soft hover:bg-brand-dark disabled:opacity-50"
                 >
-                  {running ? "…" : mode === "nodes" ? "▶ Evaluate graph" : "▶ Run ประเมิน"}
+                  {running ? "…" : "▶ Run ประเมิน"}
                 </button>
               </div>
             </div>
@@ -675,15 +1051,10 @@ export default function StudioPage() {
                   productName={productName}
                   layers={paintLayers}
                   ready={completed}
+                  formula={formula}
                   onImportFormula={importFormula}
+                  onAction={runAssistantAction}
                 />
-              </Section>
-
-              <Section title="บริเวณที่เลือก">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-800/60">{REGIONS.find((r) => r.value === region)?.label}</span>
-                  <span className="font-mono text-xs text-brand">{region}</span>
-                </div>
               </Section>
 
               <Section title="ผลการประเมิน">
@@ -699,6 +1070,12 @@ export default function StudioPage() {
                 )}
                 {completed && endpoints && (
                   <div className="space-y-2">
+                    {lowConfidence && (
+                      <div className="rounded-lg border border-rose-300 bg-rose-50 p-2 text-[11px] leading-snug text-rose-700">
+                        ⚠ ผลนี้เชื่อถือได้ต่ำ — สารส่วนใหญ่อยู่นอกขอบเขตแบบจำลอง (out-of-domain)
+                        โมเดลอาจเดาว่า “ไม่ระคาย” ทั้งที่ไม่เคยเห็นสารกลุ่มนี้ <b>อย่าตีความคะแนนต่ำว่าปลอดภัย</b>
+                      </div>
+                    )}
                     {ENDPOINTS.map((ep) => {
                       const sc = endpoints[ep]?.timecourse?.[dayIdx] ?? endpoints[ep]?.peak_score ?? 0;
                       const band = bandOf(sc);
@@ -713,9 +1090,40 @@ export default function StudioPage() {
                           <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
                             <div className="h-full rounded-full" style={{ width: `${Math.min(100, sc)}%`, background: BAND_HEX[band] }} />
                           </div>
+                          {endpoints[ep]?.confidence && (
+                            <div
+                              className="mt-0.5 flex items-center gap-1 text-[9px]"
+                              title={endpoints[ep]!.confidence!.reason_th}
+                            >
+                              <span
+                                className="size-1.5 rounded-full"
+                                style={{ background: CONF_HEX[endpoints[ep]!.confidence!.level] }}
+                              />
+                              <span className="text-slate-400">
+                                ความเชื่อมั่น {CONF_TH[endpoints[ep]!.confidence!.level] ?? endpoints[ep]!.confidence!.level}
+                              </span>
+                              {endpoints[ep]!.confidence!.in_domain === false && (
+                                <span className="font-medium text-rose-500">· นอกขอบเขต</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
+                  </div>
+                )}
+
+                {/* AI — auto-adjust ratios for a realistic / safest result */}
+                {formula.some((it) => it.smiles.trim() && !isWaterItem(it)) && (
+                  <div className="mt-3">
+                    <button
+                      onClick={optimizeFormula}
+                      disabled={optBusy}
+                      className="w-full rounded-lg border border-brand/40 bg-teal-50 py-1.5 text-xs font-medium text-brand-dark transition hover:bg-teal-100 disabled:opacity-60"
+                    >
+                      {optBusy ? "⏳ กำลังให้ AI ปรับ…" : "🤖 ใช้ AI ปรับอัตราส่วนสารอัตโนมัติ"}
+                    </button>
+                    {optMsg && <div className="mt-1 text-[10px] leading-snug text-slate-500">{optMsg}</div>}
                   </div>
                 )}
               </Section>
@@ -834,6 +1242,8 @@ export default function StudioPage() {
           </div>
         </div>
       )}
+
+      <LabelScanModal open={scanOpen} onClose={() => setScanOpen(false)} onImport={importScannedItems} />
     </div>
   );
 }
