@@ -32,8 +32,10 @@ import {
 } from "@/components/ui/pagination";
 
 import { CHEMICALS } from "@/lib/chemicals";
+import { useSubstanceHoverCard } from "@/components/SubstanceInfoCard";
 
 export default function ChemicalsPage() {
+  const substanceHover = useSubstanceHoverCard();
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
@@ -163,7 +165,11 @@ export default function ChemicalsPage() {
                 </thead>
                 <tbody>
                   {paginatedResults.map((c) => (
-                    <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-secondary/30 transition-colors">
+                    <tr
+                      key={c.id}
+                      {...substanceHover.bind(c.name, c.smiles)}
+                      className="border-b border-border/50 last:border-0 hover:bg-secondary/30 transition-colors"
+                    >
                       <td className="px-4 py-3.5 font-medium text-foreground">
                         <span className="truncate">{c.name}</span>
                       </td>
@@ -182,7 +188,7 @@ export default function ChemicalsPage() {
               {paginatedResults.map((c) => (
                 <div
                   key={c.id}
-                  title={c.note ?? undefined}
+                  {...substanceHover.bind(c.name, c.smiles)}
                   className="flex items-center gap-3 rounded-xl border border-border bg-card p-3.5 shadow-sm"
                 >
                   <div className="min-w-0 flex-1">
@@ -250,6 +256,7 @@ export default function ChemicalsPage() {
             </Pagination>
           </div>
         )}</main>
+      {substanceHover.card}
     </div>
   );
 }

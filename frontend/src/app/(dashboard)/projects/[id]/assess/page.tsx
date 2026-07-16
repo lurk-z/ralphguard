@@ -53,6 +53,7 @@ import AiChatPanel from "@/components/AiChatPanel";
 import CanvasToolbar from "@/components/CanvasToolbar";
 import { CHEMICAL_GROUPS, chemById } from "@/lib/chemicals";
 import { PRODUCT_TEMPLATES, isWaterItem, withWaterBase } from "@/lib/catalog";
+import { useSubstanceHoverCard } from "@/components/SubstanceInfoCard";
 import type { FormulaItem, Region } from "@/lib/api";
 import { buildMockAssessmentResult, saveMockAssessmentResult } from "@/lib/mockAssessment";
 
@@ -303,6 +304,8 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   // Which body site the formula is assessed against. Templates set it; there is
   // no picker for it in this workspace yet (/assess has one).
   const [region, setRegion] = useState<Region>("face");
+  // Rest on any substance row for the catalog's description of it.
+  const substanceHover = useSubstanceHoverCard();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const [pickerCategory, setPickerCategory] = useState<string>("all");
@@ -759,7 +762,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                           <div
                             key={it.chemicalId}
                             onClick={(e) => e.stopPropagation()}
-                            title={c.role ?? undefined}
+                            {...substanceHover.bind(c.name, c.smiles)}
                             className="flex items-center gap-2 rounded-lg border border-border/60 bg-background/60 py-2 pl-2.5 pr-2.5"
                           >
                             <span className="min-w-0 flex-1">
@@ -983,7 +986,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                                     key={c.id}
                                     role="button"
                                     tabIndex={0}
-                                    title={c.role ?? undefined}
+                                    {...substanceHover.bind(c.name, c.smiles)}
                                     onClick={() => !already && addItem(pickerTarget.id, c.id)}
                                     onKeyDown={(e) => {
                                       if ((e.key === "Enter" || e.key === " ") && !already) {
@@ -1122,6 +1125,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
             )}
           </div>
         </aside>
+      {substanceHover.card}
     </div>
   );
 }
