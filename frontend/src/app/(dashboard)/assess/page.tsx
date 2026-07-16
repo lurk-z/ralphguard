@@ -18,7 +18,7 @@ import LabelScanModal from "@/components/LabelScanModal";
 
 // ── 3D head (client-only). Auto-fills irritation by the result intensity. ──
 const FaceView = dynamic(
-  () => import("@/components/FaceIrritationModel").then((m) => m.FacePaintCanvas),
+  () => import("@/components/SymptomFaceCanvas").then((m) => m.SymptomFaceCanvas),
   {
     ssr: false,
     loading: () => (
