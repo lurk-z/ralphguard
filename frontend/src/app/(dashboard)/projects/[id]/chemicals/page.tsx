@@ -6,7 +6,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
-  FlaskConical,
   Search,
   Plus,
   FileSpreadsheet,
@@ -41,12 +40,12 @@ export default function ChemicalsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
 
-  const categories = useMemo(() => Array.from(new Set(CHEMICALS.map((c) => c.role))), []);
+  const categories = useMemo(() => Array.from(new Set(CHEMICALS.map((c) => c.category))), []);
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
     return CHEMICALS.filter((c) => {
-      const matchesCategory = category === "all" || c.role === category;
-      const matchesQuery = !q || c.name.toLowerCase().includes(q) || c.cas.toLowerCase().includes(q);
+      const matchesCategory = category === "all" || c.category === category;
+      const matchesQuery = !q || c.name.toLowerCase().includes(q) || c.smiles.toLowerCase().includes(q);
       return matchesCategory && matchesQuery;
     });
   }, [query, category]);
@@ -157,24 +156,22 @@ export default function ChemicalsPage() {
                 <thead>
                   <tr className="border-b border-border bg-muted/40 text-xs font-semibold text-muted-foreground">
                     <th className="px-4 py-3 font-semibold">ชื่อสารเคมี</th>
-                    <th className="px-4 py-3 font-semibold">CAS Number</th>
+                    <th className="px-4 py-3 font-semibold">SMILES</th>
+                    <th className="px-4 py-3 font-semibold">ความเข้มข้นตั้งต้น</th>
                     <th className="px-4 py-3 font-semibold">บทบาท / หน้าที่</th>
                   </tr>
                 </thead>
                 <tbody>
                   {paginatedResults.map((c) => (
                     <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-secondary/30 transition-colors">
-                      <td className="px-4 py-3.5 font-medium text-foreground flex items-center gap-2.5">
-                        <span
-                          className="grid size-7 shrink-0 place-items-center rounded-md"
-                          style={{ backgroundColor: `${c.color}1A` }}
-                        >
-                          <FlaskConical className="size-4" style={{ color: c.color }} />
-                        </span>
+                      <td className="px-4 py-3.5 font-medium text-foreground">
                         <span className="truncate">{c.name}</span>
                       </td>
-                      <td className="px-4 py-3.5 font-mono text-xs text-muted-foreground">{c.cas}</td>
-                      <td className="px-4 py-3.5 text-xs text-primary font-semibold">{c.role}</td>
+                      <td className="px-4 py-3.5 font-mono text-xs text-muted-foreground">{c.smiles}</td>
+                      <td className="px-4 py-3.5 text-xs tabular-nums text-muted-foreground">{c.conc}%</td>
+                      <td className="px-4 py-3.5 text-xs text-primary font-semibold">
+                        {c.role ?? <span className="text-muted-foreground">{c.category}</span>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -185,18 +182,15 @@ export default function ChemicalsPage() {
               {paginatedResults.map((c) => (
                 <div
                   key={c.id}
+                  title={c.note ?? undefined}
                   className="flex items-center gap-3 rounded-xl border border-border bg-card p-3.5 shadow-sm"
                 >
-                  <span
-                    className="grid size-10 shrink-0 place-items-center rounded-lg"
-                    style={{ backgroundColor: `${c.color}1A` }}
-                  >
-                    <FlaskConical className="size-5" style={{ color: c.color }} />
-                  </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-foreground">{c.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">CAS {c.cas}</p>
-                    <p className="truncate text-xs text-primary">{c.role}</p>
+                    <p className="truncate text-sm font-semibold text-foreground">
+                      {c.name} ({c.conc}%)
+                    </p>
+                    <p className="truncate font-mono text-xs text-muted-foreground">{c.smiles}</p>
+                    <p className="truncate text-xs text-primary">{c.role ?? c.category}</p>
                   </div>
                 </div>
               ))}

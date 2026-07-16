@@ -51,7 +51,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import AiChatPanel from "@/components/AiChatPanel";
 import CanvasToolbar from "@/components/CanvasToolbar";
-import { CHEMICALS, chemById } from "@/lib/chemicals";
+import { CHEMICAL_GROUPS, chemById } from "@/lib/chemicals";
 import { buildMockAssessmentResult, saveMockAssessmentResult } from "@/lib/mockAssessment";
 
 function ModelLoader() {
@@ -243,9 +243,11 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
       name: "สูตร A",
       color: "#009FA5",
       icon: "beaker",
+      // Catalog ids are SMILES. Water is deliberately absent from the pickable
+      // catalog — /assess tops a formula up to 100% with it via withWaterBase().
       items: [
-        { chemicalId: "water", concentration: 65 },
-        { chemicalId: "glycerin", concentration: 20 },
+        { chemicalId: "OCC(O)CO", concentration: 20 }, // Glycerin
+        { chemicalId: "CC(O)CO", concentration: 10 }, // Propylene Glycol
       ],
     },
   ]);
@@ -262,17 +264,19 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   const pickerTargetId = editingBoxId ?? activeBoxId;
   const pickerTarget = boxes.find((b) => b.id === pickerTargetId) ?? null;
 
-  const pickerCategories = useMemo(
-    () => Array.from(new Set(CHEMICALS.map((c) => c.role))),
-    [],
-  );
-  const pickerResults = useMemo(() => {
+  const pickerCategories = useMemo(() => CHEMICAL_GROUPS.map((g) => g.category), []);
+  // Keep the catalog's grouping so the list can carry a header per category,
+  // and drop groups that the query empties out.
+  const pickerGroups = useMemo(() => {
     const q = pickerQuery.trim().toLowerCase();
-    return CHEMICALS.filter((c) => {
-      const matchesCategory = pickerCategory === "all" || c.role === pickerCategory;
-      const matchesQuery = !q || c.name.toLowerCase().includes(q) || c.cas.toLowerCase().includes(q);
-      return matchesCategory && matchesQuery;
-    });
+    return CHEMICAL_GROUPS.filter((g) => pickerCategory === "all" || g.category === pickerCategory)
+      .map((g) => ({
+        category: g.category,
+        items: g.items.filter(
+          (c) => !q || c.name.toLowerCase().includes(q) || c.smiles.toLowerCase().includes(q),
+        ),
+      }))
+      .filter((g) => g.items.length > 0);
   }, [pickerQuery, pickerCategory]);
 
   const addBox = () => {
@@ -322,10 +326,12 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   const boxPendingDelete = boxes.find((b) => b.id === deleteConfirmId) ?? null;
 
   const addItem = (boxId: string, chemicalId: string) => {
+    // Seed the row with the catalog's suggested %, the way /assess does.
+    const concentration = chemById(chemicalId)?.conc ?? 10;
     setBoxes((prev) =>
       prev.map((b) =>
         b.id === boxId && !b.items.some((it) => it.chemicalId === chemicalId)
-          ? { ...b, items: [...b.items, { chemicalId, concentration: 10 }] }
+          ? { ...b, items: [...b.items, { chemicalId, concentration }] }
           : b,
       ),
     );
@@ -605,24 +611,20 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                     <div className="mt-3 space-y-2">
                       {box.items.map((it) => {
                         const c = chemById(it.chemicalId);
+                        if (!c) return null;
                         return (
                           <div
                             key={it.chemicalId}
                             onClick={(e) => e.stopPropagation()}
-                            className="flex items-center gap-2 rounded-lg border border-border/60 bg-background/60 py-2 pl-2 pr-2.5"
+                            title={c.role ?? undefined}
+                            className="flex items-center gap-2 rounded-lg border border-border/60 bg-background/60 py-2 pl-2.5 pr-2.5"
                           >
-                            <span
-                              className="grid size-7 shrink-0 place-items-center rounded-md"
-                              style={{ backgroundColor: `${c.color}1A` }}
-                            >
-                              <FlaskConical className="size-3.5" style={{ color: c.color }} />
-                            </span>
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-xs font-medium leading-tight text-foreground">
                                 {c.name}
                               </span>
-                              <span className="block truncate text-[10px] leading-tight text-muted-foreground">
-                                CAS {c.cas}
+                              <span className="block truncate font-mono text-[10px] leading-tight text-muted-foreground">
+                                {c.smiles}
                               </span>
                             </span>
                             <div className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-card px-1.5 py-1">
@@ -823,60 +825,65 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                       </div>
                     </div>
 
-                    <div className="flex-1 space-y-2 overflow-y-auto px-4 pb-4">
+                    <div className="flex-1 overflow-y-auto px-4 pb-4">
                       {pickerTarget &&
-                        pickerResults.map((c) => {
-                          const already = pickerTarget.items.some((it) => it.chemicalId === c.id);
-                          return (
-                            <div
-                              key={c.id}
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => !already && addItem(pickerTarget.id, c.id)}
-                              onKeyDown={(e) => {
-                                if ((e.key === "Enter" || e.key === " ") && !already) {
-                                  e.preventDefault();
-                                  addItem(pickerTarget.id, c.id);
-                                }
-                              }}
-                              className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${already
-                                ? "border-border bg-secondary/40"
-                                : "cursor-pointer border-border bg-card hover:border-primary/50 hover:bg-accent/40"
-                                }`}
-                            >
-                              <span
-                                className={`grid size-8 shrink-0 place-items-center rounded-md ${already ? "bg-muted" : ""}`}
-                                style={already ? undefined : { backgroundColor: `${c.color}1A` }}
-                              >
-                                <FlaskConical
-                                  className={`size-4 ${already ? "text-muted-foreground" : ""}`}
-                                  style={already ? undefined : { color: c.color }}
-                                />
-                              </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-sm font-medium text-foreground">{c.name}</span>
-                                <span className="block truncate text-[11px] text-muted-foreground">CAS {c.cas}</span>
-                              </span>
-                              {already ? (
-                                <button
-                                  aria-label={`ลบ ${c.name} ออกจากกล่อง`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    removeItem(pickerTarget.id, c.id);
-                                  }}
-                                  className="grid size-6 shrink-0 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:border-destructive hover:text-destructive"
-                                >
-                                  <Minus className="size-3.5" />
-                                </button>
-                              ) : (
-                                <span className="shrink-0 rounded-full border border-primary/40 px-2.5 py-1 text-xs font-medium text-primary">
-                                  เพิ่ม
-                                </span>
-                              )}
+                        pickerGroups.map((g) => (
+                          <div key={g.category} className="mb-4 last:mb-0">
+                            <h4 className="sticky top-0 z-10 -mx-1 bg-background/95 px-1 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                              {g.category}
+                            </h4>
+                            <div className="space-y-2">
+                              {g.items.map((c) => {
+                                const already = pickerTarget.items.some((it) => it.chemicalId === c.id);
+                                return (
+                                  <div
+                                    key={c.id}
+                                    role="button"
+                                    tabIndex={0}
+                                    title={c.role ?? undefined}
+                                    onClick={() => !already && addItem(pickerTarget.id, c.id)}
+                                    onKeyDown={(e) => {
+                                      if ((e.key === "Enter" || e.key === " ") && !already) {
+                                        e.preventDefault();
+                                        addItem(pickerTarget.id, c.id);
+                                      }
+                                    }}
+                                    className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${already
+                                      ? "border-border bg-secondary/40"
+                                      : "cursor-pointer border-border bg-card hover:border-primary/50 hover:bg-accent/40"
+                                      }`}
+                                  >
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block truncate text-sm font-medium text-foreground">
+                                        {c.name} ({c.conc}%)
+                                      </span>
+                                      <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                                        {c.smiles}
+                                      </span>
+                                    </span>
+                                    {already ? (
+                                      <button
+                                        aria-label={`ลบ ${c.name} ออกจากกล่อง`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          removeItem(pickerTarget.id, c.id);
+                                        }}
+                                        className="grid size-6 shrink-0 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:border-destructive hover:text-destructive"
+                                      >
+                                        <Minus className="size-3.5" />
+                                      </button>
+                                    ) : (
+                                      <span className="shrink-0 rounded-full border border-primary/40 px-2.5 py-1 text-xs font-medium text-primary">
+                                        เพิ่ม
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
-                          );
-                        })}
-                      {pickerTarget && pickerResults.length === 0 && (
+                          </div>
+                        ))}
+                      {pickerTarget && pickerGroups.length === 0 && (
                         <p className="py-6 text-center text-xs text-muted-foreground">
                           ไม่พบสารเคมีที่ตรงกับคำค้นหา
                         </p>

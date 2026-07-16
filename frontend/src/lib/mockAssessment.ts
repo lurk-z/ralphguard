@@ -20,22 +20,18 @@ export type MockFormulaItem = { chemicalId: string; concentration: number };
 // (0 = inert, 1 = high-risk). Not derived from any real toxicology data —
 // just enough spread that different formulas produce different-looking
 // mock results.
-const ROLE_BASE_RISK: Record<string, number> = {
-  "ตัวทำละลายหลัก": 0.02,
-  "สารให้ความชุ่มชื้น": 0.08,
-  "สารเพิ่มความข้น": 0.12,
-  "สารให้ความลื่น": 0.1,
-  "สารเคลือบผิว": 0.08,
-  "สารออกฤทธิ์": 0.35,
-  "สารกันเสีย": 0.4,
-  "สารปรับค่า pH": 0.3,
-  "สารปลอบผิว": 0.05,
-  "สารต้านอนุมูลอิสระ": 0.15,
-  "สารผลัดเซลล์ผิว": 0.55,
-  "สารบำรุงเกราะป้องกันผิว": 0.06,
-  "สารลดเลือนริ้วรอย": 0.2,
-  "สารป้องกันแสงแดด": 0.1,
-  "สารประสาน": 0.25,
+// Invented per-category risk weights — still mock, but keyed to the real
+// catalog's categories now that the substance list comes from catalog.ts.
+// Replaced wholesale once this page calls the QSAR endpoint.
+const CATEGORY_BASE_RISK: Record<string, number> = {
+  "ตัวทำละลาย / แอลกอฮอล์": 0.25,
+  "กรด (Acids)": 0.55,
+  "สารกันเสีย (Preservatives)": 0.4,
+  "น้ำหอม / สารก่อภูมิแพ้": 0.6,
+  "สารออกฤทธิ์ (Actives)": 0.35,
+  "สารลดแรงตึงผิว (Surfactants)": 0.45,
+  "สารกันแดด (UV Filters)": 0.15,
+  "อีมอลเลียนต์ / เพิ่มความชุ่มชื้น": 0.08,
 };
 
 const ENDPOINT_META = {
@@ -51,8 +47,9 @@ const MOCK_DISCLAIMER_TH =
   "นี่คือผลจำลอง (Mock) สำหรับสาธิตการทำงานของระบบเท่านั้น ยังไม่ใช่ผลจากโมเดล QSAR จริง ห้ามใช้ประกอบการตัดสินใจด้านความปลอดภัย";
 const MOCK_REASON_TH = "ผลจำลอง (Mock) — ยังไม่ผ่านการประเมินจากโมเดลจริง";
 
-function riskOf(chem: Chemical) {
-  return ROLE_BASE_RISK[chem.role] ?? 0.15;
+function riskOf(chem: Chemical | undefined) {
+  if (!chem) return 0.15;
+  return CATEGORY_BASE_RISK[chem.category] ?? 0.15;
 }
 
 function bandOf(score: number): EndpointResultPayload["band"] {
@@ -81,7 +78,8 @@ export function buildMockAssessmentResult(
   items: MockFormulaItem[],
   region = "face",
 ): AssessmentResultPayload {
-  const validItems = items.filter((it) => it.concentration > 0);
+  // Drop rows that carry no dose or point at a substance the catalog dropped.
+  const validItems = items.filter((it) => it.concentration > 0 && chemById(it.chemicalId));
   const totalConc = validItems.reduce((s, it) => s + it.concentration, 0);
   const intensity = Math.max(0, Math.min(1, totalConc / 100));
   const avgRisk =
@@ -107,7 +105,7 @@ export function buildMockAssessmentResult(
   });
 
   const substances: SubstancePayload[] = validItems.map((it) => {
-    const chem = chemById(it.chemicalId);
+    const chem = chemById(it.chemicalId)!; // validItems guarantees this resolves
     const risk = riskOf(chem);
     const perEndpoint: SubstancePayload["per_endpoint"] = {};
     (Object.keys(ENDPOINT_META) as EndpointKey[]).forEach((key) => {
@@ -122,7 +120,9 @@ export function buildMockAssessmentResult(
       };
     });
     return {
-      smiles: chem.id,
+      smiles: chem.smiles,
+      // The real endpoint returns an RDKit-canonical SMILES here; the mock keeps
+      // the display name so the results table stays readable until it's wired up.
       canonical_smiles: chem.name,
       descriptors: {},
       per_endpoint: perEndpoint,
