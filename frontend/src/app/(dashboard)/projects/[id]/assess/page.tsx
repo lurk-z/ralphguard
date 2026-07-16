@@ -52,6 +52,8 @@ import {
 import AiChatPanel from "@/components/AiChatPanel";
 import CanvasToolbar from "@/components/CanvasToolbar";
 import { CHEMICAL_GROUPS, chemById } from "@/lib/chemicals";
+import { isWaterItem, withWaterBase } from "@/lib/catalog";
+import type { FormulaItem } from "@/lib/api";
 import { buildMockAssessmentResult, saveMockAssessmentResult } from "@/lib/mockAssessment";
 
 function ModelLoader() {
@@ -136,6 +138,28 @@ const BOX_COLORS = [
 function boxIntensity(box: FormulaBox) {
   const total = box.items.reduce((s, it) => s + it.concentration, 0);
   return Math.max(0, Math.min(1, total / 100));
+}
+
+/** A box's rows as the catalog/API shape. Boxes hold actives only — no water. */
+function boxToFormulaItems(box: FormulaBox): FormulaItem[] {
+  return box.items.flatMap((it) => {
+    const c = chemById(it.chemicalId);
+    return c ? [{ name: c.name, smiles: c.smiles, concentration: it.concentration }] : [];
+  });
+}
+
+/**
+ * The formula as it will be assessed: actives plus the auto-balanced water base.
+ * withWaterBase is the same helper /assess submits through, so the % shown to
+ * the user and the % sent to the model can't drift apart.
+ */
+function boxWithWaterBase(box: FormulaBox): FormulaItem[] {
+  return withWaterBase(boxToFormulaItems(box));
+}
+
+/** Water's balancing % for a box — 0 once the actives already reach 100%. */
+function waterPctOf(box: FormulaBox): number {
+  return boxWithWaterBase(box).find(isWaterItem)?.concentration ?? 0;
 }
 
 const TABS = [
@@ -609,6 +633,35 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
 
                   {box.items.length > 0 && (
                     <div className="mt-3 space-y-2">
+                      {/* Water base — not an editable row: it balances to fill
+                          whatever the actives leave, exactly as /assess does. */}
+                      {(() => {
+                        const waterPct = waterPctOf(box);
+                        return waterPct > 0 ? (
+                          <div className="rounded-lg border border-border/60 bg-secondary/40 py-2 pl-2.5 pr-2.5">
+                            <div className="flex items-center gap-2">
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-xs font-medium leading-tight text-foreground">
+                                  Water (Aqua)
+                                </span>
+                                <span className="block truncate font-mono text-[10px] leading-tight text-muted-foreground">
+                                  O
+                                </span>
+                              </span>
+                              <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                                {waterPct}%
+                              </span>
+                            </div>
+                            <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                              เบส · ปรับอัตโนมัติให้รวม 100%
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-[10px] leading-snug text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400">
+                            ⚠️ สัดส่วนสารรวม ≥ 100% แล้ว จึงไม่เหลือที่ให้น้ำเป็นเบส — ลองลดความเข้มข้นลง
+                          </p>
+                        );
+                      })()}
                       {box.items.map((it) => {
                         const c = chemById(it.chemicalId);
                         if (!c) return null;
