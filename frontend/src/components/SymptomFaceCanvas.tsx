@@ -6,9 +6,9 @@
  * it maps the assessment's 4 endpoint scores onto the four skin symptoms and
  * develops them across the face automatically:
  *
- *   skin (ระคายเคืองผิว)  → redness  (+ peeling when severe)
+ *   skin (ระคายเคืองผิว)  → redness + edema (+ peeling when severe)
  *   sens (แพ้ผิวหนัง)      → papule
- *   acute/severe          → edema (swelling)
+ *   acute/severe          → reinforces edema (swelling)
  *   eye  (ระคายเคืองตา)   → per-eye redness
  *
  * Drop-in replacement for FacePaintCanvas (same props) so the assess viewport

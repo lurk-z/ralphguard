@@ -140,8 +140,9 @@ export type AssessmentEndpointScores = {
  * Single source of truth for mapping RalphGuard's four assessment endpoints to
  * the symptom renderer. Inputs are normalized 0..1 scores.
  *
- * Important: edema belongs to acute toxicity only. Skin irritation must never
- * create geometry swelling by itself.
+ * Skin irritation drives both erythema and edema, matching the two visible
+ * reactions used when irritation is graded. A high acute score can reinforce
+ * the edema signal, but is not required for skin swelling to appear.
  */
 export function mapAssessmentEndpointsToSymptoms(scores: AssessmentEndpointScores): {
   sev: Record<SkinKey, number>;
@@ -160,8 +161,9 @@ export function mapAssessmentEndpointsToSymptoms(scores: AssessmentEndpointScore
       // Desquamation is a severe skin-irritation manifestation, not a separate
       // endpoint. Keep it absent below the severe visual threshold.
       peeling: Math.max(0, (skin - 0.55) / 0.45),
-      // Swelling is reserved for a high acute endpoint and never reads `skin`.
-      edema: Math.max(0, (acute - 0.5) / 0.5),
+      // Irritated skin can be both red and swollen. Acute toxicity contributes
+      // an additional edema signal only above its high-risk threshold.
+      edema: Math.max(skin, Math.max(0, (acute - 0.5) / 0.5)),
     },
     eyeRed: eye,
   };
@@ -245,7 +247,7 @@ export function PaintSymptomModel({
   eyeLeft: number; // 0..1 — left-eye redness (independent of paint/Run)
   eyeRight: number; // 0..1 — right-eye redness
   apiRef?: React.MutableRefObject<PaintApi | null>;
-  eraseMode?: boolean; // when true, painting rubs the active symptom out
+  eraseMode?: boolean; // when true, dragging uses a soft brush to erase every symptom layer
   onHover?: (info: PaintHoverInfo | null) => void;
   // Production assessment can paint several endpoint-driven symptoms with one
   // stroke. The standalone lab omits this and continues to paint only activeSymptom.
@@ -307,6 +309,7 @@ export function PaintSymptomModel({
     redness: 0, papule: 0, peeling: 0, edema: 0,
   });
   const painting = useRef(false);
+  const lastPaintUv = useRef<THREE.Vector2 | null>(null);
   const skinMesh = useRef<THREE.Mesh | null>(null);
   const skinBounds = useRef<THREE.Box3 | null>(null);
   const eyeMesh = useRef<THREE.Object3D | null>(null);
@@ -807,9 +810,9 @@ roughnessFactor = clamp(
     });
   });
 
-  const paintAt = (uv: THREE.Vector2) => {
-    // Erasing targets the visual scan-grid cell, not a circular brush dab. It
-    // also clears every symptom mask so no hidden layer remains in that cell.
+  const dabAt = (uv: THREE.Vector2) => {
+    // Erasing uses the same brush interaction as painting and clears every
+    // symptom mask underneath it so no hidden reaction layer is left behind.
     const targetSymptoms = eraseRef.current ? SKIN_KEYS : paintSymptomsRef.current;
     targetSymptoms.forEach((k) => {
       const m = masks[k];
@@ -819,22 +822,25 @@ roughnessFactor = clamp(
       const px = uv.x * W;
       const py = uv.y * H; // flipY=false + raw uv -> no inversion
 
+      // pct = 20 / 50 / 85 (เล็ก / กลาง / ใหญ่) -> distinct, usefully-sized radii.
+      const pct = brushSizeRef.current;
+      const r = (pct / 100) * 0.09 * W * (eraseRef.current ? 1.15 : 1);
+
       if (eraseRef.current) {
-        const gridSize = 68; // Must match vPaintUv * 68.0 in the scan shader.
-        const cellX = Math.min(gridSize - 1, Math.max(0, Math.floor(uv.x * gridSize)));
-        const cellY = Math.min(gridSize - 1, Math.max(0, Math.floor(uv.y * gridSize)));
-        const x0 = Math.floor((cellX / gridSize) * W);
-        const y0 = Math.floor((cellY / gridSize) * H);
-        const x1 = Math.ceil(((cellX + 1) / gridSize) * W);
-        const y1 = Math.ceil(((cellY + 1) / gridSize) * H);
-        m.ctx.clearRect(x0, y0, x1 - x0, y1 - y0);
+        // A solid centre makes the erased path predictable, while the feathered
+        // edge keeps a dragged stroke from looking like disconnected grid cells.
+        const g = m.ctx.createRadialGradient(px, py, 0, px, py, r);
+        g.addColorStop(0, "rgba(0,0,0,1)");
+        g.addColorStop(0.72, "rgba(0,0,0,1)");
+        g.addColorStop(1, "rgba(0,0,0,0)");
+        m.ctx.globalCompositeOperation = "destination-out";
+        m.ctx.fillStyle = g;
+        m.ctx.beginPath();
+        m.ctx.arc(px, py, r, 0, Math.PI * 2);
+        m.ctx.fill();
         m.tex.needsUpdate = true;
         return;
       }
-
-      // pct = 20 / 50 / 85 (เล็ก / กลาง / ใหญ่) -> distinct, usefully-sized radii.
-      const pct = brushSizeRef.current;
-      const r = (pct / 100) * 0.09 * W;
 
       // Paint WHITE (mark).
       const g = m.ctx.createRadialGradient(px, py, 0, px, py, r);
@@ -850,6 +856,30 @@ roughnessFactor = clamp(
     // Do NOT reset this symptom's reveal: already-revealed areas stay revealed
     // when you paint MORE of the same symptom. New marks show as cream only
     // before the first Run (reveal 0); after that they appear immediately.
+  };
+
+  const paintStrokeTo = (uv: THREE.Vector2) => {
+    const previous = lastPaintUv.current;
+    if (!previous) {
+      dabAt(uv);
+      lastPaintUv.current = uv.clone();
+      return;
+    }
+
+    const distance = previous.distanceTo(uv);
+    // Do not bridge distant UV islands across a model seam. Within one island,
+    // interpolate dabs so a quick drag still produces one continuous stroke.
+    if (distance > 0.2) {
+      dabAt(uv);
+    } else {
+      const brushRadiusUv = (brushSizeRef.current / 100) * 0.09;
+      const spacing = Math.max(0.004, brushRadiusUv * 0.35);
+      const steps = Math.min(32, Math.max(1, Math.ceil(distance / spacing)));
+      for (let step = 1; step <= steps; step += 1) {
+        dabAt(previous.clone().lerp(uv, step / steps));
+      }
+    }
+    lastPaintUv.current = uv.clone();
   };
 
   // Return the symptoms that were actually painted under this UV. Keeping this
@@ -920,6 +950,7 @@ roughnessFactor = clamp(
   const stopPaint = () => {
     if (painting.current) {
       painting.current = false;
+      lastPaintUv.current = null;
       setControls(true);
     }
   };
@@ -938,15 +969,16 @@ roughnessFactor = clamp(
           e.stopPropagation();
           onHover?.(null);
           painting.current = true;
+          lastPaintUv.current = null;
           setControls(false);
-          if (e.uv) paintAt(e.uv);
+          if (e.uv) paintStrokeTo(e.uv);
         }}
         onPointerMove={(e: any) => {
           if (!isSkin(e.object)) return;
           if (painting.current) {
             e.stopPropagation();
             onHover?.(null);
-            if (e.uv) paintAt(e.uv);
+            if (e.uv) paintStrokeTo(e.uv);
             return;
           }
 

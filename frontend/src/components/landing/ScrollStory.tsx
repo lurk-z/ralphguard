@@ -9,6 +9,7 @@ import { CHAPTERS, type Chapter } from './chapters'
 import GridScanShowcase from './GridScanShowcase'
 import AIAssistantShowcase from './AIAssistantShowcase'
 import NodeWorkspaceShowcase from './NodeWorkspaceShowcase'
+import OCRLabelShowcase from './OCRLabelShowcase'
 import { scrollState } from '@/app/_lib/scroll'
 import { storyState, smoothstep } from '@/app/_lib/story'
 
@@ -96,7 +97,7 @@ function HeroChapter({ c }: { c: Chapter }) {
           size="lg"
           className="rounded-full px-7 opacity-0 shadow-none"
         >
-          <Link href="/assess">
+          <Link href="/projects">
             เริ่มวิเคราะห์
             <ArrowRight />
           </Link>
@@ -116,23 +117,25 @@ function HeroChapter({ c }: { c: Chapter }) {
   )
 }
 
-function DetailChapter({ c }: { c: Chapter }) {
-  const highlightClass = c.highlight === 'Node graph'
+function DetailChapter({ c, dark = false }: { c: Chapter; dark?: boolean }) {
+  const highlightClass = c.highlight === 'Node graph' || c.highlight === 'ทุกมุม' || c.highlight === '3D'
     ? 'font-display text-white'
-    : c.highlight === 'ทุกมุม' || c.highlight === 'AI'
+    : c.highlight === 'PDF'
+      ? 'font-display text-orange-400 drop-shadow-[0_1px_8px_rgba(251,146,60,0.35)]'
+    : c.highlight === 'AI'
       ? 'bg-gradient-to-r from-cyan-200 via-teal-200 to-emerald-200 bg-clip-text font-display text-transparent drop-shadow-[0_1px_8px_rgba(94,234,212,0.42)]'
       : HIGHLIGHT_GRADIENT
 
   return (
     <>
-      <h2 className="mt-5 font-sans font-bold leading-[1.1] tracking-tight text-white text-[clamp(1.9rem,4.6vw,3.1rem)]">
+      <h2 className={`mt-5 font-sans font-bold leading-[1.1] tracking-tight text-[clamp(1.9rem,4.6vw,3.1rem)] ${dark ? 'text-slate-900' : 'text-white'}`}>
         {c.titleLines.map((line, i) => (
           <span key={i} className="block">
             {renderTitle(line, c.highlight, highlightClass)}
           </span>
         ))}
       </h2>
-      <p className="mx-auto mt-4 max-w-xl font-sans leading-relaxed text-white/80 text-[clamp(0.9rem,1.4vw,1.1rem)]">
+      <p className={`mx-auto mt-4 max-w-xl font-sans leading-relaxed text-[clamp(0.9rem,1.4vw,1.1rem)] ${dark ? 'text-slate-700' : 'text-white/80'}`}>
         {c.body}
       </p>
     </>
@@ -164,7 +167,7 @@ function CTAChapter({ c }: { c: Chapter }) {
 
       <div className="pointer-events-auto mt-8 flex flex-wrap items-center justify-center gap-3">
         <Button asChild size="lg" className="rounded-full px-7 shadow-none">
-          <a href="/assess">เริ่มใช้งาน</a>
+          <a href="/projects">เริ่มใช้งาน</a>
         </Button>
       </div>
     </>
@@ -284,6 +287,19 @@ export default function ScrollStory() {
             scan.style.opacity = String(reduceMotion ? 0.35 : Math.sin(phase * Math.PI) * 0.65 * progress)
           }
         }
+
+        if (i === 4) {
+          const cards = el.querySelectorAll<HTMLElement>('[data-ocr-card]')
+          cards.forEach((card, cardIndex) => {
+            const delay = cardIndex * 0.1
+            const localProgress = reduceMotion
+              ? 1
+              : smoothstep(Math.max(0, Math.min(1, (op - delay) / (1 - delay))))
+            const enterX = cardIndex === 0 ? -44 : 44
+            card.style.opacity = String(localProgress)
+            card.style.transform = `translate3d(${enterX * (1 - localProgress)}px, ${16 * (1 - localProgress)}px, 0)`
+          })
+        }
       }
       const heroOp = k === 0 ? 1 - smoothstep(Math.min(move / 0.6, 1)) : 0
       if (chevronRef.current) chevronRef.current.style.opacity = String(heroOp * 0.5)
@@ -383,10 +399,10 @@ export default function ScrollStory() {
               className="absolute inset-0"
               style={{ opacity: 0, willChange: 'opacity, transform', textShadow: '0 1px 14px rgba(8,20,24,0.6), 0 1px 3px rgba(8,20,24,0.55)' }}
             >
-              <div className="absolute inset-x-0 top-[7%] px-6 text-center lg:inset-x-auto lg:left-[7%] lg:top-[38%] lg:max-w-[31rem] lg:text-left">
+              <div className="absolute inset-x-0 top-[11%] px-4 text-center sm:top-[8%] sm:px-6 xl:inset-x-auto xl:left-[7%] xl:top-[38%] xl:max-w-[31rem] xl:text-left">
                 <DetailChapter c={c} />
               </div>
-              <div className="absolute left-1/2 top-[31%] -translate-x-1/2 lg:left-auto lg:right-[2%] lg:top-[6%] lg:translate-x-0" style={{ textShadow: 'none' }}>
+              <div className="absolute left-1/2 top-[37%] mt-[10px] -translate-x-1/2 sm:top-[31%] md:top-[29%] xl:left-auto xl:right-[2%] xl:top-[6%] xl:translate-x-0" style={{ textShadow: 'none' }}>
                 <AIAssistantShowcase />
               </div>
             </div>
@@ -399,16 +415,30 @@ export default function ScrollStory() {
               className="absolute inset-0"
               style={{ opacity: 0, willChange: 'opacity, transform', textShadow: '0 1px 14px rgba(8,20,24,0.6), 0 1px 3px rgba(8,20,24,0.55)' }}
             >
-              <div className="absolute inset-x-0 top-[7%] px-6 text-center lg:inset-x-auto lg:right-[4%] lg:top-[24%] lg:max-w-[27rem] lg:text-right">
+              <div className="absolute inset-x-0 top-[9%] px-4 text-center sm:top-[7%] sm:px-6 xl:inset-x-auto xl:right-[4%] xl:top-[24%] xl:max-w-[27rem] xl:text-right">
                 <DetailChapter c={c} />
               </div>
-              <div className="absolute left-1/2 top-[43%] -translate-x-1/2 lg:left-[3%] lg:top-[26%] lg:translate-x-0" style={{ textShadow: 'none' }}>
+              <div className="absolute left-1/2 top-[46%] -translate-x-1/2 sm:top-[41%] xl:left-[3%] xl:top-[26%] xl:translate-x-0" style={{ textShadow: 'none' }}>
                 <NodeWorkspaceShowcase />
               </div>
             </div>
           )
         } else if (i === 4) {
-          innerClass = 'w-full max-w-2xl px-6 text-center'
+          return (
+            <div
+              key={i}
+              ref={(el) => { chapterRefs.current[i] = el }}
+              className="absolute inset-0"
+              style={{ opacity: 0, willChange: 'opacity, transform', textShadow: '0 1px 14px rgba(8,20,24,0.6), 0 1px 3px rgba(8,20,24,0.55)' }}
+            >
+              <div className="absolute inset-x-0 top-[9%] px-4 text-center sm:top-[8%] sm:px-6 xl:inset-x-auto xl:left-[7%] xl:top-[36%] xl:max-w-[27rem] xl:text-left" style={{ textShadow: '0 1px 10px rgba(255,255,255,.8)' }}>
+                <DetailChapter c={c} dark />
+              </div>
+              <div className="absolute left-1/2 top-[36%] -translate-x-1/2 sm:top-[30%] xl:left-auto xl:right-[1%] xl:top-[13%] xl:translate-x-0" style={{ textShadow: 'none' }}>
+                <OCRLabelShowcase />
+              </div>
+            </div>
+          )
         } else if (i === 5) {
           return (
             <div

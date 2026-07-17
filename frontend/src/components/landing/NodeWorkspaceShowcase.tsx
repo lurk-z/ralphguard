@@ -4,7 +4,7 @@ export default function NodeWorkspaceShowcase() {
   return (
     <div
       data-node-workspace
-      className="relative aspect-[2.055/1] w-[min(62vw,58rem)] min-w-[42rem] overflow-hidden rounded-xl border border-white/90 bg-white shadow-[0_24px_70px_rgba(7,31,38,0.32)]"
+      className="relative aspect-[2.055/1] w-[min(94vw,58rem)] min-w-0 overflow-hidden rounded-lg border border-white/90 bg-white shadow-[0_24px_70px_rgba(7,31,38,0.32)] sm:w-[min(88vw,58rem)] sm:rounded-xl xl:w-[min(62vw,58rem)]"
     >
       <Image
         src="/landing/node-workspace.png"

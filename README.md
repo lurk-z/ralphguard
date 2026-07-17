@@ -60,6 +60,9 @@ cd ralphguard
 # Copy environment variables
 cp .env.example .env
 
+# Windows: verify that the cloned branch includes models and UI assets
+powershell -ExecutionPolicy Bypass -File .\scripts\verify-clone-ready.ps1
+
 # Build and start all services
 docker compose up --build
 

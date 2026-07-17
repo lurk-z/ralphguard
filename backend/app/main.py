@@ -37,7 +37,10 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
+    # RalphGuard has no cookie-based user session. Credentials must be disabled
+    # when the development default "*" is used, otherwise browser CORS handling
+    # is inconsistent across localhost/127.0.0.1/LAN origins.
+    allow_credentials="*" not in settings.cors_origins_list,
     allow_methods=["*"],
     allow_headers=["*"],
 )

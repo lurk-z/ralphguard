@@ -22,7 +22,18 @@ cd ralphguard
 cp .env.example .env
 ```
 
+บน Windows ให้ตรวจทันทีว่า branch ที่ Clone มีไฟล์ runtime ครบ (รวมโมเดล QSAR และไฟล์ 3D):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify-clone-ready.ps1
+```
+
+ถ้าขึ้นว่า current branch ไม่ใช่ clone-default branch ให้ผู้ดูแล repository รวม branch ล่าสุดเข้า
+default branch บน GitHub ก่อน ห้ามแก้ด้วยการคัดลอกโมเดลด้วยมือเฉพาะเครื่อง เพราะเครื่องถัดไปจะขาดไฟล์ซ้ำอีก
+
 เปิดไฟล์ `.env` แล้วแก้ค่า `API_SECRET_KEY` ให้เป็นค่าสุ่มที่ยาว ๆ
+
+ถ้าต้องการใช้ AI Chatbot ให้กำหนด `GROQ_API_KEY` ใน `.env` ด้วย ห้ามใส่ key จริงใน `.env.example`
 
 ## ขั้นที่ 3: ทดสอบว่าทุกอย่างพร้อม
 

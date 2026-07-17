@@ -1371,7 +1371,7 @@ export default function StudioPage() {
                   type="button"
                   onClick={() => setEraseMode((value) => !value)}
                   disabled={!completed}
-                  title={completed ? (eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบช่อง Grid") : "ประเมินสูตรก่อนใช้ยางลบ"}
+                  title={completed ? (eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบระบาย") : "ประเมินสูตรก่อนใช้ยางลบ"}
                   aria-pressed={eraseMode}
                   className={`flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-semibold transition ${
                     eraseMode
@@ -1380,7 +1380,7 @@ export default function StudioPage() {
                   } disabled:cursor-not-allowed disabled:opacity-40`}
                 >
                   <Eraser className="size-4" />
-                  {eraseMode ? "กำลังลบช่อง Grid" : "ยางลบ"}
+                  {eraseMode ? "ลากเพื่อระบายลบ" : "ยางลบ"}
                 </button>
                 <button
                   onClick={() => {
