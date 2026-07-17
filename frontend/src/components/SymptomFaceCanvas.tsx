@@ -28,6 +28,12 @@ import {
 
 type PaintLayer = { key: string; label: string; score: number; color: string; band: string };
 
+// A painted spot represents one formula-exposure area, not the symptoms that
+// happen to be visible on the currently selected day. Keep every skin mask so
+// a reaction that develops later in the timecourse can appear without asking
+// the user to paint the same area again.
+const ASSESSMENT_PAINT_SYMPTOMS: SkinKey[] = ["redness", "papule", "peeling", "edema"];
+
 const BAND_COLOR: Record<string, string> = {
   low: "#16A34A",
   moderate: "#E08A00",
@@ -92,16 +98,14 @@ export function SymptomFaceCanvas({
     return entries.sort((a, b) => b[1] - a[1])[0][0];
   }, [sev]);
 
-  // A production stroke represents exposure to the whole assessed formula, so
-  // every symptom with a non-zero mapped endpoint must share the painted area.
-  // Keep one fallback mask for a completely safe/empty result so Grid Scan still
-  // confirms where the user painted without inventing a visible reaction.
-  const paintSymptoms = useMemo(() => {
-    const mapped = (Object.entries(sev) as [SkinKey, number][])
+  // Only use this list for hover copy. Masks include every symptom so moving
+  // Day 1 -> Day 3 -> Day 7 can reveal newly developed reactions over the
+  // original painted area.
+  const visibleSymptoms = useMemo(() => {
+    return (Object.entries(sev) as [SkinKey, number][])
       .filter(([, value]) => value > 0.001)
       .map(([key]) => key);
-    return mapped.length ? mapped : [dominant];
-  }, [sev, dominant]);
+  }, [sev]);
 
   const apiRef = useRef<PaintApi | null>(null);
   const [tip, setTip] = useState<PaintHoverInfo | null>(null);
@@ -167,7 +171,7 @@ export function SymptomFaceCanvas({
         <Suspense fallback={null}>
           <PaintSymptomModel
             activeSymptom={dominant}
-            paintSymptoms={paintSymptoms}
+            paintSymptoms={ASSESSMENT_PAINT_SYMPTOMS}
             sev={sev}
             brushSizePct={50}
             eyeLeft={eyeRed}
@@ -207,7 +211,9 @@ export function SymptomFaceCanvas({
             <span className="font-semibold">{tip.region}</span>
           </div>
           <div className="mt-1 text-[10px] text-slate-500">
-            รอยที่ระบาย: {tip.symptoms.map((key) => SYMPTOM_LABEL[key]).join(", ")}
+            {visibleSymptoms.length
+              ? `อาการที่แสดงตามเวลานี้: ${visibleSymptoms.map((key) => SYMPTOM_LABEL[key]).join(", ")}`
+              : "ยังไม่แสดงอาการในช่วงเวลานี้"}
           </div>
           <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">
             {layers

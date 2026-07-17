@@ -275,21 +275,31 @@ export function PaintSymptomModel({
   const uEdema = useRef({ value: 0 });
   const uEyeRedL = useRef({ value: 0 });
   const uEyeRedR = useRef({ value: 0 });
+  // Timecourse changes should develop/fade on the model instead of snapping
+  // between days. Props update these targets; useFrame eases live uniforms.
+  const severityTargets = useRef({
+    redness: sev.redness,
+    papule: sev.papule,
+    peeling: sev.peeling,
+    edema: sev.edema,
+    eyeLeft,
+    eyeRight,
+  });
   // Interaction feedback is independent from predicted severity: the grid
   // remains visible even when the model score rounds to zero.
   const uScanTime = useRef({ value: 0 });
   // Each symptom keeps its OWN severity (so painted symptoms coexist, never
   // zeroed just because another symptom is active).
   useEffect(() => {
-    uRedness.current.value = sev.redness;
-    uPapule.current.value = sev.papule;
-    uPeeling.current.value = sev.peeling;
-    uEdema.current.value = sev.edema;
+    severityTargets.current.redness = sev.redness;
+    severityTargets.current.papule = sev.papule;
+    severityTargets.current.peeling = sev.peeling;
+    severityTargets.current.edema = sev.edema;
   }, [sev.redness, sev.papule, sev.peeling, sev.edema]);
   // Eye redness is its own category — per eye, live (no painting / no Run).
   useEffect(() => {
-    uEyeRedL.current.value = eyeLeft;
-    uEyeRedR.current.value = eyeRight;
+    severityTargets.current.eyeLeft = eyeLeft;
+    severityTargets.current.eyeRight = eyeRight;
   }, [eyeLeft, eyeRight]);
 
   const uSkinLift = useRef({ value: SKIN_LIFT });
@@ -803,11 +813,18 @@ roughnessFactor = clamp(
   // Ease every symptom's reveal toward its own target (~0.9s).
   useFrame((_, dt) => {
     const k = Math.min(1, dt * 2.2);
+    const severityK = 1 - Math.exp(-dt * 5.5);
     uScanTime.current.value += dt;
     SKIN_KEYS.forEach((s) => {
       const ref = revealRefs[s].current;
       ref.value += (revealTargets.current[s] - ref.value) * k;
     });
+    uRedness.current.value += (severityTargets.current.redness - uRedness.current.value) * severityK;
+    uPapule.current.value += (severityTargets.current.papule - uPapule.current.value) * severityK;
+    uPeeling.current.value += (severityTargets.current.peeling - uPeeling.current.value) * severityK;
+    uEdema.current.value += (severityTargets.current.edema - uEdema.current.value) * severityK;
+    uEyeRedL.current.value += (severityTargets.current.eyeLeft - uEyeRedL.current.value) * severityK;
+    uEyeRedR.current.value += (severityTargets.current.eyeRight - uEyeRedR.current.value) * severityK;
   });
 
   const dabAt = (uv: THREE.Vector2) => {
