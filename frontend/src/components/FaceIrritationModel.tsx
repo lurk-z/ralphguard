@@ -388,15 +388,15 @@ function PaintFaceModel({
   const { scene: rawScene, animations } = useGLTF("/models/head.glb", true);
   const gl = useThree((s) => s.gl);
   const getState = useThree((s) => s.get); // read live state (controls) in handlers
-  const scene = useMemo(() => {
-    const s = rawScene.clone(true);
-    // Center the model at the origin so OrbitControls (target 0,0,0) keeps it
-    // perfectly centered while rotating/zooming.
-    const box = new THREE.Box3().setFromObject(s);
-    const center = box.getCenter(new THREE.Vector3());
-    s.position.sub(center);
-    return s;
-  }, [rawScene]);
+  // Plain clone, left where the GLTF puts it. Do NOT re-centre it here:
+  // useFaceCameraFit measures this mesh's own world-space bounds to aim the
+  // camera, and it runs inside useFrame — which R3F calls before gl.render(),
+  // i.e. before the scene's matrixWorld reflects a position set during render.
+  // Moving the scene here made the fit measure the pre-move location, so the
+  // camera aimed at where the head used to be and the head drew off-centre.
+  // (/assess pairs the re-centring with drei's <Bounds> instead of this fit,
+  // which is self-consistent; the two approaches must not be mixed.)
+  const scene = useMemo(() => rawScene.clone(true), [rawScene]);
 
   // Drive the GLTF's eye-dart clips against this instance's cloned scene.
   const group = useRef<THREE.Group>(null);
@@ -1045,7 +1045,7 @@ export function FacePaintCanvas({
   return (
     <div className={`relative h-full w-full overflow-hidden ${armed ? "cursor-crosshair" : ""}`}>
       <Canvas
-        camera={{ fov: 70, position: [90, 30, 390] }}
+        camera={{ fov: 35, position: [0, 0, 2] }}
         dpr={[1, 1.5]}
         gl={{
           antialias: true,
