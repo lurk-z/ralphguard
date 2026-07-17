@@ -1,11 +1,15 @@
 "use client";
 
-// Self-built chat widget for the assess workspace's right panel — the shadcn
+// Chat widget for the assess workspace's right panel — the shadcn
 // "message-scroller" registry entry (ui.shadcn.com/docs/components/radix/message-scroller)
 // is documented but not actually published (404s on every registry path/CLI version),
-// and assistant-ui's <Thread> needs a runtime wired to a real backend we don't have yet.
-// This is a local, self-contained stand-in with the same look or behavior:
-// empty state, auto-scroll to newest message, user bubbles vs. plain assistant text.
+// and assistant-ui's <Thread> needs a runtime of its own. This is a local,
+// self-contained thread: empty state, auto-scroll to newest message, user
+// bubbles vs. plain assistant text.
+//
+// It talks to the same /api/chat endpoint /assess's VoiceAssistant does, and
+// handles the reply the same way: agent commands are carried out, a suggested
+// formula becomes an import card, and neither block is ever shown as raw JSON.
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, MessageCircle } from "lucide-react";
 import {
@@ -15,14 +19,32 @@ import {
   EmptyDescription,
   EmptyMedia,
 } from "@/components/ui/empty";
+import { api, type FormulaItem } from "@/lib/api";
+import { parseAssistantReply, type AssistantAction } from "@/lib/assistant";
 
-type ChatMessage = { id: string; role: "user" | "assistant"; content: string };
+type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  /** A formula the assistant suggested, offered to the user as an import. */
+  formula?: FormulaItem[];
+  /** How many agent commands this reply carried out. */
+  acted?: number;
+  error?: boolean;
+};
 
-// Placeholder response until this is wired to a real AI backend.
-const DEMO_REPLY =
-  "นี่คือคำตอบตัวอย่าง (demo) — ยังไม่ได้เชื่อมกับ AI จริง เอาไว้ทดสอบหน้าตา UI เท่านั้น";
-
-export default function AiChatPanel() {
+export default function AiChatPanel({
+  buildContext,
+  onAction,
+  onImportFormula,
+}: {
+  /** Current formula + results, so the assistant answers about this workspace. */
+  buildContext?: () => string;
+  /** Carry out the reply's agent commands. */
+  onAction?: (actions: AssistantAction[]) => void;
+  /** Import a suggested formula when the user asks for it. */
+  onImportFormula?: (items: FormulaItem[]) => void;
+} = {}) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -36,23 +58,41 @@ export default function AiChatPanel() {
     el.scrollTop = el.scrollHeight;
   }, [messages]);
 
-  const send = () => {
-    const text = input.trim();
-    if (!text || sending) return;
+  const push = (m: Omit<ChatMessage, "id">) => {
     idSeq.current += 1;
-    setMessages((m) => [...m, { id: `u${idSeq.current}`, role: "user", content: text }]);
-    setInput("");
-    setSending(true);
-    setTimeout(() => {
-      idSeq.current += 1;
-      setMessages((m) => [...m, { id: `a${idSeq.current}`, role: "assistant", content: DEMO_REPLY }]);
-      setSending(false);
-    }, 700);
+    setMessages((prev) => [...prev, { id: `m${idSeq.current}`, ...m }]);
   };
 
-  const reset = () => {
-    setMessages([]);
+  const send = async () => {
+    const text = input.trim();
+    if (!text || sending) return;
+    push({ role: "user", content: text });
     setInput("");
+    setSending(true);
+
+    let answer = "";
+    let err = "";
+    try {
+      answer = (await api.chat(text, buildContext?.())).answer;
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+    }
+    setSending(false);
+
+    if (!answer) {
+      // No canned fallback: show what actually went wrong, the way /assess does.
+      push({ role: "assistant", content: `⚠️ เชื่อมต่อ AI ไม่ได้ ${err}`.slice(0, 400), error: true });
+      return;
+    }
+
+    const reply = parseAssistantReply(answer);
+    if (reply.actions.length) onAction?.(reply.actions);
+    push({
+      role: "assistant",
+      content: reply.text,
+      formula: reply.formula,
+      acted: reply.actions.length,
+    });
   };
 
   return (
@@ -80,11 +120,42 @@ export default function AiChatPanel() {
                     : "max-w-[85%] text-xs leading-relaxed text-muted-foreground"
                 }
               >
-                {m.content}
+                <p className={m.error ? "text-destructive" : undefined}>{m.content}</p>
+
+                {m.role === "assistant" && !!m.acted && (
+                  <p className="mt-1 text-[10px] text-primary">✓ ปรับสูตรให้แล้ว {m.acted} รายการ</p>
+                )}
+
+                {m.role === "assistant" && m.formula && m.formula.length > 0 && (
+                  <div className="mt-1.5 rounded-lg border border-border bg-card p-2">
+                    <p className="mb-1 text-[10px] font-semibold text-muted-foreground">
+                      🧪 สูตรที่แนะนำ ({m.formula.length} สาร)
+                    </p>
+                    <div className="space-y-0.5">
+                      {m.formula.map((f) => (
+                        <div key={f.smiles} className="flex items-center justify-between gap-2 text-[11px]">
+                          <span className="truncate text-foreground">{f.name || f.smiles}</span>
+                          <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
+                            {f.concentration}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {onImportFormula && (
+                      <button
+                        onClick={() => onImportFormula(m.formula!)}
+                        className="mt-1.5 w-full rounded-md border border-primary/40 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-accent/40"
+                      >
+                        + นำเข้าเป็นสูตรใหม่
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           ))
         )}
+        {sending && <p className="text-xs text-muted-foreground">กำลังคิด…</p>}
       </div>
 
       <div className="p-3">

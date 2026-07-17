@@ -54,6 +54,7 @@ import CanvasToolbar from "@/components/CanvasToolbar";
 import { CHEMICAL_GROUPS, chemById } from "@/lib/chemicals";
 import { PRODUCT_TEMPLATES, isWaterItem, withWaterBase } from "@/lib/catalog";
 import { useSubstanceHoverCard } from "@/components/SubstanceInfoCard";
+import type { AssistantAction } from "@/lib/assistant";
 import type { FormulaItem, Region } from "@/lib/api";
 import { buildMockAssessmentResult, saveMockAssessmentResult } from "@/lib/mockAssessment";
 
@@ -332,6 +333,52 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
       .filter((g) => g.items.length > 0);
   }, [pickerQuery, pickerCategory]);
 
+  /**
+   * Add a named box, seeded with items — the shared path for templates, the
+   * node graph's save, and the assistant. Returns the new box's id.
+   */
+  const addBoxFrom = (name: string, items: FormulaBoxItem[]) => {
+    boxIdSeq.current += 1;
+    const id = `box-${boxIdSeq.current}`;
+    const iconsList = Object.keys(BOX_ICONS) as BoxIconName[];
+    setBoxes((prev) => [
+      ...prev,
+      {
+        id,
+        name,
+        items,
+        color: BOX_COLORS[(boxIdSeq.current - 1) % BOX_COLORS.length],
+        icon: iconsList[(boxIdSeq.current - 1) % iconsList.length],
+      },
+    ]);
+    setActiveBoxId(id);
+    return id;
+  };
+
+  /**
+   * {name, smiles, concentration} from a template, the graph or the assistant,
+   * as box rows. Water is dropped — boxes hold actives only and withWaterBase
+   * puts it back at assessment time.
+   */
+  const toBoxItems = (arr: unknown): FormulaBoxItem[] =>
+    Array.isArray(arr)
+      ? arr
+          .map((it) => {
+            const o = (it ?? {}) as Record<string, unknown>;
+            return {
+              smiles: String(o.smiles ?? "").trim(),
+              name: String(o.name ?? ""),
+              concentration: Number(o.concentration) || 0,
+            };
+          })
+          .filter((it) => it.smiles && !isWaterItem(it))
+          .map((it) => ({
+            chemicalId: it.smiles,
+            concentration: it.concentration,
+            ...(chemById(it.smiles) ? {} : { name: it.name }),
+          }))
+      : [];
+
   const addBox = () => {
     boxIdSeq.current += 1;
     const id = `box-${boxIdSeq.current}`;
@@ -356,34 +403,125 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   };
 
   /**
+   * What the assistant is allowed to talk about. The backend prompt forbids
+   * inventing numbers that aren't in here, so this must describe the formula
+   * exactly as the user sees it.
+   */
+  const buildChatContext = () => {
+    const box = activeBox;
+    const comp =
+      box && box.items.length
+        ? `สูตรปัจจุบัน (สาร + %):\n${boxToFormulaItems(box)
+            .map((f) => `- ${f.name || f.smiles} ${f.concentration}%`)
+            .join("\n")}\n(หมายเหตุ: Water (Aqua) เป็นเบสเติมอัตโนมัติให้ครบ 100% ไม่ต้องสั่งเอง)`
+        : "ยังไม่มีสารในสูตร";
+    // This workspace doesn't hold the scores — Run saves them and navigates to
+    // the results page — so the assistant is told so rather than left to guess.
+    return `ผลิตภัณฑ์/สูตร: ${box?.name ?? "-"}\n${comp}\n\nยังไม่มีผลการประเมินในหน้านี้ (ผลจะแสดงที่หน้าผลลัพธ์หลังกดเริ่มทดสอบ)`;
+  };
+
+  /** Turn the assistant's suggested formula into a box of its own. */
+  const importAssistantFormula = (items: FormulaItem[]) => {
+    const rows = toBoxItems(items);
+    if (rows.length) addBoxFrom("สูตรจาก AI", rows);
+  };
+
+  /**
+   * Carry out the agent commands from a reply, mirroring /assess's handler.
+   * Names are matched case-insensitively against either the substance name or
+   * its SMILES, the way the backend prompt tells the model to address them.
+   */
+  const runAssistantAction = (actions: AssistantAction[]) => {
+    const targetId = activeBoxId;
+    const keyOf = (a: AssistantAction) => String(a.name ?? a.smiles ?? "").trim().toLowerCase();
+    const matches = (it: FormulaBoxItem, key: string) => {
+      const c = itemChemical(it);
+      return c.name.trim().toLowerCase() === key || c.smiles.trim().toLowerCase() === key;
+    };
+    const patchActive = (fn: (items: FormulaBoxItem[]) => FormulaBoxItem[]) =>
+      setBoxes((prev) => prev.map((b) => (b.id === targetId ? { ...b, items: fn(b.items) } : b)));
+    const toItem = (name: unknown, smiles: string, conc: unknown): FormulaBoxItem => ({
+      chemicalId: smiles,
+      concentration: Number(conc) || 0,
+      ...(chemById(smiles) ? {} : { name: String(name ?? "") }),
+    });
+
+    actions.forEach((a) => {
+      switch (a?.type) {
+        case "add_substance": {
+          const smiles = String(a.smiles ?? "").trim();
+          if (smiles && !isWaterItem({ smiles })) {
+            patchActive((items) => [...items, toItem(a.name, smiles, a.concentration ?? 10)]);
+          }
+          break;
+        }
+        case "set_concentration": {
+          const key = keyOf(a);
+          const c = Number(a.concentration);
+          if (key && !Number.isNaN(c)) {
+            patchActive((items) => items.map((it) => (matches(it, key) ? { ...it, concentration: c } : it)));
+          }
+          break;
+        }
+        case "remove_substance": {
+          const key = keyOf(a);
+          if (key) patchActive((items) => items.filter((it) => !matches(it, key)));
+          break;
+        }
+        case "replace_substance": {
+          const key = String(a.from ?? a.name ?? "").trim().toLowerCase();
+          const smiles = String(a.smiles ?? a.to_smiles ?? "").trim();
+          if (key && smiles && !isWaterItem({ smiles, name: String(a.to ?? "") })) {
+            patchActive((items) =>
+              items.map((it) =>
+                matches(it, key)
+                  ? toItem(a.to ?? a.to_name ?? itemChemical(it).name, smiles, a.concentration ?? it.concentration)
+                  : it,
+              ),
+            );
+          }
+          break;
+        }
+        case "set_formula": {
+          const items = toBoxItems(a.items);
+          if (items.length) patchActive(() => items);
+          break;
+        }
+        case "create_formula":
+          addBoxFrom(String(a.name ?? "สูตรใหม่"), toBoxItems(a.items));
+          break;
+        case "rename_formula": {
+          const name = String(a.name ?? "").trim();
+          if (name && targetId) {
+            setBoxes((prev) => prev.map((b) => (b.id === targetId ? { ...b, name } : b)));
+          }
+          break;
+        }
+        case "goto":
+          // /assess also has a "trust" tab; this workspace doesn't.
+          if (a.tab === "assess") setTab("experiment");
+          else if (a.tab === "nodes") setTab("nodemods");
+          break;
+        case "run":
+          handleRun();
+          break;
+        case "clear":
+          patchActive(() => []);
+          break;
+      }
+    });
+  };
+
+  /**
    * "💾 บันทึกเป็นสูตร" in the node graph. The graph hands its substances back
    * with the water base already applied; boxes hold actives only, so drop it
    * again — /assess does exactly the same on its side.
    */
   const saveGraphAsFormula = (items: FormulaItem[]) => {
-    const actives = items.filter((it) => it.smiles.trim() && !isWaterItem(it));
-    if (!actives.length) return;
-    boxIdSeq.current += 1;
-    const id = `box-${boxIdSeq.current}`;
-    const iconsList = Object.keys(BOX_ICONS) as BoxIconName[];
+    const rows = toBoxItems(items);
+    if (!rows.length) return;
     const n = boxes.filter((b) => b.name.startsWith(GRAPH_BOX_PREFIX)).length + 1;
-    setBoxes((prev) => [
-      ...prev,
-      {
-        id,
-        name: `${GRAPH_BOX_PREFIX} ${n}`,
-        color: BOX_COLORS[(boxIdSeq.current - 1) % BOX_COLORS.length],
-        icon: iconsList[(boxIdSeq.current - 1) % iconsList.length],
-        // Keep the graph's own name for anything the catalog doesn't carry, so
-        // a hand-typed SMILES survives the round trip.
-        items: actives.map((f) => ({
-          chemicalId: f.smiles,
-          concentration: f.concentration,
-          ...(chemById(f.smiles) ? {} : { name: f.name }),
-        })),
-      },
-    ]);
-    setActiveBoxId(id);
+    addBoxFrom(`${GRAPH_BOX_PREFIX} ${n}`, rows);
   };
 
   // ── Arriving from the templates page with ?template=<id> ──
@@ -398,22 +536,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
     if (!t) return;
     templateApplied.current = true;
 
-    boxIdSeq.current += 1;
-    const id = `box-${boxIdSeq.current}`;
-    const iconsList = Object.keys(BOX_ICONS) as BoxIconName[];
-    setBoxes((prev) => [
-      ...prev,
-      {
-        id,
-        name: t.name,
-        color: BOX_COLORS[(boxIdSeq.current - 1) % BOX_COLORS.length],
-        icon: iconsList[(boxIdSeq.current - 1) % iconsList.length],
-        // Template formulas are actives-only and every SMILES is in the
-        // catalog, so these all resolve through chemById.
-        items: t.formula.map((f) => ({ chemicalId: f.smiles, concentration: f.concentration })),
-      },
-    ]);
-    setActiveBoxId(id);
+    addBoxFrom(t.name, toBoxItems(t.formula));
     // /assess narrows a template's region to what the 3D head can actually
     // show, so hand/forearm templates are assessed as face there too.
     setRegion(t.region === "eye" ? "eye" : "face");
@@ -1090,7 +1213,11 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
             </div>
           </div>
           <div className="min-h-0 flex-1 opacity-90">
-            <AiChatPanel />
+            <AiChatPanel
+              buildContext={buildChatContext}
+              onAction={runAssistantAction}
+              onImportFormula={importAssistantFormula}
+            />
           </div>
 
           {/* Reserved results area — always visible, filled in once an assessment runs */}

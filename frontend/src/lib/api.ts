@@ -17,6 +17,9 @@ export type ValidateResult = {
   error?: string | null;
 };
 
+/** ChatOut from backend/app/api/chat.py. */
+export type ChatReply = { answer: string };
+
 export type Confidence = {
   level: ConfidenceLevel;
   reason_th: string;
@@ -98,6 +101,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ smiles }),
     }),
+
+  /**
+   * Ask the assistant. `context` grounds the reply on the current formula and
+   * results — the backend refuses to invent numbers that aren't in it.
+   *
+   * The answer may carry <action>/<formula> blocks for the caller to act on;
+   * see parseAssistantReply. Given a longer leash than the default timeout: the
+   * endpoint waits on an LLM round trip of its own.
+   */
+  chat: (question: string, context?: string) =>
+    http<ChatReply>(
+      "/api/chat/",
+      { method: "POST", body: JSON.stringify({ question, context }) },
+      35000,
+    ),
 
   createAssessment: (formula: FormulaItem[], region: Region, projectId?: number | null) =>
     http<{ job_id: string; status: string }>("/api/assessments/", {
