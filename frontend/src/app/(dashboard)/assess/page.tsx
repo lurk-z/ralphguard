@@ -864,7 +864,11 @@ export default function StudioPage() {
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-4 shadow-sm">
         {/* logo */}
         <div className="mr-1 flex items-center gap-2 pr-2">
-          <span className="grid size-8 place-items-center rounded-xl bg-brand text-sm font-bold text-white shadow-sm">R</span>
+          <img
+            src="/icons/logo.png"
+            alt="RalphGuard Logo"
+            className="size-8 rounded-xl object-contain overflow-hidden shadow-sm"
+          />
           <div className="leading-tight">
             <span className="block font-display text-sm font-bold">Ralph<span className="text-brand">Guard</span></span>
             <span className="block text-[9px] font-medium uppercase tracking-[0.14em] text-slate-400">Assessment Studio</span>
