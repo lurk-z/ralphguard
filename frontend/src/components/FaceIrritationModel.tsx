@@ -1092,7 +1092,6 @@ export function FacePaintCanvas({
           maxPolarAngle={Math.PI * 0.75}
           minDistance={0.5}
           maxDistance={2.5}
-          target={[0, -30, 0]}
         />
       </Canvas>
 
