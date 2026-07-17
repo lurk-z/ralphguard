@@ -46,9 +46,12 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RalphGuard — In-silico Irritation & Toxicity Risk Screening",
+  title: "RalphGuard",
   description:
     "In-silico Irritation & Toxicity Risk Screening Platform for cosmetic formulations.",
+  icons: {
+    icon: "/icons/logo.png",
+  },
 };
 
 export default function RootLayout({
