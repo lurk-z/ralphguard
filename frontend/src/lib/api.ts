@@ -20,6 +20,25 @@ export type ValidateResult = {
 /** ChatOut from backend/app/api/chat.py. */
 export type ChatReply = { answer: string };
 
+/** One ingredient the OCR endpoint matched to a SMILES, offline dict or PubChem. */
+export type OcrItem = {
+  name: string;
+  smiles: string;
+  concentration: number;
+  score: number;
+  source: "local" | "pubchem";
+};
+
+/** OcrOut from backend/app/api/ocr.py. */
+export type OcrResult = {
+  raw_text: string;
+  items: OcrItem[];
+  /** Recognized but no single-molecule structure (e.g. "Aqua", "Mica") — skipped. */
+  recognized_no_structure: string[];
+  /** Looked like an ingredient token but matched nothing, offline or on PubChem. */
+  unmatched: string[];
+};
+
 export type Confidence = {
   level: ConfidenceLevel;
   reason_th: string;
@@ -130,6 +149,23 @@ export const api = {
     });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`);
     return res.blob();
+  },
+
+  /**
+   * Read an ingredient-label photo: Tesseract → text → matched against the
+   * offline INCI dict, then PubChem for anything it doesn't recognize. Bypasses
+   * http(): a File upload is multipart, not JSON, and the browser has to set
+   * its own boundary header — passing one manually breaks the upload.
+   */
+  ocr: async (file: File): Promise<OcrResult> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${API}/api/ocr/`, { method: "POST", body: fd });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => null);
+      throw new Error(detail?.detail || `${res.status} ${res.statusText}`);
+    }
+    return res.json();
   },
 
   createAssessment: (formula: FormulaItem[], region: Region, projectId?: number | null) =>

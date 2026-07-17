@@ -51,11 +51,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import AiChatPanel from "@/components/AiChatPanel";
 import CanvasToolbar from "@/components/CanvasToolbar";
+import LabelScanModal from "@/components/LabelScanModal";
 import { CHEMICAL_GROUPS, chemById } from "@/lib/chemicals";
 import { PRODUCT_TEMPLATES, isWaterItem, withWaterBase } from "@/lib/catalog";
 import { useSubstanceHoverCard } from "@/components/SubstanceInfoCard";
 import type { AssistantAction } from "@/lib/assistant";
-import type { FormulaItem, Region, ModelMetricsPayload, ModelInfoPayload, EndpointMetric } from "@/lib/api";
+import type { FormulaItem, OcrItem, Region, ModelMetricsPayload, ModelInfoPayload, EndpointMetric } from "@/lib/api";
 import { api } from "@/lib/api";
 import { addJob, getProject, renameProject } from "@/lib/projects";
 
@@ -658,6 +659,40 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
     setPickerOpen(true);
   };
 
+  // ── OCR: read an ingredient-label photo into a specific box ──
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanTargetId, setScanTargetId] = useState<string | null>(null);
+  const openScanFor = (boxId: string) => {
+    setScanTargetId(boxId);
+    setScanOpen(true);
+  };
+  /**
+   * Merge scanned substances into the target box. Unlike /assess (which has one
+   * formula and replaces it wholesale), this workspace holds several named
+   * boxes, so overwriting one on a photo scan would be surprising — matches the
+   * modal's own "＋ เพิ่มเข้าสูตร" ("add to formula") label instead of GOD's
+   * literal replace behaviour. Duplicates (by SMILES) are skipped rather than
+   * double-counted.
+   */
+  const importOcrItems = (boxId: string, items: OcrItem[]) => {
+    const actives = items.filter((it) => it.smiles?.trim() && !isWaterItem(it));
+    if (!actives.length) return;
+    setBoxes((prev) =>
+      prev.map((b) => {
+        if (b.id !== boxId) return b;
+        const existing = new Set(b.items.map((it) => it.chemicalId));
+        const added = actives
+          .filter((it) => !existing.has(it.smiles))
+          .map((it) => ({
+            chemicalId: it.smiles,
+            concentration: it.concentration,
+            ...(chemById(it.smiles) ? {} : { name: it.name }),
+          }));
+        return added.length ? { ...b, items: [...b.items, ...added] } : b;
+      }),
+    );
+  };
+
   return (
     <div data-project-id={params.id} className="relative flex h-full w-full overflow-hidden">
         {/* Figma-style floating pill — replaces the formula-box panel while collapsed. */}
@@ -1002,6 +1037,15 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                     <Plus className="size-3.5" />
                     เพิ่มสาร
                   </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openScanFor(box.id);
+                    }}
+                    className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                  >
+                    📷 อ่านฉลากส่วนผสมจากรูป (OCR)
+                  </button>
                 </div>
               );
             })}
@@ -1330,6 +1374,11 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
           </div>
         </aside>
       {substanceHover.card}
+      <LabelScanModal
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        onImport={(items) => scanTargetId && importOcrItems(scanTargetId, items)}
+      />
     </div>
   );
 }

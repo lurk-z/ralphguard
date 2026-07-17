@@ -4,17 +4,11 @@
  * LabelScanModal — a popup "scanner" for reading an ingredient-label photo.
  * Upload → laser/grid scan animation over the image → verdict (usable / not) →
  * list of recognized substances → import into the formula. Uses the same
- * /api/ocr backend (offline dict + PubChem).
+ * /api/ocr backend (offline dict + PubChem) as /assess's scanner.
  */
 import { useRef, useState } from "react";
+import { api, type OcrItem, type OcrResult } from "@/lib/api";
 
-type Item = { name: string; smiles: string; concentration: number; score: number; source: string };
-type Result = {
-  raw_text: string;
-  items: Item[];
-  recognized_no_structure: string[];
-  unmatched: string[];
-};
 type Phase = "idle" | "scanning" | "done";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -26,11 +20,11 @@ export default function LabelScanModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onImport: (items: Item[]) => void;
+  onImport: (items: OcrItem[]) => void;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [preview, setPreview] = useState<string | null>(null);
-  const [result, setResult] = useState<Result | null>(null);
+  const [result, setResult] = useState<OcrResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -58,21 +52,12 @@ export default function LabelScanModal({
     });
     setPhase("scanning");
     try {
-      const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const fd = new FormData();
-      fd.append("file", file);
-      // keep the scan animation on screen for at least ~1.4s
-      const [r] = await Promise.all([
-        fetch(`${API}/api/ocr/`, { method: "POST", body: fd }),
-        wait(1400),
-      ]);
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({}));
-        throw new Error(d?.detail || `HTTP ${r.status}`);
-      }
-      setResult(await r.json());
-    } catch (e: any) {
-      setError(e?.message || String(e));
+      // Keep the scan animation on screen for at least ~1.4s — OCR usually
+      // resolves faster than that, and a flash-then-verdict reads as broken.
+      const [r] = await Promise.all([api.ocr(file), wait(1400)]);
+      setResult(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setPhase("done");
     }
@@ -95,7 +80,7 @@ export default function LabelScanModal({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
       onClick={close}
     >
       <style>{`
@@ -104,15 +89,18 @@ export default function LabelScanModal({
       `}</style>
 
       <div
-        className="w-[min(94vw,560px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+        className="w-[min(94vw,560px)] overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* header */}
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
             📷 อ่านฉลากส่วนผสมจากรูป
           </div>
-          <button onClick={close} className="grid size-6 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+          <button
+            onClick={close}
+            className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
+          >
             ✕
           </button>
         </div>
@@ -122,17 +110,17 @@ export default function LabelScanModal({
           {phase === "idle" && (
             <button
               onClick={() => fileRef.current?.click()}
-              className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 py-12 text-slate-500 transition hover:border-brand hover:bg-teal-50/50"
+              className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border py-12 text-muted-foreground transition hover:border-primary hover:bg-primary/5"
             >
               <span className="text-3xl">🖼️</span>
-              <span className="text-sm font-medium text-slate-700">คลิกเพื่อเลือกรูปฉลาก</span>
-              <span className="text-xs text-slate-400">รองรับ JPG / PNG · ถ่ายด้านที่มีรายการส่วนผสม</span>
+              <span className="text-sm font-medium text-foreground">คลิกเพื่อเลือกรูปฉลาก</span>
+              <span className="text-xs text-muted-foreground">รองรับ JPG / PNG · ถ่ายด้านที่มีรายการส่วนผสม</span>
             </button>
           )}
 
           {/* SCANNING / DONE — image with scanner overlay */}
           {phase !== "idle" && preview && (
-            <div className="relative mx-auto max-h-[46vh] w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-900">
+            <div className="relative mx-auto max-h-[46vh] w-full overflow-hidden rounded-xl border border-border bg-background">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={preview} alt="label" className="mx-auto max-h-[46vh] w-auto object-contain" />
 
@@ -143,21 +131,21 @@ export default function LabelScanModal({
                     className="pointer-events-none absolute inset-0"
                     style={{
                       backgroundImage:
-                        "linear-gradient(rgba(45,212,191,0.28) 1px, transparent 1px), linear-gradient(90deg, rgba(45,212,191,0.28) 1px, transparent 1px)",
+                        "linear-gradient(rgba(0,159,165,0.28) 1px, transparent 1px), linear-gradient(90deg, rgba(0,159,165,0.28) 1px, transparent 1px)",
                       backgroundSize: "26px 26px",
                     }}
                   />
                   {/* corner brackets */}
                   {["left-2 top-2 border-l-2 border-t-2", "right-2 top-2 border-r-2 border-t-2", "left-2 bottom-2 border-l-2 border-b-2", "right-2 bottom-2 border-r-2 border-b-2"].map((c) => (
-                    <span key={c} className={`pointer-events-none absolute size-6 border-brand ${c}`} />
+                    <span key={c} className={`pointer-events-none absolute size-6 border-primary ${c}`} />
                   ))}
                   {/* laser line */}
                   <div
-                    className="pointer-events-none absolute inset-x-0 h-[3px] bg-brand shadow-[0_0_14px_4px_rgba(45,212,191,0.8)]"
+                    className="pointer-events-none absolute inset-x-0 h-[3px] bg-primary shadow-[0_0_14px_4px_rgba(0,159,165,0.8)]"
                     style={{ animation: "oc-laser 1.3s ease-in-out infinite alternate" }}
                   />
                   <div
-                    className="pointer-events-none absolute inset-x-0 bottom-0 bg-slate-900/70 py-1.5 text-center text-xs font-medium text-brand"
+                    className="pointer-events-none absolute inset-x-0 bottom-0 bg-background/80 py-1.5 text-center text-xs font-medium text-primary"
                     style={{ animation: "oc-pulse 1s ease-in-out infinite" }}
                   >
                     ⏳ กำลังสแกนและอ่านส่วนผสม…
@@ -182,7 +170,7 @@ export default function LabelScanModal({
             <div className="mt-4">
               {usable ? (
                 <>
-                  <div className="mb-1.5 text-xs font-medium text-slate-600">
+                  <div className="mb-1.5 text-xs font-medium text-muted-foreground">
                     พบสารที่ประเมินได้ {items.length} รายการ
                     {(() => {
                       const p = items.filter((i) => i.source === "pubchem").length;
@@ -193,23 +181,23 @@ export default function LabelScanModal({
                     {items.map((it) => (
                       <span
                         key={it.smiles}
-                        className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-700"
+                        className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary/60 px-2 py-0.5 text-[11px] text-foreground"
                         title={it.smiles}
                       >
-                        <span className="text-brand">◇</span>
+                        <span className="text-primary">◇</span>
                         {it.name} · {it.concentration}%
-                        {it.source === "pubchem" && <span className="text-[9px] text-amber-600">PubChem</span>}
+                        {it.source === "pubchem" && <span className="text-[9px] text-amber-600 dark:text-amber-400">PubChem</span>}
                       </span>
                     ))}
                   </div>
                   {known.length > 0 && (
-                    <div className="mt-2 text-[10px] leading-snug text-slate-400">
+                    <div className="mt-2 text-[10px] leading-snug text-muted-foreground">
                       ข้าม (ไม่มีโครงสร้างเดี่ยว): {known.join(", ")}
                     </div>
                   )}
                 </>
               ) : (
-                <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs leading-relaxed text-rose-700">
+                <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs leading-relaxed text-destructive">
                   {reason}
                 </div>
               )}
@@ -218,7 +206,7 @@ export default function LabelScanModal({
         </div>
 
         {/* footer */}
-        <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
+        <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
           <input
             ref={fileRef}
             type="file"
@@ -232,7 +220,7 @@ export default function LabelScanModal({
           {phase === "done" && (
             <button
               onClick={() => fileRef.current?.click()}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary"
             >
               เลือกรูปใหม่
             </button>
@@ -243,7 +231,7 @@ export default function LabelScanModal({
                 onImport(items);
                 close();
               }}
-              className="rounded-lg bg-brand px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark"
+              className="rounded-lg bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
             >
               ＋ เพิ่มเข้าสูตร
             </button>
