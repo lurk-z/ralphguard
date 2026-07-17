@@ -15,7 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import DashboardShell from "@/components/layout/DashboardShell";
 import ProjectCreationProgress from "@/components/ProjectCreationProgress";
-import { api } from "@/lib/api";
+import { createProject } from "@/lib/projects";
 
 const NAME_MAX = 100;
 const DESC_MAX = 500;
@@ -42,33 +42,23 @@ export default function NewProjectPage() {
 
   const canCreate = name.trim().length > 0 && !creating;
 
-  const create = async () => {
+  const create = () => {
     if (!canCreate) return;
     setCreating(true);
     setProgress(0);
 
-    // No real progress feed from the backend (single POST) — simulate
-    // steady progress up to 90% while the request is in flight, then
-    // snap to 100% once it resolves.
+    // The project is written to this browser, so there's nothing to wait on.
+    // The bar is a short hand-off animation, not a progress report.
+    const project = createProject(name.trim(), desc.trim() || undefined);
+    let pct = 0;
     progressTimer.current = setInterval(() => {
-      setProgress((p) => (p >= 90 ? p : p + Math.random() * 12));
-    }, 250);
-
-    const finish = () => {
-      if (progressTimer.current) clearInterval(progressTimer.current);
-      setProgress(100);
-    };
-
-    try {
-      const project = await api.createProject(name.trim(), desc.trim() || undefined);
-      finish();
-      router.push(`/projects/${project.id}/assess`);
-    } catch {
-      // Backend unreachable — continue the flow with a local id so the
-      // workspace is still reachable for demos.
-      finish();
-      router.push(`/projects/local-${Date.now()}/assess`);
-    }
+      pct += 20;
+      setProgress(pct);
+      if (pct >= 100) {
+        if (progressTimer.current) clearInterval(progressTimer.current);
+        router.push(`/projects/${project.id}/assess`);
+      }
+    }, 60);
   };
 
   return (

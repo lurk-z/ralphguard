@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-import { AssessmentSummary, ProjectOut, api } from "../../lib/api";
+import { AssessmentSummary, api } from "../../lib/api";
+import { listProjects, type LocalProject } from "../../lib/projects";
 
 const REGION_LABEL_TH: Record<string, string> = {
   forearm: "ท่อนแขน",
@@ -19,30 +20,33 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export default function HistoryPage() {
-  const [rows, setRows] = useState<AssessmentSummary[]>([]);
-  const [projects, setProjects] = useState<ProjectOut[]>([]);
-  const [projectId, setProjectId] = useState<number | null>(null);
+  const [allRows, setAllRows] = useState<AssessmentSummary[]>([]);
+  const [projects, setProjects] = useState<LocalProject[]>([]);
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.listProjects().then(setProjects).catch(() => setProjects([]));
+    setProjects(listProjects());
   }, []);
 
+  // Runs aren't filed under a project on the backend — projects are local, and
+  // each one remembers its own job ids. So fetch every run and group here.
   useEffect(() => {
     setLoading(true);
     api
-      .listAssessments(projectId, 100)
+      .listAssessments(null, 100)
       .then((r) => {
-        setRows(r);
+        setAllRows(r);
         setError(null);
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [projectId]);
+  }, []);
 
-  const projectName = (id: number | null) =>
-    id == null ? "—" : projects.find((p) => p.id === id)?.name ?? `#${id}`;
+  const ownerOf = (runId: string) => projects.find((p) => p.jobs.includes(runId));
+  const projectName = (runId: string) => ownerOf(runId)?.name ?? "—";
+  const rows = projectId ? allRows.filter((r) => ownerOf(r.id)?.id === projectId) : allRows;
 
   return (
     <main className="min-h-screen p-6 max-w-5xl mx-auto">
@@ -63,7 +67,7 @@ export default function HistoryPage() {
           โครงการ:
           <select
             value={projectId ?? ""}
-            onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
+            onChange={(e) => setProjectId(e.target.value || null)}
             className="bg-elevated border border-border rounded px-2 py-1.5 text-sm text-gray-200"
           >
             <option value="">ทั้งหมด</option>
@@ -105,7 +109,7 @@ export default function HistoryPage() {
                   <td className="py-2 px-3 font-mono text-xs">{r.id.slice(0, 8)}</td>
                   <td className="py-2 px-3">{REGION_LABEL_TH[r.region] ?? r.region}</td>
                   <td className="py-2 px-3">{r.n_substances}</td>
-                  <td className="py-2 px-3 text-ink2/65">{projectName(r.project_id)}</td>
+                  <td className="py-2 px-3 text-ink2/65">{projectName(r.id)}</td>
                   <td className={`py-2 px-3 font-mono ${STATUS_COLOR[r.status] ?? ""}`}>
                     {r.status}
                   </td>

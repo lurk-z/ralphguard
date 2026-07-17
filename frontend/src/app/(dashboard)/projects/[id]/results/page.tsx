@@ -28,6 +28,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, type AssessmentResultPayload, type ConfidenceLevel } from "@/lib/api";
+import { getProject } from "@/lib/projects";
 
 const BAND_HEX: Record<string, string> = {
   low: "#16A34A",
@@ -76,7 +77,6 @@ function ConfidenceBadge({ level }: { level: ConfidenceLevel }) {
 
 export default function ResultsPage({ params }: { params: { id: string } }) {
   const router = useRouter();
-  const projectId = Number(params.id);
   const [result, setResult] = useState<AssessmentResultPayload | null>(null);
   const [projectName, setProjectName] = useState<string>("ผลการวิเคราะห์");
   const [loading, setLoading] = useState(true);
@@ -86,28 +86,20 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
     let alive = true;
     (async () => {
       try {
-        if (!Number.isFinite(projectId)) throw new Error("no backend project");
+        // The project — and which runs are its own — is known locally; the
+        // backend only holds the run itself, addressed by job id.
+        const project = getProject(params.id);
+        if (project && alive) setProjectName(project.name);
 
-        api
-          .listProjects()
-          .then((projects) => {
-            const proj = projects.find((p) => p.id === projectId);
-            if (proj && alive) {
-              setProjectName(proj.name);
-            }
-          })
-          .catch(() => {});
-
-        const runs = await api.listAssessments(projectId, 1);
-        const latest = runs.find((r) => r.status === "completed") ?? runs[0];
-        if (!latest) throw new Error("no runs");
-        const record = await api.getAssessment(latest.id);
+        const jobId = project?.jobs[0];
+        if (!jobId) throw new Error("no runs");
+        const record = await api.getAssessment(jobId);
         if (alive) setResult(record.result);
       } catch (e) {
         // Nothing to show. "no runs" is the ordinary empty state; anything else
         // is a real fault worth naming rather than dressing up as emptiness.
         const msg = e instanceof Error ? e.message : String(e);
-        if (alive && msg !== "no runs" && msg !== "no backend project") setLoadError(msg);
+        if (alive && msg !== "no runs") setLoadError(msg);
       } finally {
         if (alive) setLoading(false);
       }
@@ -115,7 +107,7 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
     return () => {
       alive = false;
     };
-  }, [projectId]);
+  }, [params.id]);
 
   const endpoints = result?.endpoints ?? null;
 

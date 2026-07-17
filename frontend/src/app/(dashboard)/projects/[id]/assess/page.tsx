@@ -57,6 +57,7 @@ import { useSubstanceHoverCard } from "@/components/SubstanceInfoCard";
 import type { AssistantAction } from "@/lib/assistant";
 import type { FormulaItem, Region } from "@/lib/api";
 import { api } from "@/lib/api";
+import { addJob } from "@/lib/projects";
 
 function ModelLoader() {
   const [progress, setProgress] = useState(0);
@@ -228,9 +229,6 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   const [runError, setRunError] = useState<string | null>(null);
   /** Set once a job is queued; the poll below watches it until it settles. */
   const [jobId, setJobId] = useState<string | null>(null);
-  // The results page finds a run by project, so a run has to be filed under one.
-  // Routes outside the backend's numbering (a demo id, say) file under none.
-  const projectId = Number.isFinite(Number(params.id)) ? Number(params.id) : null;
 
   const [brushSizePct, setBrushSizePct] = useState(10);
   const [clearTrigger, setClearTrigger] = useState(0);
@@ -254,7 +252,10 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
     }
     setRunning(true);
     try {
-      const { job_id } = await api.createAssessment(withWaterBase(actives), region, projectId);
+      // Projects live in this browser, so the backend has no row to file the
+      // run under — the project keeps the job id instead (see lib/projects).
+      const { job_id } = await api.createAssessment(withWaterBase(actives), region, null);
+      addJob(params.id, job_id);
       setJobId(job_id);
     } catch (e) {
       setRunError(e instanceof Error ? e.message : String(e));

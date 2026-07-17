@@ -18,7 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import DashboardShell from "@/components/layout/DashboardShell";
-import { api, type ProjectOut } from "@/lib/api";
+import { listProjects, type LocalProject } from "@/lib/projects";
 
 function formatDate(iso: string) {
   try {
@@ -34,17 +34,12 @@ function formatDate(iso: string) {
 
 export default function ProjectListPage() {
   const router = useRouter();
-  const [projects, setProjects] = useState<ProjectOut[]>([]);
+  const [projects, setProjects] = useState<LocalProject[]>([]);
 
+  // localStorage is unavailable while rendering on the server, so the list is
+  // read after mount rather than during it.
   useEffect(() => {
-    let alive = true;
-    api
-      .listProjects()
-      .then((rows) => alive && setProjects(rows))
-      .catch(() => alive && setProjects([])); // backend down → empty
-    return () => {
-      alive = false;
-    };
+    setProjects(listProjects());
   }, []);
 
   const empty = projects.length === 0;

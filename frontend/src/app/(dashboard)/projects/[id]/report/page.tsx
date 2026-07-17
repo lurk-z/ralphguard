@@ -10,6 +10,7 @@ import { ArrowLeft, Download } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { getProject } from "@/lib/projects";
 
 const BAND_HEX: Record<string, string> = {
   low: "#16A34A",
@@ -65,16 +66,14 @@ export default function ReportPage({ params }: { params: { id: string } }) {
   useEffect(() => {
     const nowId = `RG-${params.id}-${Date.now().toString(36).toUpperCase().slice(-5)}`;
     const dateTH = new Date().toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" });
-    const projectId = Number(params.id);
-
     let alive = true;
     (async () => {
       try {
-        if (!Number.isFinite(projectId)) throw new Error("no backend project");
-        const runs = await api.listAssessments(projectId, 1);
-        const latest = runs.find((r) => r.status === "completed") ?? runs[0];
-        if (!latest) throw new Error("no runs");
-        const record = await api.getAssessment(latest.id);
+        // Same as the results page: the project's runs are tracked locally, and
+        // the backend is asked for one by job id.
+        const jobId = getProject(params.id)?.jobs[0];
+        if (!jobId) throw new Error("no runs");
+        const record = await api.getAssessment(jobId);
         const eps = record.result?.endpoints;
         if (!eps) throw new Error("no result");
         const endpoints: EndpointRow[] = Object.entries(eps).map(([key, e]) => ({
