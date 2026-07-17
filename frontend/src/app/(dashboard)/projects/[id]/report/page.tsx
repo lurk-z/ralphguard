@@ -11,6 +11,7 @@ import { ArrowLeft, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { getProject } from "@/lib/projects";
+import { chemById } from "@/lib/chemicals";
 
 const BAND_HEX: Record<string, string> = {
   low: "#16A34A",
@@ -24,8 +25,23 @@ const BAND_LABEL: Record<string, string> = {
   high: "สูง",
   severe: "รุนแรง",
 };
+const DAY_LABELS = [1, 3, 7] as const;
+function bandOf(score: number): keyof typeof BAND_LABEL {
+  if (score < 25) return "low";
+  if (score < 50) return "moderate";
+  if (score < 75) return "high";
+  return "severe";
+}
 
-type EndpointRow = { key: string; label: string; score: number; band: string; confidence?: string };
+type EndpointRow = {
+  key: string;
+  label: string;
+  score: number;
+  band: string;
+  confidence?: string;
+  /** Score at Day 1/3/7 — same tuple api.ts's EndpointResultPayload carries. */
+  timecourse: [number, number, number];
+};
 type FormulaRow = { name: string; cas: string; concentration: number; role: string };
 type ReportData = {
   projectName: string;
@@ -51,10 +67,10 @@ const SAMPLE: Omit<ReportData, "reportId" | "dateTH"> = {
     { name: "Phenoxyethanol", cas: "122-99-6", concentration: 1, role: "สารกันเสีย" },
   ],
   endpoints: [
-    { key: "skin", label: "การระคายเคืองผิวหนัง", score: 28, band: "moderate", confidence: "Medium — อยู่ในขอบเขตการใช้งาน (in-domain)" },
-    { key: "eye", label: "การระคายเคืองดวงตา", score: 41, band: "moderate", confidence: "Medium — Tanimoto = 0.42" },
-    { key: "sens", label: "การแพ้ผิวหนัง", score: 14, band: "low", confidence: "High — โครงสร้างสอดคล้องกับผลโมเดล" },
-    { key: "acute", label: "ความเป็นพิษเฉียบพลัน", score: 9, band: "low", confidence: "High — in-domain" },
+    { key: "skin", label: "การระคายเคืองผิวหนัง", score: 28, band: "moderate", confidence: "Medium — อยู่ในขอบเขตการใช้งาน (in-domain)", timecourse: [11, 20, 28] },
+    { key: "eye", label: "การระคายเคืองดวงตา", score: 41, band: "moderate", confidence: "Medium — Tanimoto = 0.42", timecourse: [16, 30, 41] },
+    { key: "sens", label: "การแพ้ผิวหนัง", score: 14, band: "low", confidence: "High — โครงสร้างสอดคล้องกับผลโมเดล", timecourse: [5, 9, 14] },
+    { key: "acute", label: "ความเป็นพิษเฉียบพลัน", score: 9, band: "low", confidence: "High — in-domain", timecourse: [3, 6, 9] },
   ],
   disclaimer: DISCLAIMER,
 };
@@ -71,7 +87,8 @@ export default function ReportPage({ params }: { params: { id: string } }) {
       try {
         // Same as the results page: the project's runs are tracked locally, and
         // the backend is asked for one by job id.
-        const jobId = getProject(params.id)?.jobs[0];
+        const project = getProject(params.id);
+        const jobId = project?.jobs[0];
         if (!jobId) throw new Error("no runs");
         const record = await api.getAssessment(jobId);
         const eps = record.result?.endpoints;
@@ -82,16 +99,20 @@ export default function ReportPage({ params }: { params: { id: string } }) {
           score: Math.round(e.peak_score),
           band: e.band,
           confidence: e.confidence ? `${e.confidence.level} — ${e.confidence.reason_th}` : undefined,
+          timecourse: e.timecourse ?? [0, 0, Math.round(e.peak_score)],
         }));
         const formula: FormulaRow[] = (record.formula ?? []).map((f) => ({
           name: f.name ?? f.smiles,
           cas: "-",
           concentration: f.concentration,
-          role: "-",
+          // catalog.ts carries no CAS numbers, but does have a Thai role blurb
+          // per substance (keyed by SMILES) — same source the workspace's
+          // substance-info tooltip reads from.
+          role: chemById(f.smiles)?.role ?? "-",
         }));
         if (alive)
           setData({
-            projectName: `โปรเจกต์ #${params.id}`,
+            projectName: project?.name ?? `โปรเจกต์ #${params.id}`,
             dateTH,
             reportId: nowId,
             formula: formula.length ? formula : SAMPLE.formula,
@@ -206,9 +227,63 @@ export default function ReportPage({ params }: { params: { id: string } }) {
               </div>
             </section>
 
+            {/* Time-course */}
+            <section className="mt-8">
+              <h2 className="text-sm font-bold uppercase tracking-wide text-primary">3. แนวโน้มความเสี่ยงตามเวลา (Day 1 / 3 / 7)</h2>
+              <div className="mt-3 overflow-hidden rounded-lg border border-border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/60 text-xs text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-2.5 text-left font-medium">ปลายทางความเสี่ยง</th>
+                      {DAY_LABELS.map((d) => (
+                        <th key={d} className="px-4 py-2.5 text-center font-medium">Day {d}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.endpoints.map((e) => (
+                      <tr key={e.key} className="border-t border-border">
+                        <td className="px-4 py-2.5 font-medium text-foreground">{e.label}</td>
+                        {e.timecourse.map((sc, i) => {
+                          const b = bandOf(sc);
+                          return (
+                            <td key={i} className="px-4 py-2.5 text-center">
+                              <span
+                                className="inline-block rounded-full px-2.5 py-0.5 font-mono text-xs font-semibold tabular-nums text-white"
+                                style={{ background: BAND_HEX[b] }}
+                              >
+                                {Math.round(sc)} · {BAND_LABEL[b]}
+                              </span>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {(() => {
+                // Same note /assess's PDF export makes: name the endpoint whose
+                // peak score is highest, and which day it peaks at.
+                const top = data.endpoints.reduce((a, b) => (b.score > a.score ? b : a));
+                const peakDayIdx = top.timecourse.indexOf(Math.max(...top.timecourse));
+                const peakDay = DAY_LABELS[peakDayIdx] ?? DAY_LABELS[DAY_LABELS.length - 1];
+                return (
+                  <p className="mt-3 rounded-lg bg-accent/50 p-3 text-xs leading-relaxed text-muted-foreground">
+                    <span className="font-semibold text-foreground">ข้อสังเกต: </span>
+                    ความเสี่ยงเด่นที่สุดคือ “{top.label}” สูงสุดที่ Day {peakDay} ({Math.round(top.score)}/100 ·{" "}
+                    {BAND_LABEL[bandOf(top.score)]})
+                    {top.score >= 50
+                      ? " — ควรทบทวน/ลดความเข้มข้นของสารหลักก่อนพัฒนาต่อ"
+                      : " — อยู่ในเกณฑ์ที่จัดการได้"}
+                  </p>
+                );
+              })()}
+            </section>
+
             {/* Methodology */}
             <section className="mt-8">
-              <h2 className="text-sm font-bold uppercase tracking-wide text-primary">3. หลักการและความน่าเชื่อถือ</h2>
+              <h2 className="text-sm font-bold uppercase tracking-wide text-primary">4. หลักการและความน่าเชื่อถือ</h2>
               <ul className="mt-3 grid gap-1.5 text-sm text-muted-foreground">
                 <li>• Endpoint ชัดเจน 4 ด้าน ตามแนวทาง OECD (TG 404/405/429/420)</li>
                 <li>• อัลกอริทึม: Random Forest บน Morgan fingerprint (ECFP, radius 2)</li>

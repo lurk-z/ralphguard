@@ -4,8 +4,9 @@
 //  - left: formula boxes you build yourself (each a mix of substances + % each)
 //  - center: head.glb — click a box to "load" its combined strength onto the
 //    brush, then drag on the face to paint the result (FacePaintCanvas)
-//  - right: detail of the active box + run/export actions
-// Chemical list is mock data; everything here drives local state only.
+//  - right: time-course/day selector + AI chat + real per-day results
+// Substances come from catalog.ts (GOD's real ingredient database); an
+// assessment runs against the real QSAR backend via api.createAssessment.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -156,9 +157,10 @@ const BOX_COLORS = [
   "#EC4899", // Pink
 ];
 
-// Brush strength = total concentration in the box, capped at 100%. A rough
-// stand-in for the real dose-additivity model (scientific/mixture.py) until
-// the assessment API is wired up here.
+// Total concentration in the box, capped at 100% — the box card's % badge,
+// and the paint brush's fallback strength before any real assessment result
+// exists for this box (FacePaintCanvas prefers real per-day `layers` once a
+// Run has completed; see paintLayers below).
 function boxIntensity(box: FormulaBox) {
   const total = box.items.reduce((s, it) => s + it.concentration, 0);
   return Math.max(0, Math.min(1, total / 100));
