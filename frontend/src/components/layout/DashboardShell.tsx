@@ -74,9 +74,10 @@ export default function DashboardShell({
                   onClick={() => router.push("/projects")}
                   className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
                 >
-                  <span
-                    aria-hidden
-                    className="grid size-8 shrink-0 place-items-center rounded-lg border border-dashed border-sidebar-border bg-sidebar-accent/40"
+                  <img
+                    src="/icons/logo.png"
+                    alt="RalphGuard Logo"
+                    className="size-8 shrink-0 rounded-lg object-contain overflow-hidden"
                   />
                   <span className="leading-tight">
                     <span className="block font-display text-sm font-bold text-sidebar-foreground">

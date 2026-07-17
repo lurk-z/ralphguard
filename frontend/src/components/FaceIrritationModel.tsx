@@ -127,17 +127,24 @@ function useFaceCameraFit(groupRef: React.RefObject<THREE.Group>) {
     const size = box.getSize(new THREE.Vector3());
     const maxDim = Math.max(size.x, size.y, size.z) || 1;
 
+    // Shift the focus point upward so the FACE (upper portion of the skin mesh)
+    // is centred in the viewport rather than the geometric midpoint which sits
+    // mid-neck.  30% of the mesh height moves the target from chin/neck up to
+    // the nose/eye region.
+    const faceCenter = center.clone();
+    faceCenter.y += size.y * 0.30;
+
     const persp = camera as THREE.PerspectiveCamera;
     const fovRad = (persp.fov * Math.PI) / 180;
     const distance = (maxDim / 2 / Math.tan(fovRad / 2)) * 1.5;
 
-    persp.position.set(center.x, center.y, center.z + distance);
+    persp.position.set(faceCenter.x, faceCenter.y, faceCenter.z + distance);
     persp.near = Math.max(0.01, distance / 100);
     persp.far = distance * 100;
     persp.updateProjectionMatrix();
-    persp.lookAt(center);
+    persp.lookAt(faceCenter);
 
-    controls.target.copy(center);
+    controls.target.copy(faceCenter);
     controls.minDistance = distance * 0.6;
     controls.maxDistance = distance * 2.5;
     controls.update();
@@ -1043,7 +1050,7 @@ export function FacePaintCanvas({
   return (
     <div className={`relative h-full w-full overflow-hidden ${armed ? "cursor-crosshair" : ""}`}>
       <Canvas
-        camera={{ fov: 70, position: [90, 30, 390] }}
+        camera={{ fov: 70, position: [0, 0, 5] }}
         dpr={[1, 1.5]}
         gl={{
           antialias: true,
@@ -1083,6 +1090,7 @@ export function FacePaintCanvas({
           maxPolarAngle={Math.PI * 0.75}
           minDistance={0.5}
           maxDistance={2.5}
+          target={[0, -30, 0]}
         />
       </Canvas>
 

@@ -55,9 +55,9 @@ import { CHEMICAL_GROUPS, chemById } from "@/lib/chemicals";
 import { PRODUCT_TEMPLATES, isWaterItem, withWaterBase } from "@/lib/catalog";
 import { useSubstanceHoverCard } from "@/components/SubstanceInfoCard";
 import type { AssistantAction } from "@/lib/assistant";
-import type { FormulaItem, Region } from "@/lib/api";
+import type { FormulaItem, Region, ModelMetricsPayload, ModelInfoPayload, EndpointMetric } from "@/lib/api";
 import { api } from "@/lib/api";
-import { addJob } from "@/lib/projects";
+import { addJob, getProject, renameProject } from "@/lib/projects";
 
 function ModelLoader() {
   const [progress, setProgress] = useState(0);
@@ -191,6 +191,7 @@ function waterPctOf(box: FormulaBox): number {
 const TABS = [
   { key: "experiment", label: "การทดลอง" },
   { key: "nodemods", label: "โหนดโมเดล" },
+  { key: "trust", label: "ความน่าเชื่อถือ" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
@@ -218,9 +219,15 @@ function bandColor(score: number) {
 export default function ExperimentPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const [tab, setTab] = useState<TabKey>("experiment");
-  const [projectName, setProjectName] = useState("Hand Cream Formula Test");
+  const [projectName, setProjectName] = useState("");
   const [editingName, setEditingName] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
+
+  // Load project name from localStorage on mount
+  useEffect(() => {
+    const proj = getProject(params.id);
+    if (proj) setProjectName(proj.name);
+  }, [params.id]);
   const [zoomPct, setZoomPct] = useState(25);
   const [dayIdx, setDayIdx] = useState<0 | 1 | 2>(1); // 0=Day1, 1=Day3, 2=Day7
   // Results only appear after running an assessment (see handleRun / CanvasToolbar's Run button).
@@ -701,9 +708,15 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                 ref={nameInputRef}
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
-                onBlur={() => setEditingName(false)}
+                onBlur={() => {
+                  renameProject(params.id, projectName.trim() || projectName);
+                  setEditingName(false);
+                }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === "Escape") setEditingName(false);
+                  if (e.key === "Enter" || e.key === "Escape") {
+                    renameProject(params.id, projectName.trim() || projectName);
+                    setEditingName(false);
+                  }
                 }}
                 autoFocus
                 className="min-w-0 flex-1 rounded border border-primary bg-transparent px-2 py-0.5 text-sm font-semibold text-foreground outline-none ring-1 ring-primary"
@@ -1225,6 +1238,10 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                 onSaveFormula={saveGraphAsFormula}
               />
             </TabsContent>
+
+            <TabsContent value="trust" className="relative min-h-0 flex-1 mt-0">
+              <TrustReport />
+            </TabsContent>
           </Tabs>
         </main>
 
@@ -1313,6 +1330,83 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
           </div>
         </aside>
       {substanceHover.card}
+    </div>
+  );
+}
+
+// ── Trust / Model Reliability Report ──────────────────────────
+// Ported from /assess's inline TrustReport. Shows QSAR model
+// performance metrics, OECD principles, and uncertainty layers.
+function TrustReport() {
+  const [metrics, setMetrics] = useState<ModelMetricsPayload | null>(null);
+  const [info, setInfo] = useState<ModelInfoPayload | null>(null);
+  useEffect(() => {
+    api.getModelMetrics().then(setMetrics).catch(() => {});
+    api.getModelInfo().then(setInfo).catch(() => {});
+  }, []);
+  const pct = (x: number | null | undefined) => (x == null ? "—" : x.toFixed(2));
+
+  return (
+    <div className="absolute inset-0 overflow-y-auto p-8">
+      <div className="mx-auto max-w-3xl rounded-2xl border border-border bg-card p-8 shadow-sm">
+        <h1 className="text-2xl font-bold text-foreground">ความน่าเชื่อถือของโมเดล</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          ทุกการทำนายมาพร้อมตัวชี้วัดประสิทธิภาพ ความไม่แน่นอน และขอบเขตการใช้งาน (Applicability Domain) ตามหลัก OECD สำหรับ QSAR
+        </p>
+
+        <div className="mt-6 overflow-hidden rounded-xl border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted text-xs text-muted-foreground">
+              <tr>
+                <th className="px-4 py-2.5 text-left">Endpoint</th>
+                <th className="px-4 py-2.5">AUC</th>
+                <th className="px-4 py-2.5">Balanced Acc</th>
+                <th className="px-4 py-2.5">Sensitivity</th>
+                <th className="px-4 py-2.5">Specificity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metrics?.endpoints.map((m: EndpointMetric) => (
+                <tr key={m.endpoint} className="border-t border-border">
+                  <td className="px-4 py-3">
+                    <span className="font-medium">{m.label_th}</span>{" "}
+                    <span className="font-mono text-xs text-muted-foreground">{m.endpoint}</span>
+                  </td>
+                  <td className="px-4 py-3 text-center font-mono font-semibold text-primary">{pct(m.metrics?.auc)}</td>
+                  <td className="px-4 py-3 text-center font-mono">{pct(m.metrics?.balanced_accuracy)}</td>
+                  <td className="px-4 py-3 text-center font-mono">{pct(m.metrics?.sensitivity)}</td>
+                  <td className="px-4 py-3 text-center font-mono">{pct(m.metrics?.specificity)}</td>
+                </tr>
+              ))}
+              {!metrics?.endpoints?.length && (
+                <tr><td colSpan={5} className="px-4 py-6 text-center text-xs text-muted-foreground">ยังไม่มีข้อมูล (รัน data_prep.py)</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <div className="rounded-xl border border-border p-4">
+            <h3 className="mb-2 font-semibold text-foreground">ความไม่แน่นอน 3 ชั้น</h3>
+            <ul className="space-y-1.5 text-xs text-muted-foreground">
+              <li><b>1 · Aleatoric</b> — noise ในข้อมูลการทดลอง</li>
+              <li><b>2 · Epistemic</b> — ความไม่แน่นอนของตัวโมเดล (ensemble)</li>
+              <li><b>3 · Domain</b> — ระยะห่างจากชุดฝึก (in/out-of-domain)</li>
+            </ul>
+          </div>
+          <div className="rounded-xl border border-border p-4">
+            <h3 className="mb-2 font-semibold text-foreground">มาตรฐาน OECD</h3>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Endpoint ชัดเจน · อัลกอริทึมโปร่งใส · Applicability Domain · Goodness-of-fit &amp; robustness · การตีความเชิงกลไก
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs text-muted-foreground">
+          โมเดลนี้เป็นเครื่องมือ <b>คัดกรอง</b> เพื่อจัดลำดับความเสี่ยงในระยะต้น ไม่ใช่การทดแทนการทดสอบตามข้อกำหนดหรือการประเมินโดยผู้เชี่ยวชาญ
+          {info?.disclaimer_th ? "" : ""}
+        </div>
+      </div>
     </div>
   );
 }

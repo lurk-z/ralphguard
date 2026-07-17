@@ -29,7 +29,11 @@ export default function Navbar() {
             <span className="absolute top-0 right-0 w-2.5 h-2.5 border-t-2 border-r-2 border-brand/70 rounded-tr-[3px] transition-colors group-hover:border-brand" />
             <span className="absolute bottom-0 left-0 w-2.5 h-2.5 border-b-2 border-l-2 border-brand/70 rounded-bl-[3px] transition-colors group-hover:border-brand" />
             <span className="absolute bottom-0 right-0 w-2.5 h-2.5 border-b-2 border-r-2 border-brand/70 rounded-br-[3px] transition-colors group-hover:border-brand" />
-            <FlaskConical size={17} className="text-brand" />
+            <img
+              src="/icons/logo.png"
+              alt="RalphGuard Logo"
+              className="w-[18px] h-[18px] rounded-sm object-contain overflow-hidden"
+            />
           </div>
           <span className="font-display font-semibold text-lg tracking-tight text-foreground">
             RalphGuard

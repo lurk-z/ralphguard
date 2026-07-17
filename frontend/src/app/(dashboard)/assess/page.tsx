@@ -343,12 +343,12 @@ export default function StudioPage() {
     const toItems = (arr: any): FormulaItem[] =>
       Array.isArray(arr)
         ? arr
-            .map((it: any) => ({
-              name: it?.name || "",
-              smiles: String(it?.smiles || ""),
-              concentration: Number(it?.concentration) || 0,
-            }))
-            .filter((it) => it.smiles && !isWaterItem(it))
+          .map((it: any) => ({
+            name: it?.name || "",
+            smiles: String(it?.smiles || ""),
+            concentration: Number(it?.concentration) || 0,
+          }))
+          .filter((it) => it.smiles && !isWaterItem(it))
         : [];
     actions.forEach((a) => {
       switch (a?.type) {
@@ -413,10 +413,10 @@ export default function StudioPage() {
               prev.map((it) =>
                 (it.name || "").trim().toLowerCase() === key || it.smiles.trim().toLowerCase() === key
                   ? {
-                      name: a.to || a.to_name || it.name,
-                      smiles: newSmiles,
-                      concentration: a.concentration != null ? Number(a.concentration) : it.concentration,
-                    }
+                    name: a.to || a.to_name || it.name,
+                    smiles: newSmiles,
+                    concentration: a.concentration != null ? Number(a.concentration) : it.concentration,
+                  }
                   : it,
               ),
             );
@@ -534,22 +534,21 @@ export default function StudioPage() {
       resultBlock = `<table class="tbl">
         <thead><tr><th style="text-align:left">ปลายทางความเสี่ยง</th><th>Day 1</th><th>Day 3</th><th>Day 7</th></tr></thead>
         <tbody>${ENDPOINTS.map((ep) => {
-          const cells = [0, 1, 2]
-            .map((d) => {
-              const sc = scoreAt(ep, d);
-              const b = bandOf(sc);
-              return `<td class="num"><span class="pill" style="background:${BAND_HEX[b]}">${sc} · ${BAND_LABEL[b]}</span></td>`;
-            })
-            .join("");
-          return `<tr><td>${ENDPOINT_LABEL_TH[ep]}</td>${cells}</tr>`;
-        }).join("")}</tbody></table>`;
+        const cells = [0, 1, 2]
+          .map((d) => {
+            const sc = scoreAt(ep, d);
+            const b = bandOf(sc);
+            return `<td class="num"><span class="pill" style="background:${BAND_HEX[b]}">${sc} · ${BAND_LABEL[b]}</span></td>`;
+          })
+          .join("");
+        return `<tr><td>${ENDPOINT_LABEL_TH[ep]}</td>${cells}</tr>`;
+      }).join("")}</tbody></table>`;
       const top = ENDPOINTS.map((ep) => ({ label: ENDPOINT_LABEL_TH[ep], sc: scoreAt(ep, dayIdx) })).sort(
         (a, b) => b.sc - a.sc,
       )[0];
       const b = bandOf(top.sc);
-      noteBlock = `<div class="note"><b>ข้อสังเกต:</b> ความเสี่ยงเด่นที่สุด (Day ${DAY_LABELS[dayIdx]}) คือ “${esc(top.label)}” ที่ ${top.sc}/100 (ระดับ${BAND_LABEL[b]})${
-        top.sc >= 50 ? " — ควรทบทวน/ลดความเข้มข้นของสารหลักก่อนพัฒนาต่อ" : " — อยู่ในเกณฑ์ที่จัดการได้"
-      }</div>`;
+      noteBlock = `<div class="note"><b>ข้อสังเกต:</b> ความเสี่ยงเด่นที่สุด (Day ${DAY_LABELS[dayIdx]}) คือ “${esc(top.label)}” ที่ ${top.sc}/100 (ระดับ${BAND_LABEL[b]})${top.sc >= 50 ? " — ควรทบทวน/ลดความเข้มข้นของสารหลักก่อนพัฒนาต่อ" : " — อยู่ในเกณฑ์ที่จัดการได้"
+        }</div>`;
     } else {
       resultBlock = `<p class="muted">ยังไม่ได้กด ▶ Run ประเมิน — รายงานนี้แสดงเฉพาะข้อมูลสูตร</p>`;
     }
@@ -651,11 +650,10 @@ export default function StudioPage() {
             <button
               key={m}
               onClick={() => setMode(m)}
-              className={`relative flex h-8 max-w-[180px] items-center gap-1.5 rounded-t-lg px-4 text-xs transition ${
-                active
+              className={`relative flex h-8 max-w-[180px] items-center gap-1.5 rounded-t-lg px-4 text-xs transition ${active
                   ? "-mb-px border border-b-0 border-slate-200 bg-white font-semibold text-slate-800"
                   : "mb-1 text-slate-500 hover:bg-slate-200/70"
-              }`}
+                }`}
             >
               <span className="text-sm leading-none">{icon}</span>
               <span className="truncate">{label}</span>
@@ -688,9 +686,8 @@ export default function StudioPage() {
               key={it.m}
               onClick={() => setMode(it.m)}
               title={it.title}
-              className={`grid size-9 place-items-center rounded-lg text-base transition ${
-                mode === it.m ? "bg-teal-50 text-brand" : "text-slate-800/45 hover:bg-slate-100"
-              }`}
+              className={`grid size-9 place-items-center rounded-lg text-base transition ${mode === it.m ? "bg-teal-50 text-brand" : "text-slate-800/45 hover:bg-slate-100"
+                }`}
             >
               {it.icon}
             </button>
@@ -698,9 +695,8 @@ export default function StudioPage() {
           <button
             onClick={() => setShowTemplates((s) => !s)}
             title="เทมเพลตผลิตภัณฑ์"
-            className={`grid size-9 place-items-center rounded-lg text-base transition ${
-              showTemplates ? "bg-teal-50 text-brand" : "text-slate-800/45 hover:bg-slate-100"
-            }`}
+            className={`grid size-9 place-items-center rounded-lg text-base transition ${showTemplates ? "bg-teal-50 text-brand" : "text-slate-800/45 hover:bg-slate-100"
+              }`}
           >
             🧴
           </button>
@@ -719,11 +715,10 @@ export default function StudioPage() {
                 <div
                   key={f.id}
                   onClick={() => selectFormula(f.id)}
-                  className={`group flex w-full cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-2 text-sm transition ${
-                    f.id === activeId
+                  className={`group flex w-full cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-2 text-sm transition ${f.id === activeId
                       ? "border-brand bg-teal-50 text-brand-dark"
                       : "border-slate-200 bg-white text-slate-800 hover:border-brand/50"
-                  }`}
+                    }`}
                 >
                   <span>🧪</span>
                   {editingFormulaId === f.id ? (
@@ -970,9 +965,8 @@ export default function StudioPage() {
               <div className="group relative">
                 <button
                   onClick={() => setShowTrend((s) => !s)}
-                  className={`grid size-9 place-items-center rounded-l-lg border border-r-0 border-slate-200 text-base shadow-card transition ${
-                    showTrend ? "bg-brand text-white" : "bg-white text-slate-600 hover:text-brand"
-                  }`}
+                  className={`grid size-9 place-items-center rounded-l-lg border border-r-0 border-slate-200 text-base shadow-card transition ${showTrend ? "bg-brand text-white" : "bg-white text-slate-600 hover:text-brand"
+                    }`}
                 >
                   📈
                 </button>
@@ -1000,9 +994,8 @@ export default function StudioPage() {
                   <button
                     onClick={() => setEraseMode((e) => !e)}
                     title={eraseMode ? "โหมดลบ — คลิกจุดที่ paint เพื่อลบ" : "ยางลบ"}
-                    className={`grid size-9 place-items-center rounded-lg text-base transition ${
-                      eraseMode ? "bg-brand text-white" : "text-slate-800/50 hover:bg-slate-100"
-                    }`}
+                    className={`grid size-9 place-items-center rounded-lg text-base transition ${eraseMode ? "bg-brand text-white" : "text-slate-800/50 hover:bg-slate-100"
+                      }`}
                   >
                     🧽
                   </button>
@@ -1036,9 +1029,8 @@ export default function StudioPage() {
                     <button
                       key={d}
                       onClick={() => setDayIdx(i)}
-                      className={`flex-1 rounded-lg border py-1.5 text-xs transition ${
-                        i === dayIdx ? "border-brand bg-brand text-white font-semibold" : "border-slate-200 bg-slate-100 text-slate-800/65 hover:border-brand/50"
-                      }`}
+                      className={`flex-1 rounded-lg border py-1.5 text-xs transition ${i === dayIdx ? "border-brand bg-brand text-white font-semibold" : "border-slate-200 bg-slate-100 text-slate-800/65 hover:border-brand/50"
+                        }`}
                     >
                       Day {d}
                     </button>
@@ -1313,8 +1305,8 @@ function TrustReport() {
   const [metrics, setMetrics] = useState<ModelMetricsPayload | null>(null);
   const [info, setInfo] = useState<ModelInfoPayload | null>(null);
   useEffect(() => {
-    api.getModelMetrics().then(setMetrics).catch(() => {});
-    api.getModelInfo().then(setInfo).catch(() => {});
+    api.getModelMetrics().then(setMetrics).catch(() => { });
+    api.getModelInfo().then(setInfo).catch(() => { });
   }, []);
   const pct = (x: number | null | undefined) => (x == null ? "—" : x.toFixed(2));
 

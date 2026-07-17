@@ -16,9 +16,11 @@ export default function SiteNav({ active }: { active?: string }) {
     <header className="sticky top-0 z-30 border-b border-border bg-ink/90 backdrop-blur print:hidden">
       <nav className="max-w-6xl mx-auto flex items-center gap-1 px-4 h-14">
         <Link href="/" className="flex items-center gap-2 mr-3">
-          <span className="grid place-items-center w-7 h-7 rounded-lg bg-brand text-white font-display font-bold text-sm">
-            R
-          </span>
+          <img
+            src="/icons/logo.png"
+            alt="RalphGuard Logo"
+            className="w-7 h-7 rounded-md object-contain overflow-hidden"
+          />
           <span className="font-display font-bold text-ink2">
             Ralph<span className="text-brand">Guard</span>
           </span>
