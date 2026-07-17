@@ -11,7 +11,7 @@
 // handles the reply the same way: agent commands are carried out, a suggested
 // formula becomes an import card, and neither block is ever shown as raw JSON.
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, MessageCircle } from "lucide-react";
+import { ArrowUp, MessageCircle, Mic, Square, Volume2, VolumeX } from "lucide-react";
 import {
   Empty,
   EmptyHeader,
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/empty";
 import { api, type FormulaItem } from "@/lib/api";
 import { parseAssistantReply, type AssistantAction } from "@/lib/assistant";
+import { useVoice } from "@/components/useVoice";
 
 type ChatMessage = {
   id: string;
@@ -50,6 +51,7 @@ export default function AiChatPanel({
   const [sending, setSending] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const idSeq = useRef(0);
+  const voice = useVoice();
 
   // Auto-scroll to the newest message whenever the thread changes.
   useEffect(() => {
@@ -63,8 +65,9 @@ export default function AiChatPanel({
     setMessages((prev) => [...prev, { id: `m${idSeq.current}`, ...m }]);
   };
 
-  const send = async () => {
-    const text = input.trim();
+  /** `spoken` comes from the mic, which can't wait for the input state to land. */
+  const send = async (spoken?: string) => {
+    const text = (spoken ?? input).trim();
     if (!text || sending) return;
     push({ role: "user", content: text });
     setInput("");
@@ -93,6 +96,7 @@ export default function AiChatPanel({
       formula: reply.formula,
       acted: reply.actions.length,
     });
+    voice.speak(reply.text); // the parsed text only — never the JSON blocks
   };
 
   return (
@@ -170,16 +174,49 @@ export default function AiChatPanel({
                 send();
               }
             }}
-            placeholder="พิมพ์ข้อความ..."
+            placeholder={voice.listening ? "กำลังฟัง…" : "พิมพ์ข้อความ..."}
             className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
           />
+
+          {/* Mute the reply. Hidden where dictation and TTS are both pointless. */}
           <button
-            aria-label="ส่งข้อความ"
-            onClick={send}
-            disabled={!input.trim() || sending}
+            aria-label={voice.voiceOn ? "ปิดเสียงตอบ" : "เปิดเสียงตอบ"}
+            onClick={() => {
+              if (voice.voiceOn) voice.stopSpeak();
+              voice.setVoiceOn(!voice.voiceOn);
+            }}
+            className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {voice.voiceOn ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
+          </button>
+
+          {voice.canListen && (
+            <button
+              aria-label={voice.listening ? "หยุดฟัง" : "พูดแทนการพิมพ์"}
+              onClick={() =>
+                voice.listen((t) => {
+                  setInput(t);
+                  send(t);
+                })
+              }
+              disabled={sending}
+              className={`grid size-8 shrink-0 place-items-center rounded-full transition-colors disabled:opacity-40 ${
+                voice.listening
+                  ? "animate-pulse bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Mic className="size-4" />
+            </button>
+          )}
+
+          <button
+            aria-label={voice.speaking ? "หยุดพูด" : "ส่งข้อความ"}
+            onClick={() => (voice.speaking ? voice.stopSpeak() : send())}
+            disabled={!voice.speaking && (!input.trim() || sending)}
             className="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
           >
-            <ArrowUp className="size-4" />
+            {voice.speaking ? <Square className="size-3.5" /> : <ArrowUp className="size-4" />}
           </button>
         </div>
       </div>

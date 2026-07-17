@@ -117,6 +117,21 @@ export const api = {
       35000,
     ),
 
+  /**
+   * Neural text-to-speech — MP3 audio for Thai text, far more human than the
+   * browser's built-in voice. Bypasses http(): the response is audio, not JSON.
+   * Callers are expected to fall back to speechSynthesis when this throws.
+   */
+  tts: async (text: string, voice?: string): Promise<Blob> => {
+    const res = await fetch(`${API}/api/tts/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice }),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`);
+    return res.blob();
+  },
+
   createAssessment: (formula: FormulaItem[], region: Region, projectId?: number | null) =>
     http<{ job_id: string; status: string }>("/api/assessments/", {
       method: "POST",
