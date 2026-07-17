@@ -128,6 +128,14 @@ type FormulaBox = {
   items: FormulaBoxItem[];
   color?: string;
   icon?: BoxIconName;
+  /**
+   * Body site this box is assessed against. Per-box (not page-level) so each
+   * formula remembers its own test site the way it remembers its own result —
+   * /assess only has one formula at a time, so it ties region to creation
+   * instead. Restricted to face/eye: the 3D head can't show anything else
+   * (see PRODUCT_TEMPLATES' region-narrowing below).
+   */
+  region?: Region;
 };
 
 const BOX_ICONS = {
@@ -396,6 +404,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
       name: "สูตร A",
       color: "#009FA5",
       icon: "beaker",
+      region: "face",
       // Catalog ids are SMILES. Water is deliberately absent from the pickable
       // catalog — /assess tops a formula up to 100% with it via withWaterBase().
       items: [
@@ -406,9 +415,6 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   ]);
   const [activeBoxId, setActiveBoxId] = useState<string | null>("box-1");
   const [editingBoxId, setEditingBoxId] = useState<string | null>(null);
-  // Which body site the formula is assessed against. Templates set it; there is
-  // no picker for it in this workspace yet (/assess has one).
-  const [region, setRegion] = useState<Region>("face");
   // Rest on any substance row for the catalog's description of it.
   const substanceHover = useSubstanceHoverCard();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -420,6 +426,12 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
 
   const activeBox = boxes.find((b) => b.id === activeBoxId) ?? null;
   const activeResult = activeBoxId ? resultByBox[activeBoxId] : undefined;
+  // Which body site the active box is assessed against — a property of the
+  // box (see FormulaBox.region), not page-level state.
+  const region: Region = activeBox?.region ?? "face";
+  const changeBoxRegion = (id: string, next: Region) => {
+    setBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, region: next } : b)));
+  };
   const pickerTargetId = editingBoxId ?? activeBoxId;
   const pickerTarget = boxes.find((b) => b.id === pickerTargetId) ?? null;
 
@@ -457,7 +469,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
    * Add a named box, seeded with items — the shared path for templates, the
    * node graph's save, and the assistant. Returns the new box's id.
    */
-  const addBoxFrom = (name: string, items: FormulaBoxItem[]) => {
+  const addBoxFrom = (name: string, items: FormulaBoxItem[], region: Region = "face") => {
     boxIdSeq.current += 1;
     const id = `box-${boxIdSeq.current}`;
     const iconsList = Object.keys(BOX_ICONS) as BoxIconName[];
@@ -469,6 +481,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
         items,
         color: BOX_COLORS[(boxIdSeq.current - 1) % BOX_COLORS.length],
         icon: iconsList[(boxIdSeq.current - 1) % iconsList.length],
+        region,
       },
     ]);
     setActiveBoxId(id);
@@ -513,6 +526,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
         items: [],
         color,
         icon,
+        region: "face",
       },
     ]);
     setActiveBoxId(id);
@@ -664,10 +678,9 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
     if (!t) return;
     templateApplied.current = true;
 
-    addBoxFrom(t.name, toBoxItems(t.formula));
     // /assess narrows a template's region to what the 3D head can actually
     // show, so hand/forearm templates are assessed as face there too.
-    setRegion(t.region === "eye" ? "eye" : "face");
+    addBoxFrom(t.name, toBoxItems(t.formula), t.region === "eye" ? "eye" : "face");
     router.replace(`/projects/${params.id}/assess`, { scroll: false });
   }, [templateId, params.id, router]);
 
@@ -956,6 +969,11 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                       );
                     })()}
                     <span className="min-w-0 flex-1 break-words text-sm font-semibold text-foreground">{box.name}</span>
+                    {box.region === "eye" && (
+                      <span title="บริเวณทดสอบ: ดวงตา" className="shrink-0 text-xs">
+                        👁️
+                      </span>
+                    )}
                     {intensity > 0 && (
                       <Badge
                         variant={active ? "default" : "secondary"}
@@ -1044,6 +1062,38 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                                   title={iconName}
                                 >
                                   <IconComponent className="size-3.5" />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="mt-3.5 space-y-1.5 border-t border-border pt-3">
+                          <Label className="text-xs text-muted-foreground font-semibold">
+                            บริเวณทดสอบ
+                          </Label>
+                          {/* Restricted to face/eye — the 3D head can't show
+                              anywhere else (matches PRODUCT_TEMPLATES' own
+                              region-narrowing). */}
+                          <div className="flex gap-1.5 pt-1">
+                            {(
+                              [
+                                ["face", "🙂 ใบหน้า"],
+                                ["eye", "👁️ ดวงตา"],
+                              ] as const
+                            ).map(([value, label]) => {
+                              const isSelected = (box.region ?? "face") === value;
+                              return (
+                                <button
+                                  key={value}
+                                  onClick={() => changeBoxRegion(box.id, value)}
+                                  className={`flex-1 rounded-lg border py-1.5 text-xs font-medium transition-colors ${
+                                    isSelected
+                                      ? "border-primary bg-primary/10 text-primary"
+                                      : "border-border text-muted-foreground hover:border-primary/40"
+                                  }`}
+                                >
+                                  {label}
                                 </button>
                               );
                             })}
