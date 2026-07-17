@@ -55,7 +55,7 @@ import LabelScanModal from "@/components/LabelScanModal";
 import { CHEMICAL_GROUPS, chemById } from "@/lib/chemicals";
 import { PRODUCT_TEMPLATES, isWaterItem, withWaterBase } from "@/lib/catalog";
 import { useSubstanceHoverCard } from "@/components/SubstanceInfoCard";
-import type { AssistantAction } from "@/lib/assistant";
+import { extractFormula, type AssistantAction } from "@/lib/assistant";
 import type { FormulaItem, OcrItem, Region, ModelMetricsPayload, ModelInfoPayload, EndpointMetric } from "@/lib/api";
 import { api } from "@/lib/api";
 import { addJob, getProject, renameProject } from "@/lib/projects";
@@ -693,6 +693,58 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
     );
   };
 
+  // ── AI: nudge each substance's % toward realistic, safer cosmetic levels ──
+  const [optimizingId, setOptimizingId] = useState<string | null>(null);
+  const [optMsg, setOptMsg] = useState<{ boxId: string; ok: boolean; text: string } | null>(null);
+  const optimizeBox = async (box: FormulaBox) => {
+    const actives = boxToFormulaItems(box); // already water-free
+    if (!actives.length) return;
+    setOptimizingId(box.id);
+    setOptMsg(null);
+    try {
+      const list = actives
+        .map((it) => `- ${it.name || it.smiles} (SMILES ${it.smiles}) ปัจจุบัน ${it.concentration}%`)
+        .join("\n");
+      const question =
+        "ช่วยปรับอัตราส่วน % ของสารในสูตรนี้ให้สมจริงตามมาตรฐานเครื่องสำอางและปลอดภัยที่สุด " +
+        "(ลดสารก่อระคายเคือง/สารกันเสียลงสู่ระดับที่ใช้จริง เช่น สารกันเสีย <1%, กรด 2-10%, humectant 3-15%). " +
+        "ห้ามเพิ่มหรือลบสาร คงสารเดิมและ SMILES เดิมไว้ทุกตัว ไม่ต้องใส่ Water. " +
+        'ตอบกลับเป็น <formula>[{"name","smiles","concentration"}]</formula> เท่านั้น:\n' +
+        list;
+      const { answer } = await api.chat(question);
+      const items = extractFormula(answer);
+      if (!items.length) throw new Error("AI ไม่ได้ส่งสูตรกลับมา");
+
+      // The prompt says "don't add or remove a substance" — nothing enforces
+      // that on the model's side, so a reply that changed the SMILES set is
+      // rejected rather than silently corrupting the box.
+      const before = new Set(actives.map((a) => a.smiles));
+      const after = new Set(items.map((it) => it.smiles).filter(Boolean));
+      const sameSet = before.size === after.size && [...before].every((s) => after.has(s));
+      if (!sameSet) throw new Error("AI เปลี่ยนรายการสาร ไม่ใช่แค่ % — ไม่นำผลมาใช้เพื่อความปลอดภัยของสูตร");
+
+      setBoxes((prev) =>
+        prev.map((b) =>
+          b.id === box.id
+            ? {
+                ...b,
+                items: items.map((it) => ({
+                  chemicalId: it.smiles,
+                  concentration: it.concentration,
+                  ...(chemById(it.smiles) ? {} : { name: it.name }),
+                })),
+              }
+            : b,
+        ),
+      );
+      setOptMsg({ boxId: box.id, ok: true, text: "✓ AI ปรับอัตราส่วนให้แล้ว — ตรวจ % แล้วกด ▶ Run ประเมินได้เลย" });
+    } catch (e) {
+      setOptMsg({ boxId: box.id, ok: false, text: "✗ ปรับไม่สำเร็จ: " + (e instanceof Error ? e.message : String(e)) });
+    } finally {
+      setOptimizingId(null);
+    }
+  };
+
   return (
     <div data-project-id={params.id} className="relative flex h-full w-full overflow-hidden">
         {/* Figma-style floating pill — replaces the formula-box panel while collapsed. */}
@@ -1046,6 +1098,23 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                   >
                     📷 อ่านฉลากส่วนผสมจากรูป (OCR)
                   </button>
+                  {box.items.length > 0 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        optimizeBox(box);
+                      }}
+                      disabled={optimizingId === box.id}
+                      className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-primary/40 bg-primary/5 py-1.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
+                    >
+                      {optimizingId === box.id ? "⏳ กำลังให้ AI ปรับ…" : "🤖 ใช้ AI ปรับอัตราส่วนสารอัตโนมัติ"}
+                    </button>
+                  )}
+                  {optMsg && optMsg.boxId === box.id && (
+                    <p className={`mt-1 text-[10px] leading-snug ${optMsg.ok ? "text-primary" : "text-destructive"}`}>
+                      {optMsg.text}
+                    </p>
+                  )}
                 </div>
               );
             })}

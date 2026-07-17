@@ -54,3 +54,24 @@ export function parseAssistantReply(answer: string): AssistantReply {
     formula: formula?.length ? formula : undefined,
   };
 }
+
+/**
+ * A reply's suggested formula, tolerating a model that ignores instructions to
+ * answer with only <formula> and uses <action>[{"type":"set_formula","items":
+ * [...]}]</action> (or create_formula) instead — optimizeFormula's prompt asks
+ * strictly for <formula>, but nothing enforces that on the model's side.
+ */
+export function extractFormula(answer: string): FormulaItem[] {
+  const reply = parseAssistantReply(answer);
+  if (reply.formula?.length) return reply.formula;
+
+  const withItems = reply.actions.find((a) => Array.isArray(a.items));
+  if (!withItems) return [];
+  return (withItems.items as unknown[])
+    .filter((x): x is Record<string, unknown> => !!x && typeof x === "object" && !!(x as Record<string, unknown>).smiles)
+    .map((x) => ({
+      name: String(x.name ?? ""),
+      smiles: String(x.smiles),
+      concentration: Number(x.concentration) || 0,
+    }));
+}
