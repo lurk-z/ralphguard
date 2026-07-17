@@ -28,7 +28,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, type AssessmentResultPayload, type ConfidenceLevel } from "@/lib/api";
-import { loadMockAssessmentResult } from "@/lib/mockAssessment";
 
 const BAND_HEX: Record<string, string> = {
   low: "#16A34A",
@@ -81,6 +80,7 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
   const [result, setResult] = useState<AssessmentResultPayload | null>(null);
   const [projectName, setProjectName] = useState<string>("ผลการวิเคราะห์");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -103,10 +103,11 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
         if (!latest) throw new Error("no runs");
         const record = await api.getAssessment(latest.id);
         if (alive) setResult(record.result);
-      } catch {
-        // No real backend run yet (or unreachable) — fall back to the mock
-        // result saved by the assess workspace's "เริ่มทดสอบ" button, if any.
-        if (alive) setResult(loadMockAssessmentResult(params.id));
+      } catch (e) {
+        // Nothing to show. "no runs" is the ordinary empty state; anything else
+        // is a real fault worth naming rather than dressing up as emptiness.
+        const msg = e instanceof Error ? e.message : String(e);
+        if (alive && msg !== "no runs" && msg !== "no backend project") setLoadError(msg);
       } finally {
         if (alive) setLoading(false);
       }
@@ -186,9 +187,13 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
               <span className="grid size-14 place-items-center rounded-2xl border border-dashed border-border bg-muted/60">
                 <FlaskConical className="size-6 text-muted-foreground" />
               </span>
-              <h2 className="mt-4 text-base font-semibold text-foreground">ยังไม่มีผลการวิเคราะห์</h2>
+              <h2 className="mt-4 text-base font-semibold text-foreground">
+                {loadError ? "โหลดผลการวิเคราะห์ไม่ได้" : "ยังไม่มีผลการวิเคราะห์"}
+              </h2>
               <p className="mt-1 max-w-xs text-sm text-muted-foreground">
-                กลับไปที่หน้าการทดลอง เพิ่มสูตร แล้วกด “เริ่มการทดลอง” เพื่อประเมินความเสี่ยง
+                {loadError
+                  ? `เชื่อมต่อเซิร์ฟเวอร์ประเมินไม่ได้ — ${loadError}`
+                  : "กลับไปที่หน้าการทดลอง เพิ่มสูตร แล้วกด “เริ่มการทดลอง” เพื่อประเมินความเสี่ยง"}
               </p>
               <Button
                 className="mt-5 h-11 gap-2 px-6"

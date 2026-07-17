@@ -56,7 +56,7 @@ import { PRODUCT_TEMPLATES, isWaterItem, withWaterBase } from "@/lib/catalog";
 import { useSubstanceHoverCard } from "@/components/SubstanceInfoCard";
 import type { AssistantAction } from "@/lib/assistant";
 import type { FormulaItem, Region } from "@/lib/api";
-import { buildMockAssessmentResult, saveMockAssessmentResult } from "@/lib/mockAssessment";
+import { api } from "@/lib/api";
 
 function ModelLoader() {
   const [progress, setProgress] = useState(0);
@@ -225,6 +225,12 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   // Results only appear after running an assessment (see handleRun / CanvasToolbar's Run button).
   const [hasAssessed, setHasAssessed] = useState(false);
   const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+  /** Set once a job is queued; the poll below watches it until it settles. */
+  const [jobId, setJobId] = useState<string | null>(null);
+  // The results page finds a run by project, so a run has to be filed under one.
+  // Routes outside the backend's numbering (a demo id, say) file under none.
+  const projectId = Number.isFinite(Number(params.id)) ? Number(params.id) : null;
 
   const [brushSizePct, setBrushSizePct] = useState(10);
   const [clearTrigger, setClearTrigger] = useState(0);
@@ -232,19 +238,64 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   const ZOOM_STEP = 10;
   const BRUSH_STEP = 10;
   const handleClear = () => setClearTrigger((t) => t + 1);
-  const handleRun = () => {
+  /**
+   * Submit the active box to the QSAR backend, exactly as /assess does: actives
+   * only, water balanced back in, and no dose-less rows. The job is queued, so
+   * the id it returns is picked up by the poll below.
+   */
+  const handleRun = async () => {
+    setRunError(null);
+    const actives = activeBox
+      ? boxToFormulaItems(activeBox).filter((it) => it.smiles.trim() && it.concentration > 0)
+      : [];
+    if (!actives.length) {
+      setRunError("เพิ่มอย่างน้อย 1 สาร + ความเข้มข้น");
+      return;
+    }
     setRunning(true);
-    // Mock scoring pipeline — swap for api.createAssessment once the real
-    // QSAR backend is wired up here; results/page.tsx already prefers a
-    // real API response over this mock and only falls back to it.
-    setTimeout(() => {
-      const result = buildMockAssessmentResult(activeBox?.items ?? [], region);
-      saveMockAssessmentResult(params.id, result);
-      setHasAssessed(true);
+    try {
+      const { job_id } = await api.createAssessment(withWaterBase(actives), region, projectId);
+      setJobId(job_id);
+    } catch (e) {
+      setRunError(e instanceof Error ? e.message : String(e));
       setRunning(false);
-      router.push(`/projects/${params.id}/results`);
-    }, 1500);
+    }
   };
+  // Watch a queued job until it settles, on /assess's 1.5s cadence. The results
+  // page reads the run back from the backend, so this only has to get the user
+  // there once the job is actually done.
+  useEffect(() => {
+    if (!jobId) return;
+    let alive = true;
+    const settle = (err: string | null) => {
+      if (!alive) return;
+      setRunning(false);
+      setJobId(null);
+      setRunError(err);
+    };
+    const tick = async () => {
+      try {
+        const rec = await api.getAssessment(jobId);
+        if (!alive) return;
+        if (rec.status === "completed") {
+          settle(null);
+          setHasAssessed(true);
+          router.push(`/projects/${params.id}/results`);
+        } else if (rec.status === "failed") {
+          settle(rec.error ?? "การประเมินล้มเหลว");
+        }
+      } catch (e) {
+        settle(e instanceof Error ? e.message : String(e));
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1500);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [jobId, params.id, router]);
+
   const handleZoomIn = () => setZoomPct((z) => Math.min(100, z + ZOOM_STEP));
   const handleZoomOut = () => setZoomPct((z) => Math.max(0, z - ZOOM_STEP));
   const handleZoomReset = () => setZoomPct(25);
@@ -1223,6 +1274,14 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
           {/* Reserved results area — always visible, filled in once an assessment runs */}
           <div className="h-64 shrink-0 overflow-y-auto border-t border-border bg-accent/30 px-4 py-4">
             <p className="mb-3 text-sm font-bold text-foreground">ผลการประเมิน</p>
+            {runError && (
+              <p className="mb-3 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-[11px] leading-snug text-destructive">
+                ⚠️ {runError}
+              </p>
+            )}
+            {running && !runError && (
+              <p className="mb-3 text-xs text-muted-foreground">กำลังประเมิน…</p>
+            )}
             {hasAssessed ? (
               <div className="space-y-3.5">
                 {RESULT_ENDPOINTS.map((ep) => {
