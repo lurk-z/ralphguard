@@ -56,7 +56,15 @@ import { CHEMICAL_GROUPS, chemById } from "@/lib/chemicals";
 import { PRODUCT_TEMPLATES, isWaterItem, withWaterBase } from "@/lib/catalog";
 import { useSubstanceHoverCard } from "@/components/SubstanceInfoCard";
 import { extractFormula, type AssistantAction } from "@/lib/assistant";
-import type { FormulaItem, OcrItem, Region, ModelMetricsPayload, ModelInfoPayload, EndpointMetric } from "@/lib/api";
+import type {
+  AssessmentResultPayload,
+  FormulaItem,
+  OcrItem,
+  Region,
+  ModelMetricsPayload,
+  ModelInfoPayload,
+  EndpointMetric,
+} from "@/lib/api";
 import { api } from "@/lib/api";
 import { addJob, getProject, renameProject } from "@/lib/projects";
 
@@ -196,25 +204,46 @@ const TABS = [
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
-// 4 QSAR endpoints (matches scientific/pipeline.py). Score here is a local
-// stand-in derived from box concentration, not the real assessment pipeline.
+const DAY_LABELS = [1, 3, 7] as const;
+
+// 4 QSAR endpoints (matches scientific/pipeline.py / backend's real keys).
 const RESULT_ENDPOINTS = [
   { key: "skin", label: "ระคายเคืองผิว" },
   { key: "eye", label: "ระคายเคืองตา" },
   { key: "sens", label: "แพ้ผิวหนัง" },
   { key: "acute", label: "พิษเฉียบพลัน" },
 ] as const;
-function bandTH(score: number) {
-  if (score <= 0) return "ไม่มี";
-  if (score <= 2) return "ต่ำ";
-  if (score <= 3) return "กลาง";
-  return "สูง";
+
+// Same 4 colours FaceIrritationModel.tsx's shader expects — it reads the brush
+// HUE to pick lesion morphology, so these can't drift from that file's EP_COLOR.
+const EP_COLOR: Record<string, string> = {
+  skin: "#FF3B5C",
+  eye: "#22D3EE",
+  sens: "#A855F7",
+  acute: "#F59E0B",
+};
+
+// 0–100 score → severity band, matching the backend's own thresholds
+// (EndpointResultPayload.band) and every other band-labelled view in the app.
+function bandOf(score: number): "low" | "moderate" | "high" | "severe" {
+  if (score < 25) return "low";
+  if (score < 50) return "moderate";
+  if (score < 75) return "high";
+  return "severe";
 }
+const BAND_LABEL_TH: Record<string, string> = { low: "ต่ำ", moderate: "ปานกลาง", high: "สูง", severe: "รุนแรง" };
+
+function bandTH(score: number) {
+  return BAND_LABEL_TH[bandOf(score)];
+}
+const BAND_BG_CLASS: Record<string, string> = {
+  low: "bg-emerald-500",
+  moderate: "bg-amber-500",
+  high: "bg-orange-500",
+  severe: "bg-destructive",
+};
 function bandColor(score: number) {
-  if (score <= 0) return "bg-muted-foreground/40";
-  if (score <= 2) return "bg-emerald-500";
-  if (score <= 3) return "bg-amber-500";
-  return "bg-destructive";
+  return score <= 0 ? "bg-muted-foreground/40" : BAND_BG_CLASS[bandOf(score)];
 }
 
 export default function ExperimentPage({ params }: { params: { id: string } }) {
@@ -231,12 +260,18 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   }, [params.id]);
   const [zoomPct, setZoomPct] = useState(25);
   const [dayIdx, setDayIdx] = useState<0 | 1 | 2>(1); // 0=Day1, 1=Day3, 2=Day7
-  // Results only appear after running an assessment (see handleRun / CanvasToolbar's Run button).
-  const [hasAssessed, setHasAssessed] = useState(false);
+  // Real per-box results, so the paint canvas and the score panel below can
+  // show what leaving each formula on skin for Day 1/3/7 actually predicts —
+  // keyed by box id (not just "the last run") so switching boxes shows each
+  // one's own result instead of losing it, unlike /assess's single `assessment`.
+  const [resultByBox, setResultByBox] = useState<Record<string, AssessmentResultPayload>>({});
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   /** Set once a job is queued; the poll below watches it until it settles. */
   const [jobId, setJobId] = useState<string | null>(null);
+  /** Which box the in-flight/last job belongs to — may not be activeBoxId if
+   *  the user switched boxes while a run was still polling. */
+  const [runBoxId, setRunBoxId] = useState<string | null>(null);
 
   const [brushSizePct, setBrushSizePct] = useState(10);
   const [clearTrigger, setClearTrigger] = useState(0);
@@ -251,14 +286,16 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
    */
   const handleRun = async () => {
     setRunError(null);
+    const boxId = activeBox?.id ?? null;
     const actives = activeBox
       ? boxToFormulaItems(activeBox).filter((it) => it.smiles.trim() && it.concentration > 0)
       : [];
-    if (!actives.length) {
+    if (!boxId || !actives.length) {
       setRunError("เพิ่มอย่างน้อย 1 สาร + ความเข้มข้น");
       return;
     }
     setRunning(true);
+    setRunBoxId(boxId);
     try {
       // Projects live in this browser, so the backend has no row to file the
       // run under — the project keeps the job id instead (see lib/projects).
@@ -270,9 +307,13 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
       setRunning(false);
     }
   };
-  // Watch a queued job until it settles, on /assess's 1.5s cadence. The results
-  // page reads the run back from the backend, so this only has to get the user
-  // there once the job is actually done.
+  // Watch a queued job until it settles, on /assess's 1.5s cadence.
+  //
+  // Unlike /assess (single formula, one page's worth of state) this workspace
+  // stays put after a run completes instead of navigating to /results: the
+  // whole point of wiring this up is to let Day 1/3/7 drive the paint canvas
+  // right here. /results (with its trend chart, radar and PDF export) is a
+  // click away via "ดูรายงานฉบับเต็ม" once a result exists.
   useEffect(() => {
     if (!jobId) return;
     let alive = true;
@@ -288,8 +329,9 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
         if (!alive) return;
         if (rec.status === "completed") {
           settle(null);
-          setHasAssessed(true);
-          router.push(`/projects/${params.id}/results`);
+          if (runBoxId && rec.result) {
+            setResultByBox((prev) => ({ ...prev, [runBoxId]: rec.result! }));
+          }
         } else if (rec.status === "failed") {
           settle(rec.error ?? "การประเมินล้มเหลว");
         }
@@ -303,7 +345,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
       alive = false;
       clearInterval(id);
     };
-  }, [jobId, params.id, router]);
+  }, [jobId, runBoxId]);
 
   const handleZoomIn = () => setZoomPct((z) => Math.min(100, z + ZOOM_STEP));
   const handleZoomOut = () => setZoomPct((z) => Math.max(0, z - ZOOM_STEP));
@@ -375,8 +417,24 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   const boxIdSeq = useRef(1);
 
   const activeBox = boxes.find((b) => b.id === activeBoxId) ?? null;
+  const activeResult = activeBoxId ? resultByBox[activeBoxId] : undefined;
   const pickerTargetId = editingBoxId ?? activeBoxId;
   const pickerTarget = boxes.find((b) => b.id === pickerTargetId) ?? null;
+
+  /**
+   * Per-endpoint score for the box's real result at the selected day, in the
+   * shape FacePaintCanvas paints from. Mirrors /assess's own paintLayers
+   * exactly: endpoints[ep].timecourse[dayIdx], falling back to peak_score for
+   * an endpoint the backend didn't return a timecourse for.
+   */
+  const paintLayers = useMemo(() => {
+    if (!activeResult) return [];
+    return RESULT_ENDPOINTS.map((ep) => {
+      const e = activeResult.endpoints[ep.key];
+      const score = e?.timecourse?.[dayIdx] ?? e?.peak_score ?? 0;
+      return { key: ep.key, label: ep.label, score, color: EP_COLOR[ep.key], band: bandOf(score) };
+    });
+  }, [activeResult, dayIdx]);
 
   const pickerCategories = useMemo(() => CHEMICAL_GROUPS.map((g) => g.category), []);
   // Keep the catalog's grouping so the list can carry a header per category,
@@ -475,9 +533,17 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
             .map((f) => `- ${f.name || f.smiles} ${f.concentration}%`)
             .join("\n")}\n(หมายเหตุ: Water (Aqua) เป็นเบสเติมอัตโนมัติให้ครบ 100% ไม่ต้องสั่งเอง)`
         : "ยังไม่มีสารในสูตร";
-    // This workspace doesn't hold the scores — Run saves them and navigates to
-    // the results page — so the assistant is told so rather than left to guess.
-    return `ผลิตภัณฑ์/สูตร: ${box?.name ?? "-"}\n${comp}\n\nยังไม่มีผลการประเมินในหน้านี้ (ผลจะแสดงที่หน้าผลลัพธ์หลังกดเริ่มทดสอบ)`;
+    const result = box ? resultByBox[box.id] : undefined;
+    const scores = result
+      ? `คะแนนความเสี่ยง 0-100 ที่วันที่ ${DAY_LABELS[dayIdx]} (ปัจจุบันเลือกดูอยู่):\n${RESULT_ENDPOINTS
+          .map((ep) => {
+            const e = result.endpoints[ep.key];
+            const sc = Math.round(e?.timecourse?.[dayIdx] ?? e?.peak_score ?? 0);
+            return `- ${ep.label}: ${sc}/100 (ระดับ${BAND_LABEL_TH[bandOf(sc)]})`;
+          })
+          .join("\n")}`
+      : "ยังไม่มีผลการประเมิน (ผู้ใช้ยังไม่ได้กดเริ่มทดสอบ)";
+    return `ผลิตภัณฑ์/สูตร: ${box?.name ?? "-"}\n${comp}\n\n${scores}`;
   };
 
   /** Turn the assistant's suggested formula into a box of its own. */
@@ -1205,6 +1271,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
             <TabsContent value="experiment" className="relative min-h-0 flex-1 mt-0">
               <>
                 <FacePaint
+                  layers={paintLayers}
                   brushValue={activeBox ? boxIntensity(activeBox) : 0}
                   armed={!!activeBox && activeBox.items.length > 0}
                   background="#F7F5F4"
@@ -1378,9 +1445,14 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
           } ${leftCollapsed ? "border-l-0" : "border-l border-border"}`}
         >
           <div className="border-b border-border px-4 py-3">
-            <p className="mb-2 text-xs font-medium text-muted-foreground">การจำลองตามเวลา</p>
+            <p className="text-xs font-medium text-muted-foreground">การจำลองตามเวลา</p>
+            <p className="mb-2 text-[10px] leading-snug text-muted-foreground/70">
+              {activeResult
+                ? "เลือกวันเพื่อโหลดความรุนแรงของวันนั้นเข้าพู่กัน แล้วคลิก/ลากบนโมเดลเพื่อดูผล"
+                : "กด “เริ่มทดสอบ” ก่อน แล้วค่อยเลือกวันเพื่อดูความรุนแรงที่คาดว่าจะเกิดขึ้น"}
+            </p>
             <div className="flex gap-1.5">
-              {[1, 3, 7].map((d, i) => (
+              {DAY_LABELS.map((d, i) => (
                 <button
                   key={d}
                   onClick={() => setDayIdx(i as 0 | 1 | 2)}
@@ -1404,19 +1476,32 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
 
           {/* Reserved results area — always visible, filled in once an assessment runs */}
           <div className="h-64 shrink-0 overflow-y-auto border-t border-border bg-accent/30 px-4 py-4">
-            <p className="mb-3 text-sm font-bold text-foreground">ผลการประเมิน</p>
-            {runError && (
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <p className="text-sm font-bold text-foreground">
+                ผลการประเมิน{activeResult && ` · Day ${DAY_LABELS[dayIdx]}`}
+              </p>
+              {activeResult && (
+                <button
+                  onClick={() => router.push(`/projects/${params.id}/results`)}
+                  className="shrink-0 text-[11px] font-medium text-primary hover:underline"
+                >
+                  ดูรายงานฉบับเต็ม →
+                </button>
+              )}
+            </div>
+            {runBoxId === activeBoxId && runError && (
               <p className="mb-3 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-[11px] leading-snug text-destructive">
                 ⚠️ {runError}
               </p>
             )}
-            {running && !runError && (
+            {runBoxId === activeBoxId && running && !runError && (
               <p className="mb-3 text-xs text-muted-foreground">กำลังประเมิน…</p>
             )}
-            {hasAssessed ? (
+            {activeResult ? (
               <div className="space-y-3.5">
                 {RESULT_ENDPOINTS.map((ep) => {
-                  const score = activeBox ? Math.round(boxIntensity(activeBox) * 4) : 0;
+                  const e = activeResult.endpoints[ep.key];
+                  const score = Math.round(e?.timecourse?.[dayIdx] ?? e?.peak_score ?? 0);
                   return (
                     <div key={ep.key}>
                       <div className="flex items-center justify-between">
@@ -1428,7 +1513,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                       <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-secondary">
                         <div
                           className={`h-full rounded-full ${bandColor(score)}`}
-                          style={{ width: `${(score / 4) * 100}%` }}
+                          style={{ width: `${Math.min(100, score)}%` }}
                         />
                       </div>
                     </div>

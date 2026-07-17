@@ -33,8 +33,10 @@ export type PaintLayer = { key: string; label: string; score: number; color: str
 
 // The shader keys off the brush HUE to pick lesion morphology (flat/wet for eye,
 // hives for sensitisation, …), so anything synthesising a layer must reuse these
-// exact colours rather than an arbitrary red.
-const EP_COLOR: Record<string, string> = {
+// exact colours rather than an arbitrary red. Exported so callers building their
+// own PaintLayer[] (e.g. from a day-by-day timecourse) use the real ones instead
+// of risking a drift/typo that would silently paint the wrong lesion shape.
+export const EP_COLOR: Record<string, string> = {
   skin: "#FF3B5C", // แดง
   eye: "#22D3EE", // ฟ้า
   sens: "#A855F7", // ม่วง
