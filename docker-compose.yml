@@ -49,7 +49,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-ralphguard}:${POSTGRES_PASSWORD:-ralphguard_dev}@postgres:5432/${POSTGRES_DB:-ralphguard}
       REDIS_URL: redis://redis:6379/0
       API_SECRET_KEY: ${API_SECRET_KEY:-dev-secret-change-me}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
       MODELS_DIR: /models
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}

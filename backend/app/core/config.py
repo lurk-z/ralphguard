@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
     API_SECRET_KEY: str = "change-me"
-    # Comma-separated list of allowed origins (plain string avoids JSON parsing).
-    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    # Comma-separated list of allowed origins, or "*" to allow every origin.
+    CORS_ORIGINS: str = "*"
 
     @property
     def cors_origins_list(self) -> List[str]:
