@@ -1,0 +1,11 @@
+name,smiles,concentration
+Glycerin,OCC(O)CO,5
+Propylene Glycol,CC(O)CO,3
+Butylene Glycol,CC(O)CCO,3
+Niacinamide,NC(=O)c1cccnc1,4
+Panthenol (Vit B5),CC(C)(CO)C(O)C(=O)NCCCO,2
+Allantoin,NC(=O)NC1NC(=O)NC1=O,0.5
+Caffeine,Cn1c(=O)c2c(ncn2C)n(C)c1=O,1
+Betaine,C[N+](C)(C)CC(=O)[O-],2
+Sodium Lactate,CC(O)C(=O)[O-].[Na+],1
+Phenoxyethanol,OCCOc1ccccc1,0.8

@@ -10,6 +10,11 @@ class ProjectCreate(BaseModel):
     description: Optional[str] = Field(None, max_length=2000)
 
 
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
+
+
 class ProjectOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

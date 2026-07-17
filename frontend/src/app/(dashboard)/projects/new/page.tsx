@@ -1,35 +1,30 @@
 "use client";
 
-// Create Project — form only; the sidebar/top bar come from DashboardShell.
-// On submit it creates the project via the API and routes into its workspace.
-// Card illustrations are intentionally left as empty placeholders.
+// Create Project — focused two-step entry into the assessment workspace.
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Info } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  FileText,
+  FlaskConical,
+  FolderPlus,
+  Info,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import DashboardShell from "@/components/layout/DashboardShell";
 import { api } from "@/lib/api";
 
 const NAME_MAX = 100;
 const DESC_MAX = 500;
-
-/** Empty box reserving space where an illustration will go. */
-function ImagePlaceholder({ className = "", label }: { className?: string; label?: string }) {
-  return (
-    <div
-      aria-hidden
-      className={`grid place-items-center rounded-xl border border-dashed border-border bg-muted/60 text-[11px] text-muted-foreground/70 ${className}`}
-    >
-      {label}
-    </div>
-  );
-}
 
 export default function NewProjectPage() {
   const router = useRouter();
@@ -61,106 +56,194 @@ export default function NewProjectPage() {
         { label: "สร้างโปรเจกต์ใหม่" },
       ]}
     >
-      <div className="grid gap-6 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:px-8">
-        {/* Left — form */}
-        <section>
-          <Card className="border-border shadow-sm">
-            <CardContent className="p-6">
-              {/* 1. Name */}
-              <div className="grid gap-2">
-                <Label htmlFor="project-name" className="text-sm font-semibold text-foreground">
-                  1. ชื่อโปรเจกต์
-                </Label>
-                <div className="relative">
-                  <Input
-                    id="project-name"
-                    value={name}
-                    maxLength={NAME_MAX}
-                    onChange={(e) => setName(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && create()}
-                    placeholder="เช่น Hand Cream Formula Test"
-                    className="h-12 bg-background pr-16"
-                  />
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-mono text-xs tabular-nums text-muted-foreground">
-                    {name.length} / {NAME_MAX}
+      <div className="mx-auto w-full max-w-6xl px-5 py-7 lg:px-8 lg:py-10">
+        <button
+          type="button"
+          onClick={() => router.push("/projects")}
+          className="mb-5 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition hover:text-primary"
+        >
+          <ArrowLeft className="size-3.5" />
+          กลับไปยังโปรเจกต์
+        </button>
+
+        <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-primary">
+              <span className="grid size-7 place-items-center rounded-lg bg-accent">
+                <FolderPlus className="size-4" />
+              </span>
+              NEW PROJECT
+            </div>
+            <h1 className="font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+              เริ่มโปรเจกต์ประเมินสูตร
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+              ตั้งชื่อพื้นที่ทำงานของคุณก่อน จากนั้นจึงเพิ่มสูตร สแกนฉลาก และประเมินความเสี่ยงทั้ง 4 ด้านใน Assessment Studio
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 text-[11px]">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 font-semibold text-primary-foreground">
+              <span className="grid size-4 place-items-center rounded-full bg-white/20 text-[9px]">1</span>
+              รายละเอียดโปรเจกต์
+            </span>
+            <ArrowRight className="size-3.5 text-muted-foreground/50" />
+            <span className="inline-flex items-center gap-1.5 rounded-full border bg-card px-3 py-1.5 text-muted-foreground">
+              <span className="grid size-4 place-items-center rounded-full border text-[9px]">2</span>
+              เพิ่มและประเมินสูตร
+            </span>
+          </div>
+        </div>
+
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              create();
+            }}
+          >
+            <Card className="overflow-hidden border-border shadow-sm">
+              <div className="border-b bg-gradient-to-r from-accent/80 via-card to-card px-6 py-5">
+                <div className="flex items-center gap-3">
+                  <span className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+                    <FlaskConical className="size-5" />
                   </span>
+                  <div>
+                    <h2 className="font-semibold text-foreground">ข้อมูลพื้นฐาน</h2>
+                    <p className="mt-0.5 text-xs text-muted-foreground">ใช้สำหรับค้นหาและแยกผลการประเมินของแต่ละงาน</p>
+                  </div>
                 </div>
               </div>
 
-              {/* 2. Description */}
-              <div className="mt-6 grid gap-2">
-                <Label htmlFor="project-desc" className="text-sm font-semibold text-foreground">
-                  2. คำอธิบายสั้น ๆ{" "}
-                  <span className="font-normal text-muted-foreground">(ไม่บังคับ)</span>
-                </Label>
-                <Textarea
-                  id="project-desc"
-                  value={desc}
-                  maxLength={DESC_MAX}
-                  onChange={(e) => setDesc(e.target.value)}
-                  placeholder="อธิบายวัตถุประสงค์หรือขอบเขตของโปรเจกต์โดยสั้น ๆ"
-                  className="min-h-[116px] resize-y bg-background"
-                />
-                <span className="justify-self-end font-mono text-xs tabular-nums text-muted-foreground">
-                  {desc.length} / {DESC_MAX}
-                </span>
-              </div>
-
-              {/* Info callout */}
-              <div className="mt-2 flex gap-3 rounded-xl bg-accent/60 p-4">
-                <Info className="mt-0.5 size-5 shrink-0 text-accent-foreground" />
-                <div className="text-sm">
-                  <p className="font-semibold text-foreground">หลังจากสร้างโปรเจกต์แล้ว</p>
-                  <p className="mt-0.5 text-muted-foreground">
-                    คุณจะไปยังหน้าการทดลอง เพื่อเพิ่มข้อมูลสารเคมีหรือสูตร และเริ่มการวิเคราะห์ต่อได้ทันที
-                  </p>
+              <CardContent className="p-6 sm:p-7">
+                <div className="grid gap-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <Label htmlFor="project-name" className="text-sm font-semibold text-foreground">
+                      ชื่อโปรเจกต์ <span className="text-destructive">*</span>
+                    </Label>
+                    <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                      {name.length}/{NAME_MAX}
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <FlaskConical className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="project-name"
+                      autoFocus
+                      value={name}
+                      maxLength={NAME_MAX}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="เช่น Moisturizer Safety Screening"
+                      className="h-12 bg-background pl-10 text-sm"
+                    />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">ตั้งชื่อให้สื่อถึงผลิตภัณฑ์ รุ่นสูตร หรือรอบการทดลอง</p>
                 </div>
-              </div>
 
-              <Separator className="my-6" />
-
-              <div className="flex justify-end gap-3">
-                <Button variant="outline" className="h-11 px-6" onClick={() => router.push("/projects")}>
-                  ยกเลิก
-                </Button>
-                <Button className="h-11 px-6" disabled={!canCreate} onClick={create}>
-                  {creating ? "กำลังสร้าง…" : "สร้างโปรเจกต์"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-
-        {/* Right — aside cards */}
-        <aside className="flex flex-col gap-6">
-          <Card className="border-border shadow-sm">
-            <CardContent className="p-6">
-              <h2 className="text-base font-semibold text-foreground">โปรเจกต์ล่าสุด</h2>
-              <ImagePlaceholder className="mt-4 h-32 w-full" label="ภาพประกอบ" />
-              <p className="mt-4 text-center text-sm font-semibold text-foreground">
-                ยังไม่มีโปรเจกต์ล่าสุด
-              </p>
-              <p className="mt-1 text-center text-xs leading-relaxed text-muted-foreground">
-                เมื่อคุณสร้างโปรเจกต์ใหม่ รายการล่าสุดจะแสดงในส่วนนี้
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border shadow-sm">
-            <CardContent className="p-6">
-              <h2 className="text-base font-semibold text-foreground">สิ่งที่จะเกิดขึ้นถัดไป</h2>
-              <div className="mt-4 flex gap-4">
-                <ImagePlaceholder className="size-16 shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-foreground">หน้าการทดลอง</p>
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    คุณจะเพิ่มสารเคมีหรือสูตรของคุณ ตรวจสอบความปลอดภัย และเริ่มต้นการวิเคราะห์ด้วย AI
-                  </p>
+                <div className="mt-6 grid gap-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <Label htmlFor="project-desc" className="text-sm font-semibold text-foreground">
+                      คำอธิบาย <span className="font-normal text-muted-foreground">(ไม่บังคับ)</span>
+                    </Label>
+                    <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                      {desc.length}/{DESC_MAX}
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <FileText className="pointer-events-none absolute left-3.5 top-3.5 size-4 text-muted-foreground" />
+                    <Textarea
+                      id="project-desc"
+                      value={desc}
+                      maxLength={DESC_MAX}
+                      onChange={(e) => setDesc(e.target.value)}
+                      placeholder="วัตถุประสงค์ ขอบเขต หรือสิ่งที่ต้องการเปรียบเทียบในโปรเจกต์นี้"
+                      className="min-h-[132px] resize-y bg-background pl-10 text-sm leading-relaxed"
+                    />
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        </aside>
+
+                <div className="mt-6 flex gap-3 rounded-xl border border-primary/15 bg-accent/45 p-4">
+                  <Info className="mt-0.5 size-4 shrink-0 text-primary" />
+                  <div className="text-xs leading-relaxed text-muted-foreground">
+                    <p className="font-semibold text-foreground">ยังไม่ต้องกรอกส่วนผสมในขั้นตอนนี้</p>
+                    <p className="mt-0.5">หลังสร้างโปรเจกต์ ระบบจะพาไปยัง Assessment Studio เพื่อเลือกเทมเพลต เพิ่มสาร หรืออ่านฉลากด้วย OCR</p>
+                  </div>
+                </div>
+
+                <div className="mt-7 flex flex-col-reverse gap-3 border-t pt-6 sm:flex-row sm:justify-end">
+                  <Button type="button" variant="outline" className="h-11 px-6" onClick={() => router.push("/projects") }>
+                    ยกเลิก
+                  </Button>
+                  <Button type="submit" className="h-11 gap-2 px-6" disabled={!canCreate}>
+                    {creating ? (
+                      "กำลังสร้าง…"
+                    ) : (
+                      <>
+                        สร้างและไปหน้าประเมิน
+                        <ArrowRight className="size-4" />
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </form>
+
+          <aside className="space-y-4 lg:sticky lg:top-6">
+            <Card className="overflow-hidden border-primary/20 shadow-sm">
+              <div className="h-1 bg-primary" />
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">Project preview</span>
+                  <span className={`size-2 rounded-full ${name.trim() ? "bg-emerald-500" : "bg-muted-foreground/25"}`} />
+                </div>
+                <div className="mt-4 flex items-start gap-3">
+                  <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-accent text-primary">
+                    <FlaskConical className="size-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className={`truncate font-semibold ${name.trim() ? "text-foreground" : "text-muted-foreground"}`}>
+                      {name.trim() || "ชื่อโปรเจกต์ของคุณ"}
+                    </h3>
+                    <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+                      {desc.trim() || "คำอธิบายจะแสดงตรงนี้ เพื่อช่วยให้ทีมเข้าใจวัตถุประสงค์ของงาน"}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 flex items-center gap-2 rounded-lg bg-muted/70 px-3 py-2 text-[11px] text-muted-foreground">
+                  {name.trim() ? <CheckCircle2 className="size-3.5 text-emerald-600" /> : <Sparkles className="size-3.5" />}
+                  {name.trim() ? "พร้อมสร้างโปรเจกต์" : "กรอกชื่อโปรเจกต์เพื่อดำเนินการต่อ"}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border shadow-sm">
+              <CardContent className="p-5">
+                <h3 className="text-sm font-semibold text-foreground">ขั้นตอนถัดไป</h3>
+                <div className="mt-4 space-y-4">
+                  {[
+                    { icon: FlaskConical, title: "เพิ่มหรือสแกนสูตร", text: "กรอกสาร เลือกจากคลัง หรือใช้ OCR อ่านฉลาก" },
+                    { icon: Sparkles, title: "ประเมินด้วย AI/QSAR", text: "ดูผลผิว ตา การแพ้ และพิษเฉียบพลัน" },
+                    { icon: ShieldCheck, title: "ตรวจความน่าเชื่อถือ", text: "ดู coverage, confidence และสารที่ยังประเมินไม่ได้" },
+                  ].map((item, index) => (
+                    <div key={item.title} className="flex gap-3">
+                      <span className="relative grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-primary">
+                        <item.icon className="size-4" />
+                        <span className="absolute -left-1 -top-1 grid size-4 place-items-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+                          {index + 1}
+                        </span>
+                      </span>
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">{item.title}</p>
+                        <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{item.text}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </aside>
+        </div>
       </div>
     </DashboardShell>
   );

@@ -174,7 +174,17 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
             step={0.1}
             className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs tabular-nums text-slate-800"
             value={data.concentration}
-            onChange={(e) => patch({ concentration: parseFloat(e.target.value) || 0 })}
+            onFocus={(e) => e.currentTarget.select()}
+            onChange={(e) => {
+              const normalized = e.currentTarget.value.replace(/^0+(?=\d)/, "");
+              if (normalized !== e.currentTarget.value) e.currentTarget.value = normalized;
+              patch({ concentration: Number.parseFloat(normalized) || 0 });
+            }}
+            onBlur={(e) => {
+              const normalized = Math.min(100, Math.max(0, Number(e.currentTarget.value) || 0));
+              e.currentTarget.value = String(normalized);
+              patch({ concentration: normalized });
+            }}
           />
           <span className="text-xs text-slate-800/55">%</span>
         </div>
@@ -381,9 +391,20 @@ function ModifierNode({ id, data }: NodeProps<ModifierData>) {
             type="number"
             min={0}
             max={100}
+            step={0.1}
             className="w-11 rounded border border-amber-200 bg-white px-1 py-1 text-right font-mono tabular-nums text-slate-800"
             value={data.concentration}
-            onChange={(e) => patch({ concentration: parseFloat(e.target.value) || 0 })}
+            onFocus={(e) => e.currentTarget.select()}
+            onChange={(e) => {
+              const normalized = e.currentTarget.value.replace(/^0+(?=\d)/, "");
+              if (normalized !== e.currentTarget.value) e.currentTarget.value = normalized;
+              patch({ concentration: Number.parseFloat(normalized) || 0 });
+            }}
+            onBlur={(e) => {
+              const normalized = Math.min(100, Math.max(0, Number(e.currentTarget.value) || 0));
+              e.currentTarget.value = String(normalized);
+              patch({ concentration: normalized });
+            }}
           />
           <span className="text-[10px] text-slate-500">%</span>
         </div>

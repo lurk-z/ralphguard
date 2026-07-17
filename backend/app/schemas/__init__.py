@@ -16,6 +16,7 @@ from app.schemas.assessment import (
 from app.schemas.project import (
     ProjectCreate,
     ProjectOut,
+    ProjectUpdate,
 )
 
 __all__ = [
@@ -31,4 +32,5 @@ __all__ = [
     "AssessmentResult",
     "ProjectCreate",
     "ProjectOut",
+    "ProjectUpdate",
 ]

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import { ChevronDown, Eraser, FileUp, House, Search } from "lucide-react";
 
 import {
   AssessmentRecord,
@@ -23,6 +24,7 @@ import {
 } from "@/lib/catalog";
 import VoiceAssistant from "@/components/VoiceAssistant";
 import LabelScanModal from "@/components/LabelScanModal";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 // ── 3D head (client-only). Auto-fills irritation by the result intensity. ──
 const FaceView = dynamic(
@@ -107,6 +109,63 @@ const WATER_BASED_TYPES = new Set([
   "ครีมกันแดด",
 ]);
 
+const CSV_HEADER_ALIASES = {
+  name: ["name", "ingredient", "inciname", "canonicalname", "substance", "สาร", "ชื่อสาร"],
+  smiles: ["smiles", "canonicalsmiles", "structure"],
+  concentration: ["concentration", "percent", "percentage", "pct", "%", "ความเข้มข้น", "เปอร์เซ็นต์"],
+};
+
+const normalizeCsvHeader = (value: string) =>
+  value.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/[%]/g, "percent").replace(/[\s_-]+/g, "");
+
+const detectCsvDelimiter = (text: string) => {
+  const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
+  const candidates = [",", ";", "\t"];
+  let quoted = false;
+  const counts = new Map(candidates.map((candidate) => [candidate, 0]));
+  for (let index = 0; index < firstLine.length; index += 1) {
+    const char = firstLine[index];
+    if (char === '"') quoted = !quoted;
+    if (!quoted && counts.has(char)) counts.set(char, (counts.get(char) ?? 0) + 1);
+  }
+  return candidates.sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0))[0];
+};
+
+const parseCsvRows = (text: string): string[][] => {
+  const delimiter = detectCsvDelimiter(text);
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === '"') {
+      if (quoted && text[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (char === delimiter && !quoted) {
+      row.push(field.trim());
+      field = "";
+    } else if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && text[index + 1] === "\n") index += 1;
+      row.push(field.trim());
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+      field = "";
+    } else {
+      field += char;
+    }
+  }
+  if (quoted) throw new Error("CSV มีเครื่องหมายคำพูดที่ปิดไม่ครบ");
+  row.push(field.trim());
+  if (row.some(Boolean)) rows.push(row);
+  return rows;
+};
+
 export default function StudioPage() {
   const [projectId, setProjectId] = useState<number | null>(null);
   const [project, setProject] = useState<ProjectOut | null>(null);
@@ -115,6 +174,7 @@ export default function StudioPage() {
   const [templateRisk, setTemplateRisk] = useState<"all" | "low" | "mid" | "high">("all");
   const [eraseMode, setEraseMode] = useState(false);
   const [showTrend, setShowTrend] = useState(false);
+  const [formulaPanelOpen, setFormulaPanelOpen] = useState(true);
   const [formulas, setFormulas] = useState<{ id: string; name: string; type?: string; items: FormulaItem[] }[]>([
     { id: "f1", name: "สูตร A", type: "ครีม / โลชั่น", items: SAMPLE },
   ]);
@@ -156,13 +216,14 @@ export default function StudioPage() {
 
   const endpoints = assessment?.result?.endpoints ?? null;
   const completed = assessment?.status === "completed";
+  const assessing = running || (!!jobId && !completed && assessment?.status !== "failed");
   const formulaCoverage = assessment?.result?.formula_coverage;
 
-  // Product name for the paint-mode hover tooltip.
+  // Formula name for the paint-mode hover tooltip. Ingredient names belong in
+  // the formula editor; the model tooltip identifies the formula being painted.
   const productName = useMemo(() => {
-    const names = formula.map((f) => f.name?.trim()).filter(Boolean);
-    return names.length ? names.join(" + ") : "สูตรที่ประเมิน";
-  }, [formula]);
+    return activeFormula?.name?.trim() || "สูตรที่ประเมิน";
+  }, [activeFormula?.name]);
 
   // Water base = balance to 100% (formula stores actives only).
   const waterPct = Math.max(
@@ -525,6 +586,8 @@ export default function StudioPage() {
 
   // OCR: read an ingredient-label photo (via the LabelScanModal popup).
   const [scanOpen, setScanOpen] = useState(false);
+  const [csvBusy, setCsvBusy] = useState(false);
+  const [csvStatus, setCsvStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const importScannedItems = (scanned: { name: string; smiles: string; concentration: number }[]) => {
     const items = scanned
       .filter((it) => it.smiles && !isWaterItem(it))
@@ -533,6 +596,84 @@ export default function StudioPage() {
     setFormula(items);
     setAssessment(null);
     setJobId(null);
+  };
+
+  const importCsvFile = async (file: File) => {
+    setCsvBusy(true);
+    setCsvStatus(null);
+    try {
+      if (!file.name.toLowerCase().endsWith(".csv")) {
+        throw new Error("กรุณาเลือกไฟล์นามสกุล .csv");
+      }
+      const rows = parseCsvRows(await file.text());
+      if (rows.length < 2) throw new Error("CSV ต้องมีแถวหัวตารางและข้อมูลอย่างน้อย 1 แถว");
+
+      const headers = rows[0].map(normalizeCsvHeader);
+      const columnIndex = (key: keyof typeof CSV_HEADER_ALIASES) =>
+        headers.findIndex((header) => CSV_HEADER_ALIASES[key].includes(header));
+      const nameColumn = columnIndex("name");
+      const smilesColumn = columnIndex("smiles");
+      const concentrationColumn = columnIndex("concentration");
+      if (nameColumn < 0 && smilesColumn < 0) {
+        throw new Error("ไม่พบคอลัมน์ name/ingredient หรือ smiles");
+      }
+      if (concentrationColumn < 0) {
+        throw new Error("ไม่พบคอลัมน์ concentration/percent");
+      }
+
+      const parsed = rows.slice(1).map((columns, rowIndex) => {
+        const line = rowIndex + 2;
+        const rawName = nameColumn >= 0 ? String(columns[nameColumn] ?? "").trim() : "";
+        const suppliedSmiles = smilesColumn >= 0 ? String(columns[smilesColumn] ?? "").trim() : "";
+        if (!rawName && !suppliedSmiles) throw new Error(`แถว ${line}: ต้องมีชื่อสารหรือ SMILES`);
+        const rawConcentration = String(columns[concentrationColumn] ?? "").trim().replace(/%/g, "").replace(",", ".");
+        const concentration = Number(rawConcentration);
+        if (!Number.isFinite(concentration) || concentration < 0 || concentration > 100) {
+          throw new Error(`แถว ${line}: concentration ต้องเป็นตัวเลข 0–100`);
+        }
+        const catalogHit = rawName ? resolveCatalogSubstance(rawName) : undefined;
+        return {
+          line,
+          name: catalogHit?.name || rawName,
+          smiles: suppliedSmiles || catalogHit?.smiles || "",
+          suppliedSmiles,
+          concentration,
+        };
+      });
+
+      const validated = await Promise.all(
+        parsed.map(async (item) => {
+          if (!item.suppliedSmiles) return item;
+          const result = await api.validateSmiles(item.suppliedSmiles);
+          if (!result.valid) throw new Error(`แถว ${item.line}: SMILES ของ ${item.name || "สาร"} ไม่ถูกต้อง`);
+          return { ...item, smiles: result.canonical || item.suppliedSmiles };
+        }),
+      );
+      const imported: FormulaItem[] = validated
+        .map(({ name, smiles, concentration }) => ({ name, smiles, concentration }))
+        .filter((item) => !isWaterItem(item));
+      if (!imported.length && !validated.some((item) => isWaterItem(item))) {
+        throw new Error("ไม่พบข้อมูลส่วนผสมที่นำเข้าได้");
+      }
+      const total = imported.reduce((sum, item) => sum + item.concentration, 0);
+      if (total > 100.0001) throw new Error(`ผลรวม concentration เท่ากับ ${total.toFixed(2)}% ซึ่งเกิน 100%`);
+
+      setFormula(imported);
+      setAssessment(null);
+      setJobId(null);
+      setError(null);
+      const unresolved = imported.filter((item) => !item.smiles).length;
+      setCsvStatus({
+        tone: "ok",
+        text: unresolved
+          ? `นำเข้า ${imported.length} สารแล้ว · ${unresolved} สารยังไม่มีโครงสร้างและจะไม่ถูกส่งเข้า QSAR`
+          : `นำเข้า ${imported.length} สารจาก ${file.name} แล้ว`,
+      });
+    } catch (cause) {
+      setCsvStatus({ tone: "error", text: cause instanceof Error ? cause.message : "นำเข้า CSV ไม่สำเร็จ" });
+    } finally {
+      setCsvBusy(false);
+    }
   };
 
   // AI: auto-adjust the % of each substance to realistic/safest cosmetic levels.
@@ -718,58 +859,72 @@ export default function StudioPage() {
   };
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-slate-50 text-slate-800">
-      {/* ── Top bar: browser-style tabs ── */}
-      <header className="flex h-11 shrink-0 items-end gap-1 border-b border-slate-200 bg-slate-100 px-2 pt-1.5">
+    <div className="app-light flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      {/* Temporary assess UI preview — same RalphGuard theme, clearer workflow. */}
+      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-4 shadow-sm">
         {/* logo */}
-        <div className="mb-1.5 mr-1 flex items-center gap-1.5 pl-1 pr-2">
-          <span className="grid size-6 place-items-center rounded bg-brand text-xs font-bold text-white">R</span>
-          <span className="font-display text-sm font-bold">Ralph<span className="text-brand">Guard</span></span>
+        <div className="mr-1 flex items-center gap-2 pr-2">
+          <span className="grid size-8 place-items-center rounded-xl bg-brand text-sm font-bold text-white shadow-sm">R</span>
+          <div className="leading-tight">
+            <span className="block font-display text-sm font-bold">Ralph<span className="text-brand">Guard</span></span>
+            <span className="block text-[9px] font-medium uppercase tracking-[0.14em] text-slate-400">Assessment Studio</span>
+          </div>
+          <span className="hidden rounded-full border border-primary/20 bg-accent px-2 py-0.5 text-[9px] font-semibold text-accent-foreground lg:inline">
+            UI Preview
+          </span>
         </div>
 
-        {/* tabs */}
-        {(
-          [
-            ["assess", "ประเมิน", "🧪"],
-            ["nodes", "Nodes Mode", "🧩"],
-            ["trust", "ความน่าเชื่อถือ", "🛡️"],
-          ] as [Mode, string, string][]
-        ).map(([m, label, icon]) => {
-          const active = mode === m;
-          return (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={`relative flex h-8 max-w-[180px] items-center gap-1.5 rounded-t-lg px-4 text-xs transition ${
-                active
-                  ? "-mb-px border border-b-0 border-slate-200 bg-white font-semibold text-slate-800"
-                  : "mb-1 text-slate-500 hover:bg-slate-200/70"
-              }`}
-            >
-              <span className="text-sm leading-none">{icon}</span>
-              <span className="truncate">{label}</span>
-            </button>
-          );
-        })}
+        <a
+          href="/"
+          className="flex h-9 items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition hover:border-primary/35 hover:bg-accent hover:text-accent-foreground"
+          title="กลับหน้าแรก"
+          aria-label="กลับหน้าแรก"
+        >
+          <House className="size-4" />
+          <span className="hidden lg:inline">หน้าแรก</span>
+        </a>
 
-        {/* new-tab affordance (decorative) */}
-        <span className="mb-1.5 ml-0.5 grid size-6 place-items-center rounded text-slate-300">+</span>
+        {/* tabs */}
+        <div className="flex items-center rounded-xl bg-muted p-1">
+          {(
+            [
+              ["assess", "ประเมิน", "🧪"],
+              ["nodes", "Nodes", "🧩"],
+              ["trust", "ความน่าเชื่อถือ", "🛡️"],
+            ] as [Mode, string, string][]
+          ).map(([m, label, icon]) => {
+            const active = mode === m;
+            return (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                className={`flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs transition ${
+                  active
+                    ? "bg-white font-semibold text-brand-dark shadow-sm"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <span className="text-sm leading-none">{icon}</span>
+                <span className="hidden truncate sm:inline">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {mode === "assess" && (
+          <div className="ml-2 hidden items-center gap-1.5 xl:flex">
+            <WorkflowChip step="1" label="เตรียมสูตร" done={formula.length > 0} active={!jobId} />
+            <span className="h-px w-4 bg-slate-200" />
+            <WorkflowChip step="2" label={assessing ? "กำลังประเมิน" : "ประเมิน"} done={completed} active={assessing} />
+            <span className="h-px w-4 bg-slate-200" />
+            <WorkflowChip step="3" label="ดูผลลัพธ์" done={completed} active={completed} />
+          </div>
+        )}
 
         {/* right actions */}
-        <div className="mb-1 ml-auto flex items-center gap-2 pr-1">
-          {project && (
-            <a
-              href={`/projects/${project.id}`}
-              className="hidden max-w-56 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] text-slate-600 hover:border-brand hover:text-brand md:flex"
-              title={`กลับไปยังโปรเจกต์ ${project.name}`}
-            >
-              <span>🗂️</span>
-              <span className="truncate">{project.name}</span>
-            </a>
-          )}
-          <button onClick={run} className="grid size-7 place-items-center rounded-lg border border-slate-200 bg-white text-slate-800/70 hover:border-brand hover:text-brand" title="Run">▶</button>
-          <button onClick={exportPdf} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark" title="ส่งออกรายงาน PDF จากข้อมูลการประเมิน">
-            แชร์ / PDF
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={exportPdf} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-brand hover:text-brand" title="ส่งออกรายงาน PDF จากข้อมูลการประเมิน">
+            PDF
           </button>
         </div>
       </header>
@@ -777,7 +932,7 @@ export default function StudioPage() {
       {/* ── Body ── */}
       <div className="flex min-h-0 flex-1">
         {/* Icon rail */}
-        <nav className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-slate-200 bg-white py-3">
+        <nav className="hidden w-12 shrink-0 flex-col items-center gap-1 border-r border-slate-200 bg-white py-3">
           {[
             { m: "assess" as Mode, icon: "🗂️", title: "ไฟล์" },
             { m: "nodes" as Mode, icon: "🧩", title: "Nodes" },
@@ -807,7 +962,7 @@ export default function StudioPage() {
         </nav>
 
         {/* Left panel — Pages + Layers */}
-        <aside className="flex w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white">
+        <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-border bg-card">
           <div className="border-b border-slate-200 px-4 py-3">
             <div className="font-display text-sm font-semibold">การประเมินสารเคมี</div>
             {project && (
@@ -928,7 +1083,7 @@ export default function StudioPage() {
         </aside>
 
         {/* Center canvas */}
-        <main className="relative min-w-0 flex-1 bg-slate-100/30">
+        <main className="relative flex min-w-0 flex-1 bg-background">
           {mode === "assess" && (
             <Viewport
               dayIdx={dayIdx}
@@ -942,12 +1097,40 @@ export default function StudioPage() {
 
           {/* Floating Layers panel — docked top-left inside the viewport */}
           {mode === "assess" && (
-            <div className="absolute left-9 top-12 z-10 flex max-h-[calc(100%-6rem)] w-60 flex-col overflow-y-auto rounded-xl border border-slate-200 bg-white/95 shadow-soft backdrop-blur">
-              <div className="border-b border-slate-200 px-3 py-2 text-[11px] font-semibold tracking-wide text-slate-800/60">
-                🧪 {activeFormula?.name ?? "สูตร"} · {formula.length} สาร
+            <div
+              className={`relative order-1 h-full shrink-0 transition-[width] duration-300 ease-in-out ${
+                formulaPanelOpen ? "w-72" : "w-0"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => setFormulaPanelOpen((open) => !open)}
+                aria-expanded={formulaPanelOpen}
+                aria-label={formulaPanelOpen ? "ปิดส่วนผสมของสูตร" : "เปิดส่วนผสมของสูตร"}
+                title={formulaPanelOpen ? "ปิดส่วนผสมของสูตร" : "เปิดส่วนผสมของสูตร"}
+                className="absolute -left-3 top-1/2 z-30 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-slate-300 bg-white text-sm font-black text-slate-950 shadow-md transition hover:scale-105 hover:border-slate-500 focus:outline-none focus:ring-2 focus:ring-brand/40"
+              >
+                {formulaPanelOpen ? "←" : "→"}
+              </button>
+
+              <div
+                className={`absolute inset-y-0 right-0 flex w-72 flex-col overflow-y-auto border-r border-slate-200 bg-white transition-all duration-300 ease-in-out ${
+                  formulaPanelOpen
+                    ? "translate-x-0 opacity-100"
+                    : "pointer-events-none -translate-x-full opacity-0"
+                }`}
+              >
+              <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <span className="grid size-6 place-items-center rounded-lg bg-teal-50 text-xs font-bold text-brand">1</span>
+                  <div>
+                    <div className="text-xs font-semibold text-slate-800">ส่วนผสมของสูตร</div>
+                    <div className="text-[10px] text-slate-400">{activeFormula?.name ?? "สูตร"} · {formula.length} สาร</div>
+                  </div>
+                </div>
               </div>
-              <div className="p-3">
-                <div className="mb-1 text-[11px] font-semibold text-slate-800/50">🧪 สูตร (Formulation)</div>
+              <div className="p-4">
+                <div className="mb-2 text-[11px] font-semibold text-slate-500">สูตร (Formulation)</div>
                 <div className="space-y-1.5">
                   <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-1.5">
                     <div className="flex items-center gap-1 text-xs">
@@ -977,9 +1160,23 @@ export default function StudioPage() {
                         />
                         <input
                           type="number"
+                          min={0}
+                          max={100}
+                          step={0.1}
+                          inputMode="decimal"
                           className="w-12 shrink-0 bg-transparent text-right font-mono text-xs tabular-nums outline-none"
                           value={it.concentration}
-                          onChange={(e) => patchItem(i, { concentration: parseFloat(e.target.value) || 0 })}
+                          onFocus={(e) => e.currentTarget.select()}
+                          onChange={(e) => {
+                            const normalized = e.currentTarget.value.replace(/^0+(?=\d)/, "");
+                            if (normalized !== e.currentTarget.value) e.currentTarget.value = normalized;
+                            patchItem(i, { concentration: Number.parseFloat(normalized) || 0 });
+                          }}
+                          onBlur={(e) => {
+                            const normalized = Math.min(100, Math.max(0, Number(e.currentTarget.value) || 0));
+                            e.currentTarget.value = String(normalized);
+                            patchItem(i, { concentration: normalized });
+                          }}
                         />
                         <span className="shrink-0 text-[10px] text-slate-800/40">%</span>
                         <button onClick={() => removeItem(i)} className="shrink-0 text-slate-800/30 hover:text-rose-500">×</button>
@@ -1005,69 +1202,138 @@ export default function StudioPage() {
                   <div className="flex items-center gap-2 pt-0.5">
                     <button onClick={addItem} className="text-xs font-medium text-brand hover:underline">+ เพิ่มสาร</button>
                     <span className="text-[10px] text-slate-800/30">หรือ</span>
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        if (e.target.value) addFromCatalog(e.target.value);
-                        e.currentTarget.selectedIndex = 0;
-                      }}
-                      className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-800"
-                    >
-                      <option value="">🔎 เลือกจากคลังสาร…</option>
-                      {SUBSTANCE_LIBRARY.map((g) => (
-                        <optgroup key={g.category} label={`${g.icon} ${g.category}`}>
-                          {g.items.map((it) => (
-                            <option key={it.smiles} value={it.smiles}>
-                              {it.name} ({it.conc}%)
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
+                    <SubstanceLibraryPicker onSelect={addFromCatalog} />
                   </div>
 
-                  {/* OCR — open the label-scanner popup */}
-                  <div className="pt-1">
+                  {/* Formula import tools */}
+                  <div className="grid grid-cols-2 gap-2 pt-1">
                     <button
                       onClick={() => setScanOpen(true)}
-                      className="w-full rounded-lg border border-dashed border-brand/40 py-1.5 text-xs font-medium text-brand transition hover:bg-teal-50"
+                      className="rounded-lg border border-dashed border-brand/40 px-2 py-2 text-xs font-medium text-brand transition hover:bg-teal-50"
                     >
-                      📷 อ่านฉลากส่วนผสมจากรูป (OCR)
+                      📷 OCR รูปฉลาก
                     </button>
+                    <label
+                      htmlFor="formula-csv-upload"
+                      className={`flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-brand/40 px-2 py-2 text-xs font-medium text-brand transition hover:bg-teal-50 ${
+                        csvBusy ? "pointer-events-none opacity-50" : ""
+                      }`}
+                    >
+                      <FileUp className="size-3.5" />
+                      {csvBusy ? "กำลังอ่าน…" : "นำเข้า CSV"}
+                    </label>
+                    <input
+                      id="formula-csv-upload"
+                      type="file"
+                      accept=".csv,text/csv"
+                      disabled={csvBusy}
+                      className="sr-only"
+                      onChange={(event) => {
+                        const file = event.currentTarget.files?.[0];
+                        event.currentTarget.value = "";
+                        if (file) void importCsvFile(file);
+                      }}
+                    />
                   </div>
+                  <div className="text-[9px] leading-relaxed text-slate-400">
+                    CSV: <span className="font-mono">name, smiles, concentration</span> · ไม่สร้าง SMILES ที่ไม่มีในไฟล์หรือคลังสาร
+                    <a
+                      href="/formula-example-10-ingredients.csv"
+                      download
+                      className="mt-1 block w-fit font-semibold text-brand hover:underline"
+                    >
+                      ↓ ดาวน์โหลดไฟล์ตัวอย่าง 10 สาร
+                    </a>
+                  </div>
+                  {csvStatus && (
+                    <div
+                      className={`rounded-lg border px-2.5 py-2 text-[10px] leading-relaxed ${
+                        csvStatus.tone === "ok"
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-rose-200 bg-rose-50 text-rose-700"
+                      }`}
+                    >
+                      {csvStatus.text}
+                    </div>
+                  )}
 
                 </div>
+              </div>
               </div>
             </div>
           )}
 
           {/* Inflammation trend — slides in from the right edge (site theme) */}
           {mode === "assess" && (
-            <div className="absolute right-0 top-12 z-20 flex items-start">
-              <div className={`overflow-hidden transition-all duration-300 ${showTrend ? "w-72" : "w-0"}`}>
-                <div className="w-72 rounded-l-xl border border-r-0 border-slate-200 bg-white p-3 text-slate-800 shadow-soft">
-                  <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold">
-                    <span>📈</span>
-                    <span>แนวโน้มการอักเสบ · Day 1/3/7</span>
-                    <button onClick={() => setShowTrend(false)} className="ml-auto text-slate-400 hover:text-slate-700">
+            <div className="absolute right-0 top-24 z-20 flex items-start">
+              <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showTrend ? "w-[420px]" : "w-0"}`}>
+                <div className="w-[420px] max-w-[calc(100vw-2rem)] rounded-l-2xl border border-r-0 border-slate-200 bg-white p-4 text-slate-800 shadow-xl">
+                  <div className="mb-4 flex items-start gap-3">
+                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-teal-50 text-lg">📈</span>
+                    <div>
+                      <div className="text-sm font-semibold">แนวโน้มความเสี่ยงตามเวลา</div>
+                      <div className="mt-0.5 text-[10px] text-slate-400">เปรียบเทียบคะแนนจำลอง Day 1, Day 3 และ Day 7</div>
+                    </div>
+                    <button
+                      onClick={() => setShowTrend(false)}
+                      className="ml-auto grid size-7 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                      aria-label="ปิดกราฟแนวโน้ม"
+                    >
                       ✕
                     </button>
                   </div>
                   {completed && trendData.length ? (
                     <>
+                      <div className="mb-3 grid grid-cols-2 gap-2">
+                        {paintLayers.map((layer) => (
+                          <div key={layer.key} className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
+                            <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                              <span className="size-2 rounded-full" style={{ background: layer.color }} />
+                              <span className="truncate">{layer.label}</span>
+                            </div>
+                            <div className="mt-1 flex items-end justify-between gap-2">
+                              <span className="font-mono text-lg font-semibold tabular-nums text-slate-800">{Math.round(layer.score)}</span>
+                              <span className="mb-0.5 text-[9px] font-semibold" style={{ color: BAND_HEX[layer.band] }}>
+                                {BAND_LABEL[layer.band]} · Day {DAY_LABELS[dayIdx]}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200 bg-white px-2 pb-2 pt-1">
                       <TrendChart data={trendData} lines={trendLines} />
-                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
                         {trendLines.map((l) => (
                           <span key={l.key} className="flex items-center gap-1 text-[10px] text-slate-500">
-                            <span className="h-0.5 w-3 rounded" style={{ background: l.color }} />
+                            <span className="h-0.5 w-4 rounded" style={{ background: l.color }} />
                             {l.label}
                           </span>
                         ))}
                       </div>
+
+                      <div className="mt-3 overflow-hidden rounded-full border border-slate-200">
+                        <div className="grid h-1.5 grid-cols-4">
+                          <span className="bg-green-600" />
+                          <span className="bg-amber-500" />
+                          <span className="bg-red-500" />
+                          <span className="bg-red-800" />
+                        </div>
+                      </div>
+                      <div className="mt-1 flex justify-between text-[9px] text-slate-400">
+                        <span>0 · ต่ำ</span><span>25</span><span>50</span><span>75</span><span>100 · รุนแรง</span>
+                      </div>
+                      <p className="mt-3 text-[9px] leading-relaxed text-slate-400">
+                        กราฟนี้เป็นผลจำลองจากแบบจำลอง QSAR สำหรับการคัดกรองเบื้องต้น ไม่ใช่ผลการทดลองทางคลินิก
+                      </p>
                     </>
                   ) : (
-                    <div className="rounded-lg border border-dashed border-slate-200 py-6 text-center text-[11px] text-slate-400">
-                      กด ▶ Run เพื่อดูแนวโน้ม
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 py-10 text-center">
+                      <div className="text-2xl opacity-30">⌁</div>
+                      <div className="mt-2 text-xs font-medium text-slate-500">ยังไม่มีข้อมูลแนวโน้ม</div>
+                      <div className="mt-1 text-[10px] text-slate-400">กด “ประเมินสูตร” เพื่อสร้างข้อมูล Day 1/3/7</div>
                     </div>
                   )}
                 </div>
@@ -1075,7 +1341,7 @@ export default function StudioPage() {
               <div className="group relative">
                 <button
                   onClick={() => setShowTrend((s) => !s)}
-                  className={`grid size-9 place-items-center rounded-l-lg border border-r-0 border-slate-200 text-base shadow-card transition ${
+                  className={`grid size-10 place-items-center rounded-l-xl border border-r-0 border-slate-200 text-base shadow-card transition ${
                     showTrend ? "bg-brand text-white" : "bg-white text-slate-600 hover:text-brand"
                   }`}
                 >
@@ -1097,30 +1363,34 @@ export default function StudioPage() {
           )}
           {mode === "trust" && <TrustReport />}
 
-          {/* Bottom floating toolbar (assess only — nodes evaluate via each Result node) */}
+          {/* Keep the eraser discoverable; it becomes usable when paint results exist. */}
           {mode === "assess" && (
-            <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center print:hidden">
+            <div className="pointer-events-none absolute bottom-4 right-4 z-40 print:hidden">
               <div className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-soft backdrop-blur">
-                {mode === "assess" && (
-                  <button
-                    onClick={() => setEraseMode((e) => !e)}
-                    title={eraseMode ? "โหมดลบ — คลิกจุดที่ paint เพื่อลบ" : "ยางลบ"}
-                    className={`grid size-9 place-items-center rounded-lg text-base transition ${
-                      eraseMode ? "bg-brand text-white" : "text-slate-800/50 hover:bg-slate-100"
-                    }`}
-                  >
-                    🧽
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setEraseMode((value) => !value)}
+                  disabled={!completed}
+                  title={completed ? (eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบช่อง Grid") : "ประเมินสูตรก่อนใช้ยางลบ"}
+                  aria-pressed={eraseMode}
+                  className={`flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-semibold transition ${
+                    eraseMode
+                      ? "bg-slate-900 text-white shadow-sm"
+                      : "text-slate-600 hover:bg-slate-100"
+                  } disabled:cursor-not-allowed disabled:opacity-40`}
+                >
+                  <Eraser className="size-4" />
+                  {eraseMode ? "กำลังลบช่อง Grid" : "ยางลบ"}
+                </button>
                 <button
                   onClick={() => {
-                    setEraseMode(false); // กด Run = กลับมาโหมด paint ผลลัพธ์
+                    setEraseMode(false); // กดประเมิน = กลับมาโหมด paint ผลลัพธ์
                     run();
                   }}
-                  disabled={running}
-                  className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white shadow-soft hover:bg-brand-dark disabled:opacity-50"
+                  disabled={assessing}
+                  className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-dark disabled:cursor-wait disabled:opacity-60"
                 >
-                  {running ? "…" : "▶ Run ประเมิน"}
+                  {assessing ? "กำลังประเมิน…" : completed ? "↻ ประเมินอีกครั้ง" : "▶ ประเมินสูตร"}
                 </button>
               </div>
             </div>
@@ -1128,14 +1398,14 @@ export default function StudioPage() {
         </main>
 
         {/* Right inspector */}
-        <aside className="flex w-72 shrink-0 flex-col overflow-y-auto border-l border-slate-200 bg-white">
+        <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-l border-border bg-card">
           {mode === "trust" ? (
             <div className="p-4 text-xs leading-relaxed text-slate-800/55">
               เลือก <b>Pages › ประเมินความเสี่ยง</b> เพื่อแก้สูตรและดูผลบนหุ่น 3D
             </div>
           ) : (
             <>
-              <Section title="การจำลองตามเวลา">
+              <Section title="การจำลองตามเวลา" className="order-2">
                 <div className="flex gap-1">
                   {DAY_LABELS.map((d, i) => (
                     <button
@@ -1151,7 +1421,7 @@ export default function StudioPage() {
                 </div>
               </Section>
 
-              <Section title="ผู้ช่วย AI">
+              <Section title="ผู้ช่วย AI" className="order-3">
                 <VoiceAssistant
                   productName={productName}
                   layers={paintLayers}
@@ -1166,14 +1436,14 @@ export default function StudioPage() {
                 />
               </Section>
 
-              <Section title="ผลการประเมิน">
+              <Section title="3 · ผลการประเมิน" className="order-1">
                 {error && <div className="rounded border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-600">{error}</div>}
                 {!completed && !error && (
                   <div className="grid place-items-center gap-2 py-6 text-center">
                     <span className="text-2xl text-slate-800/20">◇</span>
                     <p className="text-xs text-slate-800/50">
                       {jobId ? "กำลังประเมิน…" : "ยังไม่ได้ประเมิน"}
-                      <br />เลือกสูตร + บริเวณ แล้วกด <span className="text-brand">▶ Run</span>
+                      <br />เลือกสูตร + บริเวณ แล้วกด <span className="text-brand">ประเมินสูตรด้านขวาล่าง</span>
                     </p>
                   </div>
                 )}
@@ -1399,9 +1669,159 @@ export default function StudioPage() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function SubstanceLibraryPicker({ onSelect }: { onSelect: (smiles: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredGroups = useMemo(
+    () =>
+      SUBSTANCE_LIBRARY.map((group) => ({
+        ...group,
+        items: group.items.filter((item) =>
+          `${item.name} ${item.smiles} ${group.category}`.toLowerCase().includes(normalizedQuery),
+        ),
+      })).filter((group) => group.items.length > 0),
+    [normalizedQuery],
+  );
+  const resultCount = filteredGroups.reduce((total, group) => total + group.items.length, 0);
+  const libraryCount = SUBSTANCE_LIBRARY.reduce((total, group) => total + group.items.length, 0);
+
   return (
-    <div className="border-b border-slate-200 px-4 py-3">
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) setQuery("");
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="group flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-left shadow-sm transition hover:border-brand/50 hover:bg-teal-50/50 focus:outline-none focus:ring-2 focus:ring-brand/20"
+          aria-label="เลือกสารจากคลัง"
+        >
+          <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-teal-50 text-sm text-brand transition group-hover:bg-brand group-hover:text-white">
+            ◇
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[11px] font-semibold text-slate-700">เลือกจากคลังสาร</span>
+            <span className="block truncate text-[9px] text-slate-400">{libraryCount} สาร · ค้นหาชื่อหรือ SMILES</span>
+          </span>
+          <ChevronDown className={`size-3.5 shrink-0 text-slate-400 transition ${open ? "rotate-180" : ""}`} />
+        </button>
+      </PopoverTrigger>
+
+      <PopoverContent align="end" sideOffset={8} className="w-[350px] overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-2xl">
+        <div className="border-b border-slate-100 bg-gradient-to-r from-teal-50 to-white p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-semibold text-slate-800">คลังสาร RalphGuard</div>
+              <div className="text-[9px] text-slate-500">เลือกแล้วระบบจะเพิ่มลงในสูตรทันที</div>
+            </div>
+            <span className="rounded-full border border-brand/15 bg-white px-2 py-0.5 text-[9px] font-semibold text-brand">
+              {resultCount} รายการ
+            </span>
+          </div>
+          <label className="flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 shadow-sm focus-within:border-brand/50 focus-within:ring-2 focus-within:ring-brand/10">
+            <Search className="size-3.5 shrink-0 text-slate-400" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="ค้นหาชื่อสาร, หมวด หรือ SMILES…"
+              className="min-w-0 flex-1 bg-transparent text-xs text-slate-700 outline-none placeholder:text-slate-400"
+            />
+          </label>
+        </div>
+
+        <div className="max-h-[360px] overflow-y-auto p-2">
+          {filteredGroups.length ? (
+            filteredGroups.map((group) => (
+              <section key={group.category} className="mb-2 last:mb-0">
+                <div className="sticky top-0 z-10 flex items-center gap-1.5 bg-white/95 px-2 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-slate-400 backdrop-blur">
+                  <span>{group.icon}</span>
+                  <span>{group.category}</span>
+                  <span className="ml-auto font-normal tabular-nums">{group.items.length}</span>
+                </div>
+                <div className="space-y-1">
+                  {group.items.map((item) => (
+                    <button
+                      key={`${group.category}-${item.smiles}`}
+                      type="button"
+                      onClick={() => {
+                        onSelect(item.smiles);
+                        setOpen(false);
+                      }}
+                      className="group/item flex w-full items-center gap-2 rounded-xl border border-transparent px-2.5 py-2 text-left transition hover:border-brand/20 hover:bg-teal-50"
+                    >
+                      <span className="grid size-7 shrink-0 place-items-center rounded-lg border border-slate-100 bg-slate-50 text-[10px] font-semibold text-slate-500 group-hover/item:border-brand/20 group-hover/item:bg-white group-hover/item:text-brand">
+                        +
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[11px] font-semibold text-slate-700">{item.name}</span>
+                        <span className="block truncate font-mono text-[9px] text-slate-400">{item.smiles}</span>
+                      </span>
+                      <span className="shrink-0 rounded-lg bg-white px-2 py-1 text-[9px] font-semibold tabular-nums text-brand shadow-sm ring-1 ring-brand/10">
+                        {item.conc}%
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ))
+          ) : (
+            <div className="grid place-items-center px-4 py-10 text-center">
+              <span className="grid size-10 place-items-center rounded-full bg-slate-50 text-slate-300">⌕</span>
+              <div className="mt-2 text-xs font-medium text-slate-600">ไม่พบสารที่ค้นหา</div>
+              <div className="mt-1 text-[10px] text-slate-400">ลองค้นด้วยชื่อ INCI หรือ SMILES อื่น</div>
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function WorkflowChip({
+  step,
+  label,
+  done,
+  active,
+}: {
+  step: string;
+  label: string;
+  done: boolean;
+  active: boolean;
+}) {
+  return (
+    <div className={`flex items-center gap-1.5 text-[10px] ${active ? "font-semibold text-brand-dark" : "text-slate-400"}`}>
+      <span
+        className={`grid size-5 place-items-center rounded-full text-[9px] font-bold ${
+          done
+            ? "bg-brand text-white"
+            : active
+              ? "border border-brand bg-teal-50 text-brand"
+              : "border border-slate-200 bg-white text-slate-400"
+        }`}
+      >
+        {done ? "✓" : step}
+      </span>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  children,
+  className = "",
+}: {
+  title: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`border-b border-slate-200 px-4 py-3 ${className}`}>
       <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-800/40">{title}</div>
       {children}
     </div>
@@ -1424,10 +1844,14 @@ function Viewport({
   eraseMode: boolean;
 }) {
   return (
-    <div className="absolute inset-0">
+    <div className="relative order-2 h-full min-w-0 flex-1">
       <div className="relative h-full w-full bg-[repeating-conic-gradient(#F4F1EE_0%_25%,#FFFDFB_0%_50%)] bg-[length:24px_24px]">
-        <div className="absolute right-3 top-2 z-10 text-xs font-semibold text-brand">
-          ▢ Model Viewport · Day {DAY_LABELS[dayIdx]}
+        <div className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-3 py-2 shadow-sm backdrop-blur">
+          <span className="grid size-6 place-items-center rounded-lg bg-teal-50 text-xs font-bold text-brand">2</span>
+          <div>
+            <div className="text-[11px] font-semibold text-slate-700">ดูผลบนโมเดล</div>
+            <div className="text-[9px] text-slate-400">Day {DAY_LABELS[dayIdx]} · Paint แล้ว hover เพื่อดูตำแหน่ง</div>
+          </div>
         </div>
         <div className="absolute inset-0">
           <FaceView
@@ -1439,22 +1863,24 @@ function Viewport({
           />
         </div>
         {!ready && (
-          <div className="pointer-events-none absolute inset-0 grid place-items-center">
-            <div className="text-center text-xs text-slate-800/40">
-              เลือกสูตร + บริเวณ แล้วกด ▶ Run<br />
-              บริเวณ: <span className="text-brand">{REGIONS.find((r) => r.value === region)?.label}</span>
+          <div className="pointer-events-none absolute right-4 top-4 z-10 rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-right shadow-sm backdrop-blur">
+            <div className="text-[11px] font-semibold text-slate-600">พร้อมประเมินสูตร</div>
+            <div className="mt-0.5 text-[9px] text-slate-400">
+              บริเวณ <span className="font-medium text-brand">{REGIONS.find((r) => r.value === region)?.label}</span> · กด “ประเมินสูตร” ด้านขวาล่าง
             </div>
           </div>
         )}
         {/* Risk legend */}
-        <div className="absolute bottom-3 left-3 flex gap-3 rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-[11px] backdrop-blur">
-          {(["low", "moderate", "high", "severe"] as const).map((b) => (
-            <span key={b} className="flex items-center gap-1">
-              <span className="size-2 rounded-full" style={{ background: BAND_HEX[b] }} />
-              {BAND_LABEL[b]}
-            </span>
-          ))}
-        </div>
+        {ready && (
+          <div className="absolute bottom-3 left-3 flex gap-3 rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-[11px] backdrop-blur">
+            {(["low", "moderate", "high", "severe"] as const).map((b) => (
+              <span key={b} className="flex items-center gap-1">
+                <span className="size-2 rounded-full" style={{ background: BAND_HEX[b] }} />
+                {BAND_LABEL[b]}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

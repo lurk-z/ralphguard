@@ -23,6 +23,7 @@ import {
   type PaintApi,
   type PaintHoverInfo,
   type SkinKey,
+  mapAssessmentEndpointsToSymptoms,
 } from "./SymptomLabModel";
 
 type PaintLayer = { key: string; label: string; score: number; color: string; band: string };
@@ -74,17 +75,12 @@ export function SymptomFaceCanvas({
   const eye = scoreOf("eye");
   const sens = scoreOf("sens");
   const acute = scoreOf("acute");
-
-  const sev: Record<SkinKey, number> = useMemo(
-    () => ({
-      redness: skin,
-      papule: sens,
-      peeling: Math.max(0, (skin - 0.55) / 0.45), // desquamation only when severe
-      edema: Math.max(0, (Math.max(skin, acute) - 0.5) / 0.5), // swelling only when high
-    }),
-    [skin, sens, acute],
+  // Visual mapping is defined only in SymptomLabModel; this assessment wrapper
+  // supplies the four endpoint scores without maintaining a second recipe.
+  const { sev, eyeRed } = useMemo(
+    () => mapAssessmentEndpointsToSymptoms({ skin, eye, sens, acute }),
+    [skin, eye, sens, acute],
   );
-  const eyeRed = eye;
 
   const dominant: SkinKey = useMemo(() => {
     const entries: [SkinKey, number][] = [
@@ -95,6 +91,17 @@ export function SymptomFaceCanvas({
     ];
     return entries.sort((a, b) => b[1] - a[1])[0][0];
   }, [sev]);
+
+  // A production stroke represents exposure to the whole assessed formula, so
+  // every symptom with a non-zero mapped endpoint must share the painted area.
+  // Keep one fallback mask for a completely safe/empty result so Grid Scan still
+  // confirms where the user painted without inventing a visible reaction.
+  const paintSymptoms = useMemo(() => {
+    const mapped = (Object.entries(sev) as [SkinKey, number][])
+      .filter(([, value]) => value > 0.001)
+      .map(([key]) => key);
+    return mapped.length ? mapped : [dominant];
+  }, [sev, dominant]);
 
   const apiRef = useRef<PaintApi | null>(null);
   const [tip, setTip] = useState<PaintHoverInfo | null>(null);
@@ -160,6 +167,7 @@ export function SymptomFaceCanvas({
         <Suspense fallback={null}>
           <PaintSymptomModel
             activeSymptom={dominant}
+            paintSymptoms={paintSymptoms}
             sev={sev}
             brushSizePct={50}
             eyeLeft={eyeRed}

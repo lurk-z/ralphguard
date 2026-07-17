@@ -109,6 +109,7 @@ async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Pro
       const body = await res.text();
       throw new Error(`${res.status} ${res.statusText}: ${body}`);
     }
+    if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
   } finally {
     clearTimeout(t);
@@ -146,6 +147,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ name, description: description ?? null }),
     }),
+
+  updateProject: (projectId: number, name: string, description?: string) =>
+    http<ProjectOut>(`/api/projects/${projectId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name, description: description?.trim() || null }),
+    }),
+
+  deleteProject: (projectId: number) =>
+    http<void>(`/api/projects/${projectId}`, { method: "DELETE" }),
 
   listProjectAssessments: (projectId: number) =>
     http<AssessmentSummary[]>(`/api/projects/${projectId}/assessments`),

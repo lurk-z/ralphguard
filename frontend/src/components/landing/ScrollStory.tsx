@@ -6,7 +6,9 @@ import gsap from 'gsap'
 import { ArrowRight, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CHAPTERS, type Chapter } from './chapters'
-import { InputTrioMockup, DescriptorMockup, LabMockup } from './LandingMockups'
+import GridScanShowcase from './GridScanShowcase'
+import AIAssistantShowcase from './AIAssistantShowcase'
+import NodeWorkspaceShowcase from './NodeWorkspaceShowcase'
 import { scrollState } from '@/app/_lib/scroll'
 import { storyState, smoothstep } from '@/app/_lib/story'
 
@@ -19,25 +21,6 @@ function scrollToSection1() {
 }
 
 const TRANSITIONS = CHAPTERS.length - 1
-
-/** Mockup image placed next to a chapter's copy (steps 1–3). */
-function mockupFor(i: number) {
-  const base = 'pointer-events-none absolute w-[19rem] max-w-[80vw]'
-  const noShadow: React.CSSProperties = { textShadow: 'none' }
-  if (i === 2)
-    return (
-      <div className={base} style={{ ...noShadow, right: '10%', top: '50%', transform: 'translateY(-50%)' }}>
-        <DescriptorMockup />
-      </div>
-    )
-  if (i === 3)
-    return (
-      <div className={base} style={{ ...noShadow, left: '10%', top: '58%', transform: 'translateY(-50%)' }}>
-        <LabMockup />
-      </div>
-    )
-  return null
-}
 
 const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
@@ -134,12 +117,18 @@ function HeroChapter({ c }: { c: Chapter }) {
 }
 
 function DetailChapter({ c }: { c: Chapter }) {
+  const highlightClass = c.highlight === 'Node graph'
+    ? 'font-display text-white'
+    : c.highlight === 'ทุกมุม' || c.highlight === 'AI'
+      ? 'bg-gradient-to-r from-cyan-200 via-teal-200 to-emerald-200 bg-clip-text font-display text-transparent drop-shadow-[0_1px_8px_rgba(94,234,212,0.42)]'
+      : HIGHLIGHT_GRADIENT
+
   return (
     <>
       <h2 className="mt-5 font-sans font-bold leading-[1.1] tracking-tight text-white text-[clamp(1.9rem,4.6vw,3.1rem)]">
         {c.titleLines.map((line, i) => (
           <span key={i} className="block">
-            {renderTitle(line, c.highlight)}
+            {renderTitle(line, c.highlight, highlightClass)}
           </span>
         ))}
       </h2>
@@ -210,7 +199,8 @@ export default function ScrollStory() {
 
   // Per-frame crossfade driven by shared scroll progress.
   useEffect(() => {
-    const update = () => {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const update = (time = 0) => {
       const p = scrollState.progress
       const { k, move } = storyState(p, TRANSITIONS)
       for (let i = 0; i < CHAPTERS.length; i++) {
@@ -229,6 +219,71 @@ export default function ScrollStory() {
         el.style.transform = `translate3d(0, ${y}px, 0)`
         el.style.visibility = op < 0.01 ? 'hidden' : 'visible'
         el.style.pointerEvents = op > 0.6 ? 'auto' : 'none'
+
+        if (i === 1) {
+          const cardProgress = reduceMotion ? 1 : smoothstep(op)
+          const cards = el.querySelectorAll<HTMLElement>('[data-scan-card]')
+          const beams = el.querySelectorAll<HTMLElement>('[data-scan-beam]')
+          cards.forEach((card, cardIndex) => {
+            const direction = cardIndex - 1
+            const delay = cardIndex * 0.08
+            const localProgress = reduceMotion
+              ? 1
+              : smoothstep(Math.max(0, Math.min(1, (cardProgress - delay) / (1 - delay))))
+            const drift = reduceMotion ? 0 : Math.sin(time * 1.15 + cardIndex * (Math.PI * 2 / 3)) * 3 * localProgress
+            const x = direction * (1 - localProgress) * 86
+            const y = (1 - localProgress) * 20 + drift
+            const rotation = direction * ((1 - localProgress) * 4.5 + 0.8)
+            card.style.transform = `translate3d(${x}px, ${y}px, 0) rotate(${rotation}deg)`
+          })
+          beams.forEach((beam, beamIndex) => {
+            if (reduceMotion || op < 0.05) {
+              beam.style.opacity = '0'
+              return
+            }
+            const phase = (time * 0.18 + beamIndex * 0.47) % 1
+            beam.style.top = `${8 + phase * 84}%`
+            beam.style.opacity = String(Math.sin(phase * Math.PI) * 0.85 * op)
+          })
+        }
+
+        if (i === 2) {
+          const cards = el.querySelectorAll<HTMLElement>('[data-ai-card]')
+          cards.forEach((card, cardIndex) => {
+            const delay = cardIndex * 0.09
+            const localProgress = reduceMotion
+              ? 1
+              : smoothstep(Math.max(0, Math.min(1, (op - delay) / (1 - delay))))
+            const enterX = cardIndex === 0 ? -54 : cardIndex === 1 ? 54 : 0
+            const enterY = cardIndex === 2 ? 52 : 12
+            const float = reduceMotion ? 0 : Math.sin(time * 1.05 + cardIndex * 2.1) * 2.5 * localProgress
+            card.style.opacity = String(localProgress)
+            card.style.transform = `translate3d(${enterX * (1 - localProgress)}px, ${enterY * (1 - localProgress) + float}px, 0)`
+          })
+          el.querySelectorAll<HTMLElement>('[data-ai-flow]').forEach((flow) => {
+            flow.style.opacity = String(Math.max(0, (op - 0.18) / 0.82))
+          })
+          const confirm = el.querySelector<HTMLElement>('[data-ai-confirm]')
+          if (confirm) {
+            const glow = reduceMotion ? 0 : (Math.sin(time * 2.2) + 1) / 2
+            confirm.style.boxShadow = `0 0 ${6 + glow * 12}px rgba(0,159,165,${0.12 + glow * 0.16})`
+          }
+        }
+
+        if (i === 3) {
+          const progress = reduceMotion ? 1 : smoothstep(op)
+          const workspace = el.querySelector<HTMLElement>('[data-node-workspace]')
+          if (workspace) {
+            workspace.style.opacity = String(progress)
+            workspace.style.transform = `translate3d(${-70 * (1 - progress)}px, ${18 * (1 - progress)}px, 0) scale(${0.97 + progress * 0.03})`
+          }
+          const scan = el.querySelector<HTMLElement>('[data-node-scan]')
+          if (scan) {
+            const phase = reduceMotion ? 0.55 : (time * 0.13) % 1
+            scan.style.top = `${phase * 100}%`
+            scan.style.opacity = String(reduceMotion ? 0.35 : Math.sin(phase * Math.PI) * 0.65 * progress)
+          }
+        }
       }
       const heroOp = k === 0 ? 1 - smoothstep(Math.min(move / 0.6, 1)) : 0
       if (chevronRef.current) chevronRef.current.style.opacity = String(heroOp * 0.5)
@@ -316,16 +371,42 @@ export default function ScrollStory() {
                 className="absolute inset-x-0 top-[42%] flex justify-center px-4"
                 style={{ textShadow: 'none' }}
               >
-                <InputTrioMockup />
+                <GridScanShowcase />
               </div>
             </div>
           )
         } else if (i === 2) {
-          innerClass = 'absolute text-left max-w-2xl px-6'
-          innerStyle = { left: '15%', top: '42%', transform: 'translateY(-50%)' }
+          return (
+            <div
+              key={i}
+              ref={(el) => { chapterRefs.current[i] = el }}
+              className="absolute inset-0"
+              style={{ opacity: 0, willChange: 'opacity, transform', textShadow: '0 1px 14px rgba(8,20,24,0.6), 0 1px 3px rgba(8,20,24,0.55)' }}
+            >
+              <div className="absolute inset-x-0 top-[7%] px-6 text-center lg:inset-x-auto lg:left-[7%] lg:top-[38%] lg:max-w-[31rem] lg:text-left">
+                <DetailChapter c={c} />
+              </div>
+              <div className="absolute left-1/2 top-[31%] -translate-x-1/2 lg:left-auto lg:right-[2%] lg:top-[6%] lg:translate-x-0" style={{ textShadow: 'none' }}>
+                <AIAssistantShowcase />
+              </div>
+            </div>
+          )
         } else if (i === 3) {
-          innerClass = 'absolute text-right max-w-sm px-6'
-          innerStyle = { right: '15%', top: '30%', transform: 'translateY(-50%)' }
+          return (
+            <div
+              key={i}
+              ref={(el) => { chapterRefs.current[i] = el }}
+              className="absolute inset-0"
+              style={{ opacity: 0, willChange: 'opacity, transform', textShadow: '0 1px 14px rgba(8,20,24,0.6), 0 1px 3px rgba(8,20,24,0.55)' }}
+            >
+              <div className="absolute inset-x-0 top-[7%] px-6 text-center lg:inset-x-auto lg:right-[4%] lg:top-[24%] lg:max-w-[27rem] lg:text-right">
+                <DetailChapter c={c} />
+              </div>
+              <div className="absolute left-1/2 top-[43%] -translate-x-1/2 lg:left-[3%] lg:top-[26%] lg:translate-x-0" style={{ textShadow: 'none' }}>
+                <NodeWorkspaceShowcase />
+              </div>
+            </div>
+          )
         } else if (i === 4) {
           innerClass = 'w-full max-w-2xl px-6 text-center'
         } else if (i === 5) {
@@ -357,7 +438,6 @@ export default function ScrollStory() {
             <div className={innerClass} style={innerStyle}>
               {isHero ? <HeroChapter c={c} /> : c.cta ? <CTAChapter c={c} /> : <DetailChapter c={c} />}
             </div>
-            {mockupFor(i)}
           </div>
         )
       })}

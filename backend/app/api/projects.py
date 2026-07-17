@@ -1,14 +1,14 @@
 """Project management endpoints."""
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models import Assessment, Project
 from app.schemas.assessment import AssessmentStatus, AssessmentSummary
-from app.schemas.project import ProjectCreate, ProjectOut
+from app.schemas.project import ProjectCreate, ProjectOut, ProjectUpdate
 
 router = APIRouter()
 
@@ -37,6 +37,42 @@ async def get_project(project_id: int, db: Session = Depends(get_db)) -> Project
     if row is None:
         raise HTTPException(status_code=404, detail=f"project {project_id} not found")
     return ProjectOut.model_validate(row)
+
+
+@router.patch("/{project_id}", response_model=ProjectOut)
+async def update_project(
+    project_id: int,
+    payload: ProjectUpdate,
+    db: Session = Depends(get_db),
+) -> ProjectOut:
+    row = db.get(Project, project_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"project {project_id} not found")
+
+    changes = payload.model_dump(exclude_unset=True)
+    if "name" in changes:
+        name = (changes["name"] or "").strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="project name must not be blank")
+        row.name = name
+    if "description" in changes:
+        description = changes["description"]
+        row.description = description.strip() if description and description.strip() else None
+
+    db.commit()
+    db.refresh(row)
+    return ProjectOut.model_validate(row)
+
+
+@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project(project_id: int, db: Session = Depends(get_db)) -> Response:
+    row = db.get(Project, project_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"project {project_id} not found")
+
+    db.delete(row)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{project_id}/assessments", response_model=List[AssessmentSummary])

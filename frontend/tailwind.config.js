@@ -49,8 +49,8 @@ module.exports = {
   			panel: '#0F1C1E',
   			panel2: '#14282A',
   			elevated: '#173032',
-  			brand: '#2DD4BF',
-  			'brand-dark': '#0D9488',
+			brand: '#009FA5',
+			'brand-dark': '#007D82',
   			'brand-soft': '#134E4A',
   			ink2: '#E6F4F1',
   			risk: {
@@ -116,7 +116,7 @@ module.exports = {
   		},
   		boxShadow: {
   			card: '0 1px 3px rgba(0,0,0,0.24), 0 1px 2px rgba(0,0,0,0.16)',
-  			soft: '0 8px 30px rgba(45,212,191,0.10)'
+			soft: '0 8px 30px rgba(0,159,165,0.12)'
   		}
   	}
   },
