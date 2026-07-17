@@ -68,6 +68,20 @@ export default function ProjectListPage() {
           </Empty>
         )}
 
+        {/* The empty state carries its own call to action; once there are
+            projects, this is the only way to add another. */}
+        {!empty && (
+          <div className="mb-5 flex items-center justify-between gap-4">
+            <p className="text-sm text-muted-foreground">
+              {projects.length} โปรเจกต์
+            </p>
+            <Button className="h-10 gap-2 px-5" onClick={() => router.push("/projects/new")}>
+              <Plus className="size-4" />
+              สร้างโปรเจกต์
+            </Button>
+          </div>
+        )}
+
         {!empty && (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((p) => (
