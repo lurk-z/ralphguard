@@ -29,11 +29,16 @@ export default function ProjectCreationProgress({ progress }: { progress: number
       aria-live="polite"
       className="fixed inset-0 z-50 grid place-items-center bg-background/80 backdrop-blur-md"
     >
-      <div className="w-full max-w-xs text-center flex flex-col items-center px-4">
-
-        <Progress value={pct} className="mt-6 h-1 w-full" />
-
-        <p className="mt-4 text-sm font-medium text-muted-foreground">{currentStageLabel(pct)}</p>
+      <div className="w-full max-w-xs text-center flex flex-col items-center px-4 gap-4">
+        <img
+          src="/icons/logo.svg"
+          alt="RalphGuard"
+          className="size-20 animate-logo-breathe"
+        />
+        <div className="w-full flex flex-col items-center gap-2">
+          <Progress value={pct} className="h-1.5 w-full bg-muted" />
+          <p className="text-sm font-medium text-muted-foreground">{currentStageLabel(pct)}</p>
+        </div>
       </div>
     </div>
   );

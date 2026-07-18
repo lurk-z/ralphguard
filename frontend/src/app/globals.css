@@ -204,6 +204,24 @@ html {
   animation: glowPulse 6s ease-in-out infinite;
 }
 
+@keyframes logoBreathe {
+
+  0%,
+  100% {
+    opacity: 0.88;
+    transform: scale(0.98);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+}
+
+.animate-logo-breathe {
+  animation: logoBreathe 1.6s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -211,9 +229,16 @@ html {
 
   .animate-fade-up,
   .animate-scroll-hint,
-  .animate-glow-pulse {
+  .animate-glow-pulse,
+  .animate-logo-breathe {
     animation: none;
     opacity: 1;
+  }
+
+  .animate-in {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
 }
 

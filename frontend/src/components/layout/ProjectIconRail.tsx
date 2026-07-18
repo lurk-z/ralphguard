@@ -13,15 +13,12 @@ import {
   Home,
   LayoutGrid,
   LineChart,
-  LogOut,
-  Settings,
   SlidersHorizontal,
 } from "lucide-react";
 
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
@@ -110,37 +107,6 @@ export default function ProjectIconRail({ projectId }: { projectId: string }) {
               })}
             </SidebarMenu>
           </SidebarContent>
-          <SidebarFooter className="items-center py-3">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button className="grid size-9 place-items-center rounded-full bg-secondary text-xs font-semibold text-foreground hover:bg-secondary/80 transition-colors">
-                  A
-                </button>
-              </TooltipTrigger>
-              <TooltipContent
-                side="right"
-                align="end"
-                sideOffset={12}
-                className="w-36 bg-popover text-popover-foreground border border-border p-1 flex flex-col font-normal text-xs shadow-md"
-              >
-                <button
-                  onClick={() => router.push("/settings")}
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-sm hover:bg-accent hover:text-accent-foreground text-left w-full transition-colors"
-                >
-                  <Settings className="size-3.5 text-muted-foreground" />
-                  <span>Setting</span>
-                </button>
-                <div className="my-1 border-t border-border" />
-                <button
-                  onClick={() => router.push("/login")}
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-sm hover:bg-destructive/10 text-destructive hover:text-destructive text-left w-full transition-colors"
-                >
-                  <LogOut className="size-3.5" />
-                  <span>ออกจากระบบ</span>
-                </button>
-              </TooltipContent>
-            </Tooltip>
-          </SidebarFooter>
         </Sidebar>
       </div>
 

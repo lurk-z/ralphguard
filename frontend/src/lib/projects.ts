@@ -19,6 +19,10 @@ export type LocalProject = {
   created_at: string;
   /** Backend assessment job ids for this project, newest first. */
   jobs: string[];
+  /** Lucide icon key chosen by the user when creating the project. */
+  icon?: string;
+  /** Accent colour chosen by the user — stored as a CSS hex value. */
+  color?: string;
 };
 
 /** [] on the server and in a browser that refuses storage (private mode). */
@@ -51,7 +55,18 @@ export function getProject(id: string): LocalProject | undefined {
   return read().find((p) => p.id === id);
 }
 
-export function createProject(name: string, description?: string): LocalProject {
+export function isProjectNameExists(name: string, excludeId?: string): boolean {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized) return false;
+  return read().some((p) => p.name.trim().toLowerCase() === normalized && p.id !== excludeId);
+}
+
+export function createProject(
+  name: string,
+  description?: string,
+  icon?: string,
+  color?: string,
+): LocalProject {
   const project: LocalProject = {
     id:
       typeof crypto !== "undefined" && crypto.randomUUID
@@ -61,6 +76,8 @@ export function createProject(name: string, description?: string): LocalProject 
     description,
     created_at: new Date().toISOString(),
     jobs: [],
+    icon,
+    color,
   };
   write([...read(), project]);
   return project;
@@ -68,6 +85,13 @@ export function createProject(name: string, description?: string): LocalProject 
 
 export function renameProject(id: string, name: string) {
   write(read().map((p) => (p.id === id ? { ...p, name } : p)));
+}
+
+export function updateProject(
+  id: string,
+  updates: Partial<Pick<LocalProject, "name" | "description" | "icon" | "color">>,
+) {
+  write(read().map((p) => (p.id === id ? { ...p, ...updates } : p)));
 }
 
 export function deleteProject(id: string) {

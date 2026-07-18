@@ -405,12 +405,8 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
       color: "#009FA5",
       icon: "beaker",
       region: "face",
-      // Catalog ids are SMILES. Water is deliberately absent from the pickable
-      // catalog — /assess tops a formula up to 100% with it via withWaterBase().
-      items: [
-        { chemicalId: "OCC(O)CO", concentration: 20 }, // Glycerin
-        { chemicalId: "CC(O)CO", concentration: 10 }, // Propylene Glycol
-      ],
+      // Start empty — water auto-fills to 100% via withWaterBase().
+      items: [],
     },
   ]);
   const [activeBoxId, setActiveBoxId] = useState<string | null>("box-1");
@@ -1197,6 +1193,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                     </div>
                   )}
 
+                  {/* ── Action buttons ── */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1207,27 +1204,31 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                     <Plus className="size-3.5" />
                     เพิ่มสาร
                   </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openScanFor(box.id);
-                    }}
-                    className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-                  >
-                    📷 อ่านฉลากส่วนผสมจากรูป (OCR)
-                  </button>
-                  {box.items.length > 0 && (
+
+                  {/* OCR and AI in a subtle 2-column row */}
+                  <div className="mt-1.5 flex gap-1.5">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        optimizeBox(box);
+                        openScanFor(box.id);
                       }}
-                      disabled={optimizingId === box.id}
-                      className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-primary/40 bg-primary/5 py-1.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
+                      className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-border/60 bg-secondary/30 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
                     >
-                      {optimizingId === box.id ? "⏳ กำลังให้ AI ปรับ…" : "🤖 ใช้ AI ปรับอัตราส่วนสารอัตโนมัติ"}
+                      📷 OCR
                     </button>
-                  )}
+                    {box.items.length > 0 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          optimizeBox(box);
+                        }}
+                        disabled={optimizingId === box.id}
+                        className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-border/60 bg-secondary/30 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:opacity-50"
+                      >
+                        {optimizingId === box.id ? "⏳ AI ปรับ…" : "🤖 AI ปรับสัดส่วน"}
+                      </button>
+                    )}
+                  </div>
                   {optMsg && optMsg.boxId === box.id && (
                     <p className={`mt-1 text-[10px] leading-snug ${optMsg.ok ? "text-primary" : "text-destructive"}`}>
                       {optMsg.text}

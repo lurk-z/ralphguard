@@ -83,6 +83,7 @@ module.exports = {
   			],
   			display: [
   				'var(--font-display)',
+  				'var(--font-sans)',
   				'system-ui',
   				'sans-serif'
   			],
