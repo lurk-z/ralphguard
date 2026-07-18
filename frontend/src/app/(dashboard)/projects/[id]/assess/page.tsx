@@ -13,19 +13,29 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Progress } from "@/components/ui/progress";
 import {
   Beaker,
+  Camera,
   ChevronDown,
   Download,
+  Eye,
   FlaskConical,
+  LoaderCircle,
+  MapPin,
   Minus,
+  Palette,
   PanelLeft,
+  PencilLine,
   Plus,
   Search,
+  Save,
   Settings,
   Trash2,
+  TriangleAlert,
   Droplet,
   Leaf,
   Sparkles,
   Heart,
+  UserRound,
+  WandSparkles,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -67,7 +77,13 @@ import type {
   EndpointMetric,
 } from "@/lib/api";
 import { api } from "@/lib/api";
-import { addJob, getProject, renameProject } from "@/lib/projects";
+import {
+  addJob,
+  getProject,
+  getProjectWorkspace,
+  renameProject,
+  saveProjectWorkspace,
+} from "@/lib/projects";
 
 function ModelLoader() {
   const [progress, setProgress] = useState(0);
@@ -151,6 +167,7 @@ type BoxIconName = keyof typeof BOX_ICONS;
 
 /** Names boxes saved out of the node graph, and counts them for numbering. */
 const GRAPH_BOX_PREFIX = "สูตรจาก Node";
+const UNTITLED_FORMULA_NAME = "ไม่มีชื่อสูตร";
 
 const BOX_COLORS = [
   "#009FA5", // Teal
@@ -164,14 +181,17 @@ const BOX_COLORS = [
   "#64748B", // Slate
   "#EC4899", // Pink
 ];
+const DEFAULT_BOX_COLOR = BOX_COLORS[0];
 
-// Total concentration in the box, capped at 100% — the box card's % badge,
-// and the paint brush's fallback strength before any real assessment result
-// exists for this box (FacePaintCanvas prefers real per-day `layers` once a
-// Run has completed; see paintLayers below).
+/** The real substance total shown in the formula card, including overflow. */
+function boxTotalPercent(box: FormulaBox) {
+  return box.items.reduce((sum, item) => sum + item.concentration, 0);
+}
+
+// Paint strength is capped at 100%, even though the card badge reports the
+// uncapped formula total so an invalid over-filled formula remains obvious.
 function boxIntensity(box: FormulaBox) {
-  const total = box.items.reduce((s, it) => s + it.concentration, 0);
-  return Math.max(0, Math.min(1, total / 100));
+  return Math.max(0, Math.min(1, boxTotalPercent(box) / 100));
 }
 
 /**
@@ -179,10 +199,32 @@ function boxIntensity(box: FormulaBox) {
  * Off-catalog rows still render and still reach the model — they just have no
  * catalog blurb to show.
  */
-function itemChemical(it: FormulaBoxItem): { name: string; smiles: string; role?: string } {
+function itemChemical(it: FormulaBoxItem): { name: string; smiles: string; role?: string; category?: string } {
   const c = chemById(it.chemicalId);
-  if (c) return { name: c.name, smiles: c.smiles, role: c.role };
+  if (c) return { name: c.name, smiles: c.smiles, role: c.role, category: c.category };
   return { name: it.name?.trim() || "สารกำหนดเอง", smiles: it.chemicalId };
+}
+
+/**
+ * A quiet category cue for dense formula rows. Colour is never the only cue:
+ * every substance also carries a short text label, so the grouping remains
+ * understandable for colour-blind users and in low-contrast displays.
+ */
+const CATEGORY_STYLES: Record<string, { label: string; accent: string; surface: string }> = {
+  "ตัวทำละลาย / แอลกอฮอล์": { label: "ตัวทำละลาย", accent: "#326B76", surface: "#EDF5F6" },
+  "กรด (Acids)": { label: "กรด", accent: "#7A6135", surface: "#F7F4EC" },
+  "สารกันเสีย (Preservatives)": { label: "สารกันเสีย", accent: "#4C6380", surface: "#F0F3F7" },
+  "น้ำหอม / สารก่อภูมิแพ้": { label: "น้ำหอม/ก่อภูมิแพ้", accent: "#765A68", surface: "#F6F1F4" },
+  "สารออกฤทธิ์ (Actives)": { label: "สารออกฤทธิ์", accent: "#586783", surface: "#F0F2F7" },
+  "สารลดแรงตึงผิว (Surfactants)": { label: "สารทำความสะอาด", accent: "#397075", surface: "#EEF5F5" },
+  "สารกันแดด (UV Filters)": { label: "สารกันแดด", accent: "#756643", surface: "#F6F4ED" },
+  "อีมอลเลียนต์ / เพิ่มความชุ่มชื้น": { label: "เพิ่มความชุ่มชื้น", accent: "#55705D", surface: "#F0F5F1" },
+};
+
+const CUSTOM_CATEGORY_STYLE = { label: "สารกำหนดเอง", accent: "#566574", surface: "#F1F4F6" };
+
+function categoryStyle(category?: string) {
+  return (category && CATEGORY_STYLES[category]) || CUSTOM_CATEGORY_STYLE;
 }
 
 /** A box's rows as the catalog/API shape. Boxes hold actives only — no water. */
@@ -266,7 +308,9 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   // Load project name from localStorage on mount
   useEffect(() => {
     const proj = getProject(params.id);
-    if (proj) setProjectName(proj.name);
+    if (proj) {
+      setProjectName(proj.name);
+    }
   }, [params.id]);
   const [zoomPct, setZoomPct] = useState(25);
   const [dayIdx, setDayIdx] = useState<0 | 1 | 2>(1); // 0=Day1, 1=Day3, 2=Day7
@@ -401,8 +445,8 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   const [boxes, setBoxes] = useState<FormulaBox[]>([
     {
       id: "box-1",
-      name: "สูตร A",
-      color: "#009FA5",
+      name: UNTITLED_FORMULA_NAME,
+      color: DEFAULT_BOX_COLOR,
       icon: "beaker",
       region: "face",
       // Start empty — water auto-fills to 100% via withWaterBase().
@@ -418,7 +462,116 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   const [pickerCategory, setPickerCategory] = useState<string>("all");
   const [settingsOpenId, setSettingsOpenId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [inlineEditingBoxId, setInlineEditingBoxId] = useState<string | null>(null);
+  const [inlineNameDraft, setInlineNameDraft] = useState("");
+  const [nameSavedBoxId, setNameSavedBoxId] = useState<string | null>(null);
+  const [collapsedBoxIds, setCollapsedBoxIds] = useState<Set<string>>(() => new Set());
+  const [enteringBoxIds, setEnteringBoxIds] = useState<Set<string>>(() => new Set());
+  const [removingItems, setRemovingItems] = useState<Set<string>>(() => new Set());
+  const enterTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const removeTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const nameSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const boxIdSeq = useRef(1);
+  const [loadedWorkspaceId, setLoadedWorkspaceId] = useState<string | null>(null);
+
+  // Restore the experiment workspace that belongs to this project. The loaded
+  // id doubles as a hydration guard: without it, the initial empty React state
+  // could overwrite the saved snapshot before this effect gets to read it.
+  useEffect(() => {
+    setLoadedWorkspaceId(null);
+    const workspace = getProjectWorkspace(params.id);
+
+    if (workspace) {
+      const restoredBoxes: FormulaBox[] = workspace.boxes.map((box) => ({
+        id: box.id,
+        name: box.name || UNTITLED_FORMULA_NAME,
+        items: Array.isArray(box.items)
+          ? box.items
+            .filter((item) => typeof item?.chemicalId === "string" && item.chemicalId.trim())
+            .map((item) => ({
+              chemicalId: item.chemicalId,
+              concentration: Number.isFinite(item.concentration)
+                ? Math.max(0, item.concentration)
+                : 0,
+              ...(item.name ? { name: item.name } : {}),
+            }))
+          : [],
+        color: box.color || DEFAULT_BOX_COLOR,
+        icon:
+          box.icon && box.icon in BOX_ICONS
+            ? (box.icon as BoxIconName)
+            : "beaker",
+        region: box.region === "eye" ? "eye" : "face",
+      }));
+
+      const restoredIds = new Set(restoredBoxes.map((box) => box.id));
+      const restoredResults = Object.fromEntries(
+        Object.entries(workspace.resultByBox ?? {}).filter(([boxId]) => restoredIds.has(boxId)),
+      ) as Record<string, AssessmentResultPayload>;
+      const highestBoxNumber = restoredBoxes.reduce((highest, box) => {
+        const match = /^box-(\d+)$/.exec(box.id);
+        return match ? Math.max(highest, Number(match[1])) : highest;
+      }, 1);
+
+      boxIdSeq.current = highestBoxNumber;
+      setBoxes(restoredBoxes);
+      setActiveBoxId(
+        workspace.activeBoxId && restoredIds.has(workspace.activeBoxId)
+          ? workspace.activeBoxId
+          : restoredBoxes[0]?.id ?? null,
+      );
+      setResultByBox(restoredResults);
+      setDayIdx([0, 1, 2].includes(workspace.dayIdx) ? workspace.dayIdx : 1);
+      setTab(TABS.some((item) => item.key === workspace.activeTab) ? workspace.activeTab : "experiment");
+      setCollapsedBoxIds(
+        new Set((workspace.collapsedBoxIds ?? []).filter((boxId) => restoredIds.has(boxId))),
+      );
+    } else {
+      boxIdSeq.current = 1;
+      setBoxes([
+        {
+          id: "box-1",
+          name: UNTITLED_FORMULA_NAME,
+          color: DEFAULT_BOX_COLOR,
+          icon: "beaker",
+          region: "face",
+          items: [],
+        },
+      ]);
+      setActiveBoxId("box-1");
+      setResultByBox({});
+      setDayIdx(1);
+      setTab("experiment");
+      setCollapsedBoxIds(new Set());
+    }
+
+    setLoadedWorkspaceId(params.id);
+  }, [params.id]);
+
+  // Auto-save every meaningful workspace change. localStorage is synchronous,
+  // so the newest formula is durable before a refresh or route change without
+  // making the user manage a separate Save button.
+  useEffect(() => {
+    if (loadedWorkspaceId !== params.id) return;
+    saveProjectWorkspace(params.id, {
+      boxes,
+      activeBoxId,
+      resultByBox,
+      dayIdx,
+      activeTab: tab,
+      collapsedBoxIds: [...collapsedBoxIds],
+    });
+  }, [activeBoxId, boxes, collapsedBoxIds, dayIdx, loadedWorkspaceId, params.id, resultByBox, tab]);
+
+  useEffect(() => {
+    const enterTimers = enterTimersRef.current;
+    const timers = removeTimersRef.current;
+    return () => {
+      enterTimers.forEach((timer) => clearTimeout(timer));
+      timers.forEach((timer) => clearTimeout(timer));
+      if (nameSaveTimerRef.current) clearTimeout(nameSaveTimerRef.current);
+    };
+  }, []);
 
   const activeBox = boxes.find((b) => b.id === activeBoxId) ?? null;
   const activeResult = activeBoxId ? resultByBox[activeBoxId] : undefined;
@@ -461,6 +614,32 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
       .filter((g) => g.items.length > 0);
   }, [pickerQuery, pickerCategory]);
 
+  const animateBoxEntry = (id: string) => {
+    const previousTimer = enterTimersRef.current.get(id);
+    if (previousTimer) clearTimeout(previousTimer);
+
+    setEnteringBoxIds((prev) => new Set(prev).add(id));
+    const timer = setTimeout(() => {
+      setEnteringBoxIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      enterTimersRef.current.delete(id);
+    }, 360);
+    enterTimersRef.current.set(id, timer);
+  };
+
+  const toggleBoxCollapsed = (id: string) => {
+    substanceHover.dismiss();
+    setCollapsedBoxIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   /**
    * Add a named box, seeded with items — the shared path for templates, the
    * node graph's save, and the assistant. Returns the new box's id.
@@ -480,6 +659,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
         region,
       },
     ]);
+    animateBoxEntry(id);
     setActiveBoxId(id);
     return id;
   };
@@ -492,39 +672,40 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   const toBoxItems = (arr: unknown): FormulaBoxItem[] =>
     Array.isArray(arr)
       ? arr
-          .map((it) => {
-            const o = (it ?? {}) as Record<string, unknown>;
-            return {
-              smiles: String(o.smiles ?? "").trim(),
-              name: String(o.name ?? ""),
-              concentration: Number(o.concentration) || 0,
-            };
-          })
-          .filter((it) => it.smiles && !isWaterItem(it))
-          .map((it) => ({
-            chemicalId: it.smiles,
-            concentration: it.concentration,
-            ...(chemById(it.smiles) ? {} : { name: it.name }),
-          }))
+        .map((it) => {
+          const o = (it ?? {}) as Record<string, unknown>;
+          return {
+            smiles: String(o.smiles ?? "").trim(),
+            name: String(o.name ?? ""),
+            concentration: Number(o.concentration) || 0,
+          };
+        })
+        .filter((it) => it.smiles && !isWaterItem(it))
+        .map((it) => ({
+          chemicalId: it.smiles,
+          concentration: it.concentration,
+          ...(chemById(it.smiles) ? {} : { name: it.name }),
+        }))
       : [];
 
   const addBox = () => {
     boxIdSeq.current += 1;
     const id = `box-${boxIdSeq.current}`;
-    const color = BOX_COLORS[(boxIdSeq.current - 1) % BOX_COLORS.length];
+    const color = DEFAULT_BOX_COLOR;
     const iconsList = Object.keys(BOX_ICONS) as BoxIconName[];
     const icon = iconsList[(boxIdSeq.current - 1) % iconsList.length];
     setBoxes((prev) => [
       ...prev,
       {
         id,
-        name: `สูตร ${String.fromCharCode(64 + boxIdSeq.current)}`,
+        name: UNTITLED_FORMULA_NAME,
         items: [],
         color,
         icon,
         region: "face",
       },
     ]);
+    animateBoxEntry(id);
     setActiveBoxId(id);
     setEditingBoxId(id);
     // Let the user open the chemical library themselves — show the rename
@@ -542,18 +723,18 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
     const comp =
       box && box.items.length
         ? `สูตรปัจจุบัน (สาร + %):\n${boxToFormulaItems(box)
-            .map((f) => `- ${f.name || f.smiles} ${f.concentration}%`)
-            .join("\n")}\n(หมายเหตุ: Water (Aqua) เป็นเบสเติมอัตโนมัติให้ครบ 100% ไม่ต้องสั่งเอง)`
+          .map((f) => `- ${f.name || f.smiles} ${f.concentration}%`)
+          .join("\n")}\n(หมายเหตุ: Water (Aqua) เป็นเบสเติมอัตโนมัติให้ครบ 100% ไม่ต้องสั่งเอง)`
         : "ยังไม่มีสารในสูตร";
     const result = box ? resultByBox[box.id] : undefined;
     const scores = result
       ? `คะแนนความเสี่ยง 0-100 ที่วันที่ ${DAY_LABELS[dayIdx]} (ปัจจุบันเลือกดูอยู่):\n${RESULT_ENDPOINTS
-          .map((ep) => {
-            const e = result.endpoints[ep.key];
-            const sc = Math.round(e?.timecourse?.[dayIdx] ?? e?.peak_score ?? 0);
-            return `- ${ep.label}: ${sc}/100 (ระดับ${BAND_LABEL_TH[bandOf(sc)]})`;
-          })
-          .join("\n")}`
+        .map((ep) => {
+          const e = result.endpoints[ep.key];
+          const sc = Math.round(e?.timecourse?.[dayIdx] ?? e?.peak_score ?? 0);
+          return `- ${ep.label}: ${sc}/100 (ระดับ${BAND_LABEL_TH[bandOf(sc)]})`;
+        })
+        .join("\n")}`
       : "ยังไม่มีผลการประเมิน (ผู้ใช้ยังไม่ได้กดเริ่มทดสอบ)";
     return `ผลิตภัณฑ์/สูตร: ${box?.name ?? "-"}\n${comp}\n\n${scores}`;
   };
@@ -651,7 +832,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   };
 
   /**
-   * "💾 บันทึกเป็นสูตร" in the node graph. The graph hands its substances back
+   * "บันทึกเป็นสูตร" in the node graph. The graph hands its substances back
    * with the water base already applied; boxes hold actives only, so drop it
    * again — /assess does exactly the same on its side.
    */
@@ -690,6 +871,12 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
 
   const removeBox = (id: string) => {
     setBoxes((prev) => prev.filter((b) => b.id !== id));
+    setCollapsedBoxIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
     if (activeBoxId === id) setActiveBoxId(null);
     if (editingBoxId === id) {
       setEditingBoxId(null);
@@ -699,6 +886,29 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
 
   const renameBox = (id: string, name: string) => {
     setBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, name } : b)));
+  };
+
+  const beginInlineRename = (box: FormulaBox) => {
+    if (nameSaveTimerRef.current) clearTimeout(nameSaveTimerRef.current);
+    setNameSavedBoxId(null);
+    setActiveBoxId(box.id);
+    setInlineNameDraft(box.name === UNTITLED_FORMULA_NAME ? "" : box.name);
+    setInlineEditingBoxId(box.id);
+  };
+
+  const commitInlineRename = (boxId: string) => {
+    if (nameSavedBoxId === boxId) return;
+    const nextName = inlineNameDraft.trim() || UNTITLED_FORMULA_NAME;
+    renameBox(boxId, nextName);
+    setInlineNameDraft(nextName);
+    setNameSavedBoxId(boxId);
+
+    if (nameSaveTimerRef.current) clearTimeout(nameSaveTimerRef.current);
+    nameSaveTimerRef.current = setTimeout(() => {
+      setNameSavedBoxId(null);
+      setInlineEditingBoxId((current) => (current === boxId ? null : current));
+      nameSaveTimerRef.current = null;
+    }, 900);
   };
 
   const boxPendingDelete = boxes.find((b) => b.id === deleteConfirmId) ?? null;
@@ -726,9 +936,30 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   };
 
   const removeItem = (boxId: string, chemicalId: string) => {
-    setBoxes((prev) =>
-      prev.map((b) => (b.id === boxId ? { ...b, items: b.items.filter((it) => it.chemicalId !== chemicalId) } : b)),
-    );
+    const rowKey = `${boxId}:${chemicalId}`;
+    if (removeTimersRef.current.has(rowKey)) return;
+
+    substanceHover.dismiss();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setRemovingItems((prev) => new Set(prev).add(rowKey));
+
+    const timer = setTimeout(() => {
+      setBoxes((prev) =>
+        prev.map((b) =>
+          b.id === boxId
+            ? { ...b, items: b.items.filter((it) => it.chemicalId !== chemicalId) }
+            : b,
+        ),
+      );
+      setRemovingItems((prev) => {
+        const next = new Set(prev);
+        next.delete(rowKey);
+        return next;
+      });
+      removeTimersRef.current.delete(rowKey);
+    }, reducedMotion ? 0 : 190);
+
+    removeTimersRef.current.set(rowKey, timer);
   };
 
   const openPickerFor = (boxId: string) => {
@@ -804,13 +1035,13 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
         prev.map((b) =>
           b.id === box.id
             ? {
-                ...b,
-                items: items.map((it) => ({
-                  chemicalId: it.smiles,
-                  concentration: it.concentration,
-                  ...(chemById(it.smiles) ? {} : { name: it.name }),
-                })),
-              }
+              ...b,
+              items: items.map((it) => ({
+                chemicalId: it.smiles,
+                concentration: it.concentration,
+                ...(chemById(it.smiles) ? {} : { name: it.name }),
+              })),
+            }
             : b,
         ),
       );
@@ -823,490 +1054,657 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   };
 
   return (
-    <div data-project-id={params.id} className="relative flex h-full w-full overflow-hidden">
-        {/* Figma-style floating pill — replaces the formula-box panel while collapsed. */}
-        {leftCollapsed && (
-          <button
-            aria-label="เปิดแผง"
-            onClick={() => setLeftCollapsed(false)}
-            className="absolute left-3 top-3 z-20 flex items-center gap-2 rounded-xl border border-border bg-card py-2.5 pl-3.5 pr-3 shadow-md text-left text-sm font-semibold text-foreground hover:text-primary transition-colors group"
-          >
-            <span>{projectName}</span>
-            <PanelLeft className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
-          </button>
-        )}
-
-        {/* Figma-style floating toolbar — stands in for the hidden right panel's run/export actions */}
-        {leftCollapsed && (
-          <div className="absolute right-3 top-3 z-20 flex items-center gap-1.5 rounded-xl border border-border bg-card p-1.5 shadow-md">
-            <button
-              aria-label="เริ่มการทดลอง"
-              className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90"
-            >
-              <FlaskConical className="size-4" />
-            </button>
-            <button
-              aria-label="Export PDF"
-              className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            >
-              <Download className="size-4" />
-            </button>
-            {tab === "experiment" && (
-              <span className="ml-0.5 shrink-0 rounded-md px-2 text-xs font-medium tabular-nums text-muted-foreground">
-                {zoomPct}%
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* ── Formula boxes ── */}
-        <aside
-          style={{ width: leftCollapsed ? 0 : leftWidth }}
-          className={`relative z-30 flex shrink-0 flex-col bg-card ${
-            isResizing ? "" : "transition-all duration-300 ease-in-out"
-          } ${leftCollapsed ? "overflow-hidden border-r-0" : "border-r border-border"}`}
+    <div
+      data-project-id={params.id}
+      className="relative flex h-full w-full overflow-hidden"
+    >
+      {/* Figma-style floating pill — replaces the formula-box panel while collapsed. */}
+      {leftCollapsed && (
+        <button
+          aria-label="เปิดแผง"
+          onClick={() => setLeftCollapsed(false)}
+          className="absolute left-3 top-3 z-20 flex items-center gap-2 rounded-xl border border-border bg-card py-2.5 pl-3.5 pr-3 shadow-md text-left text-sm font-semibold text-foreground hover:text-primary transition-colors group"
         >
-          <div className="flex items-center gap-2 px-4 py-4">
-            {editingName ? (
-              <input
-                ref={nameInputRef}
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-                onBlur={() => {
+          <span>{projectName}</span>
+          <PanelLeft className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
+        </button>
+      )}
+
+      {/* Figma-style floating toolbar — stands in for the hidden right panel's run/export actions */}
+      {leftCollapsed && (
+        <div className="absolute right-3 top-3 z-20 flex items-center gap-1.5 rounded-xl border border-border bg-card p-1.5 shadow-md">
+          <button
+            aria-label="เริ่มการทดลอง"
+            className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            <FlaskConical className="size-4" />
+          </button>
+          <button
+            aria-label="Export PDF"
+            className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <Download className="size-4" />
+          </button>
+          {tab === "experiment" && (
+            <span className="ml-0.5 shrink-0 rounded-md px-2 text-xs font-medium tabular-nums text-muted-foreground">
+              {zoomPct}%
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* ── Formula boxes ── */}
+      <aside
+        style={{ width: leftCollapsed ? 0 : leftWidth }}
+        className={`relative z-30 flex shrink-0 flex-col bg-card ${isResizing ? "" : "transition-all duration-300 ease-in-out"
+          } ${leftCollapsed ? "overflow-hidden border-r-0" : "border-r border-border"}`}
+      >
+        <div className="flex items-center gap-2 px-4 py-4">
+          {editingName ? (
+            <input
+              ref={nameInputRef}
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+              onBlur={() => {
+                renameProject(params.id, projectName.trim() || projectName);
+                setEditingName(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === "Escape") {
                   renameProject(params.id, projectName.trim() || projectName);
                   setEditingName(false);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === "Escape") {
-                    renameProject(params.id, projectName.trim() || projectName);
-                    setEditingName(false);
-                  }
-                }}
-                autoFocus
-                className="min-w-0 flex-1 rounded border border-primary bg-transparent px-2 py-0.5 text-sm font-semibold text-foreground outline-none ring-1 ring-primary"
-              />
-            ) : (
-              <>
-                <button
-                  aria-label="แก้ไขชื่อโปรเจ็ค"
-                  onClick={() => {
-                    setEditingName(true);
-                    setTimeout(() => nameInputRef.current?.select(), 0);
-                  }}
-                  className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-sm font-semibold text-foreground hover:bg-secondary"
-                >
-                  {projectName}
-                </button>
-                <button
-                  aria-label="ย่อแผง"
-                  onClick={() => setLeftCollapsed(true)}
-                  className="shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                >
-                  <PanelLeft className="size-4" />
-                </button>
-              </>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between px-4">
-            <h2 className="text-sm font-bold text-foreground">กล่องสูตร</h2>
-            <div className="flex items-center gap-2">
+                }
+              }}
+              autoFocus
+              className="min-w-0 flex-1 rounded border border-primary bg-transparent px-2 py-0.5 text-sm font-semibold text-foreground outline-none ring-1 ring-primary"
+            />
+          ) : (
+            <>
               <button
-                aria-label="สร้างกล่องสูตรใหม่"
-                onClick={addBox}
-                className="grid size-6 shrink-0 place-items-center rounded-md border border-primary/40 text-primary transition-colors hover:bg-accent/60"
+                aria-label="แก้ไขชื่อโปรเจ็ค"
+                onClick={() => {
+                  setEditingName(true);
+                  setTimeout(() => nameInputRef.current?.select(), 0);
+                }}
+                className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-sm font-semibold text-foreground hover:bg-secondary"
               >
-                <Plus className="size-3.5" />
+                {projectName}
               </button>
-            </div>
-          </div>
+              <button
+                aria-label="ย่อแผง"
+                onClick={() => setLeftCollapsed(true)}
+                className="shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+              >
+                <PanelLeft className="size-4" />
+              </button>
+            </>
+          )}
+        </div>
 
-          <div className="mt-3 flex-1 space-y-3 overflow-y-auto px-3 pb-3">
-            {boxes.map((box) => {
-              const active = box.id === activeBoxId;
-              const intensity = boxIntensity(box);
-              const boxColor = box.color || "#009FA5";
-              return (
-                <div
-                  key={box.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setActiveBoxId(box.id)}
-                  onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setActiveBoxId(box.id)}
-                  className={`cursor-pointer rounded-xl border p-3 transition-all duration-200 ${
-                    active
-                      ? ""
-                      : "border-border bg-card hover:bg-secondary"
+        <div className="mx-4 flex items-center justify-between border-t border-border pt-3">
+          <h2 className="text-sm font-bold text-foreground">กล่องสูตร</h2>
+          <div className="flex items-center gap-2">
+            <button
+              aria-label="สร้างกล่องสูตรใหม่"
+              onClick={addBox}
+              className="grid size-6 shrink-0 place-items-center rounded-md border border-primary/40 text-primary transition-colors hover:bg-accent/60"
+            >
+              <Plus className="size-3.5" />
+            </button>
+          </div>
+        </div>
+
+        <div
+          className={`hover-scrollbar mt-3 flex-1 overflow-y-auto px-3 pb-3 ${boxes.length === 0 ? "grid place-items-center" : "space-y-3"
+            }`}
+          onClick={(e) => {
+            // A click on the list's own empty background clears the current
+            // selection. Clicks inside a formula card keep their normal
+            // behavior because their event target is a descendant.
+            if (e.target === e.currentTarget) setActiveBoxId(null);
+          }}
+        >
+          {boxes.map((box) => {
+            const active = box.id === activeBoxId;
+            const collapsed = collapsedBoxIds.has(box.id);
+            const intensity = boxIntensity(box);
+            const totalPercent = Math.round(boxTotalPercent(box) * 100) / 100;
+            const boxColor = box.color || DEFAULT_BOX_COLOR;
+            return (
+              <div
+                key={box.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => setActiveBoxId(box.id)}
+                onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setActiveBoxId(box.id)}
+                className={`cursor-pointer rounded-xl border p-3 transition-all duration-200 ${enteringBoxIds.has(box.id)
+                  ? "animate-in fade-in-0 slide-in-from-bottom-3 zoom-in-95 duration-300 ease-out will-change-transform motion-reduce:animate-none"
+                  : ""
+                  } ${active
+                    ? ""
+                    : "box-accent-card-hover border-border bg-card"
                   }`}
-                  style={
-                    active
+                style={
+                  {
+                    "--box-accent": boxColor,
+                    ...(active
                       ? {
-                          borderColor: boxColor,
-                          boxShadow: `0 0 0 1px ${boxColor}33`,
-                          backgroundColor: `${boxColor}0D`,
-                        }
-                      : {}
-                  }
-                >
-                  <div className="flex items-center gap-2">
-                    {(() => {
-                      const IconComponent = BOX_ICONS[box.icon || "beaker"] || Beaker;
-                      return (
-                        <span
-                          className="grid size-7 shrink-0 place-items-center rounded-lg"
-                          style={
-                            active
-                              ? { backgroundColor: boxColor, color: "#FFFFFF" }
-                              : { backgroundColor: `${boxColor}1A`, color: boxColor }
-                          }
-                        >
-                          <IconComponent className="size-3.5" />
-                        </span>
-                      );
-                    })()}
-                    <span className="min-w-0 flex-1 break-words text-sm font-semibold text-foreground">{box.name}</span>
-                    {box.region === "eye" && (
-                      <span title="บริเวณทดสอบ: ดวงตา" className="shrink-0 text-xs">
-                        👁️
-                      </span>
-                    )}
-                    {intensity > 0 && (
-                      <Badge
-                        variant={active ? "default" : "secondary"}
-                        className="shrink-0 px-1.5 py-0 text-[10px]"
+                        borderColor: boxColor,
+                        boxShadow: `0 0 0 1px ${boxColor}33`,
+                        backgroundColor: `${boxColor}0D`,
+                      }
+                      : {}),
+                  } as React.CSSProperties
+                }
+              >
+                <div className="box-accent-header-hover -m-1 flex items-center gap-2 rounded-lg p-1 transition-colors duration-200">
+                  {(() => {
+                    const IconComponent = BOX_ICONS[box.icon || "beaker"] || Beaker;
+                    return (
+                      <span
+                        className="grid size-7 shrink-0 place-items-center rounded-lg"
                         style={
                           active
                             ? { backgroundColor: boxColor, color: "#FFFFFF" }
-                            : {}
+                            : { backgroundColor: `${boxColor}1A`, color: boxColor }
                         }
                       >
-                        {Math.round(intensity * 100)}%
-                      </Badge>
-                    )}
-                    <Popover
-                      open={settingsOpenId === box.id}
-                      onOpenChange={(open) => setSettingsOpenId(open ? box.id : null)}
+                        <IconComponent className="size-3.5" />
+                      </span>
+                    );
+                  })()}
+                  {inlineEditingBoxId === box.id ? (
+                    <div className="relative min-w-0 flex-1" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        autoFocus
+                        value={inlineNameDraft}
+                        readOnly={nameSavedBoxId === box.id}
+                        aria-label="แก้ไขชื่อสูตร"
+                        placeholder={UNTITLED_FORMULA_NAME}
+                        onFocus={(e) => e.currentTarget.select()}
+                        onChange={(e) => setInlineNameDraft(e.target.value)}
+                        onBlur={() => commitInlineRename(box.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            e.currentTarget.blur();
+                          }
+                          if (e.key === "Escape") {
+                            e.preventDefault();
+                            setNameSavedBoxId(null);
+                            setInlineEditingBoxId(null);
+                          }
+                        }}
+                        className={`h-7 w-full rounded-md border px-2 text-sm font-semibold outline-none transition-colors duration-200 ${nameSavedBoxId === box.id
+                          ? "border-emerald-400 bg-emerald-50 pr-7 text-emerald-900"
+                          : "border-primary/50 bg-card text-foreground focus:border-primary focus:ring-2 focus:ring-primary/15"
+                          }`}
+                      />
+                      {nameSavedBoxId === box.id && (
+                        <Save
+                          className="absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-emerald-700"
+                          aria-label="บันทึกชื่อแล้ว"
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <span
+                      title={`${box.name} — ดับเบิลคลิกเพื่อแก้ไขชื่อสูตร`}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        beginInlineRename(box);
+                      }}
+                      className={`min-w-0 flex-1 cursor-text truncate whitespace-nowrap text-sm ${box.name === UNTITLED_FORMULA_NAME
+                        ? "font-medium italic text-muted-foreground"
+                        : "font-semibold text-foreground"
+                        }`}
                     >
-                      <PopoverTrigger asChild>
-                        <button
-                          aria-label="ตั้งค่ากล่องสูตร"
-                          onClick={(e) => e.stopPropagation()}
-                          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                        >
-                          <Settings className="size-3.5" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent
+                      {box.name}
+                    </span>
+                  )}
+                  {box.region === "eye" && (
+                    <span
+                      title="บริเวณทดสอบ: ดวงตา"
+                      aria-label="บริเวณทดสอบ: ดวงตา"
+                      className="grid size-5 shrink-0 place-items-center rounded-full border border-sky-200 bg-sky-50 text-sky-700"
+                    >
+                      <Eye className="size-3" aria-hidden="true" />
+                    </span>
+                  )}
+                  {intensity > 0 && (
+                    <Badge
+                      variant={active ? "default" : "secondary"}
+                      className="shrink-0 px-1.5 py-0 text-[10px]"
+                      style={
+                        active
+                          ? { backgroundColor: boxColor, color: "#FFFFFF" }
+                          : {}
+                      }
+                    >
+                      สาร {totalPercent}%
+                    </Badge>
+                  )}
+                  <Popover
+                    open={settingsOpenId === box.id}
+                    onOpenChange={(open) => setSettingsOpenId(open ? box.id : null)}
+                  >
+                    <PopoverTrigger asChild>
+                      <button
+                        aria-label="ตั้งค่ากล่องสูตร"
                         onClick={(e) => e.stopPropagation()}
-                        align="end"
-                        className="w-64 p-3"
+                        className="box-accent-control grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors duration-200 focus-visible:outline-none"
                       >
-                        <div className="space-y-1.5">
-                          <Label htmlFor={`box-name-${box.id}`} className="text-xs text-muted-foreground">
-                            ตั้งชื่อสูตร
-                          </Label>
-                          <Input
-                            id={`box-name-${box.id}`}
-                            value={box.name}
-                            onChange={(e) => renameBox(box.id, e.target.value)}
-                            onFocus={(e) => e.currentTarget.select()}
-                            className="h-8 text-sm"
-                          />
+                        <Settings className="size-3.5" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      onClick={(e) => e.stopPropagation()}
+                      side="right"
+                      align="start"
+                      sideOffset={12}
+                      collisionPadding={12}
+                      sticky="always"
+                      className="max-h-[var(--radix-popover-content-available-height)] w-72 overflow-y-auto p-0"
+                    >
+                      <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-foreground">ตั้งค่ากล่องสูตร</p>
+                          <p className="mt-0.5 text-[10px] text-muted-foreground">
+                            จัดการชื่อ บริเวณทดสอบ และรูปแบบกล่อง
+                          </p>
                         </div>
+                        <button
+                          type="button"
+                          aria-label="ลบกล่องสูตร"
+                          title="ลบกล่องสูตร"
+                          onClick={() => {
+                            setSettingsOpenId(null);
+                            // Empty box, nothing to lose — skip the confirmation dialog.
+                            if (box.items.length === 0) removeBox(box.id);
+                            else setDeleteConfirmId(box.id);
+                          }}
+                          className="grid size-8 shrink-0 place-items-center rounded-lg text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/30"
+                        >
+                          <Trash2 className="size-4" aria-hidden="true" />
+                        </button>
+                      </div>
 
-                        <div className="mt-3.5 space-y-1.5">
-                          <Label className="text-xs text-muted-foreground font-semibold">
-                            สีกล่องและไอคอนสูตร
-                          </Label>
-                          <div className="grid grid-cols-5 gap-2 pt-1">
-                            {BOX_COLORS.map((color) => {
-                              const isSelected = boxColor === color;
-                              return (
-                                <button
-                                  key={color}
-                                  onClick={() => changeBoxColor(box.id, color)}
-                                  className="group relative size-7 rounded-full transition-all duration-100 active:scale-90 hover:scale-105 border border-black/5"
-                                  style={{ backgroundColor: color }}
-                                  title={color}
-                                >
-                                  {isSelected && (
-                                    <span className="absolute inset-0 m-auto size-2 rounded-full bg-white shadow-sm" />
-                                  )}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
+                      <div className="px-4 py-3.5">
+                        <Label
+                          htmlFor={`box-name-${box.id}`}
+                          className="flex items-center gap-1.5 text-xs font-bold text-foreground"
+                        >
+                          <PencilLine className="size-3.5 text-primary" aria-hidden="true" />
+                          ชื่อสูตร
+                        </Label>
+                        <Input
+                          id={`box-name-${box.id}`}
+                          value={box.name}
+                          onChange={(e) => renameBox(box.id, e.target.value)}
+                          onFocus={(e) => e.currentTarget.select()}
+                          className="mt-2 h-10 bg-card text-sm font-semibold"
+                        />
+                      </div>
 
-                        <div className="mt-3.5 space-y-1.5">
-                          <Label className="text-xs text-muted-foreground font-medium">
-                            ไอคอนประจำกล่องสูตร
-                          </Label>
-                          <div className="flex gap-2 pt-1 overflow-x-auto pb-1">
-                            {Object.entries(BOX_ICONS).map(([iconName, IconComponent]) => {
-                              const isSelected = (box.icon || "beaker") === iconName;
-                              return (
-                                <button
-                                  key={iconName}
-                                  onClick={() => changeBoxIcon(box.id, iconName as BoxIconName)}
-                                  className="grid size-7 shrink-0 place-items-center rounded-lg border transition-all duration-100 active:scale-90 hover:scale-105"
-                                  style={
-                                    isSelected
-                                      ? { borderColor: boxColor, backgroundColor: `${boxColor}1A`, color: boxColor }
-                                      : { borderColor: "hsl(var(--border))", color: "hsl(var(--muted-foreground))" }
-                                  }
-                                  title={iconName}
-                                >
-                                  <IconComponent className="size-3.5" />
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
+                      <div className="border-t border-border px-4 py-3.5">
+                        <Label className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                          <MapPin className="size-3.5 text-primary" aria-hidden="true" />
+                          บริเวณทดสอบ
+                        </Label>
 
-                        <div className="mt-3.5 space-y-1.5 border-t border-border pt-3">
-                          <Label className="text-xs text-muted-foreground font-semibold">
-                            บริเวณทดสอบ
-                          </Label>
-                          {/* Restricted to face/eye — the 3D head can't show
+                        {/* Restricted to face/eye — the 3D head can't show
                               anywhere else (matches PRODUCT_TEMPLATES' own
                               region-narrowing). */}
-                          <div className="flex gap-1.5 pt-1">
-                            {(
-                              [
-                                ["face", "🙂 ใบหน้า"],
-                                ["eye", "👁️ ดวงตา"],
-                              ] as const
-                            ).map(([value, label]) => {
-                              const isSelected = (box.region ?? "face") === value;
-                              return (
-                                <button
-                                  key={value}
-                                  onClick={() => changeBoxRegion(box.id, value)}
-                                  className={`flex-1 rounded-lg border py-1.5 text-xs font-medium transition-colors ${
-                                    isSelected
-                                      ? "border-primary bg-primary/10 text-primary"
-                                      : "border-border text-muted-foreground hover:border-primary/40"
+                        <div className="mt-2.5 flex gap-2">
+                          {(
+                            [
+                              ["face", "ใบหน้า", UserRound],
+                              ["eye", "ดวงตา", Eye],
+                            ] as const
+                          ).map(([value, label, RegionIcon]) => {
+                            const isSelected = (box.region ?? "face") === value;
+                            return (
+                              <button
+                                key={value}
+                                onClick={() => changeBoxRegion(box.id, value)}
+                                className={`flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border text-xs font-semibold transition-colors ${isSelected
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border bg-card text-muted-foreground hover:border-primary/40"
                                   }`}
-                                >
-                                  {label}
-                                </button>
-                              );
-                            })}
+                              >
+                                <RegionIcon className="size-3.5" aria-hidden="true" />
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <details className="group border-t border-border">
+                        <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground [&::-webkit-details-marker]:hidden">
+                          <Palette className="size-3.5" aria-hidden="true" />
+                          สีและไอคอนกล่อง
+                          <span
+                            className="ml-auto size-3 rounded-full border border-black/5"
+                            style={{ backgroundColor: boxColor }}
+                            aria-hidden="true"
+                          />
+                          <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
+                        </summary>
+                        <div className="space-y-3 border-t border-border/60 bg-secondary/20 px-4 py-3">
+                          <div>
+                            <Label className="text-[10px] font-medium text-muted-foreground">สีเน้น</Label>
+                            <div className="mt-2 grid grid-cols-10 gap-1.5">
+                              {BOX_COLORS.map((color) => {
+                                const isSelected = boxColor === color;
+                                return (
+                                  <button
+                                    key={color}
+                                    aria-label={`เปลี่ยนสีกล่องเป็น ${color}`}
+                                    onClick={() => changeBoxColor(box.id, color)}
+                                    className="relative size-5 rounded-full border border-black/5 transition-transform active:scale-90"
+                                    style={{ backgroundColor: color }}
+                                  >
+                                    {isSelected && (
+                                      <span className="absolute inset-0 m-auto size-1.5 rounded-full bg-white shadow-sm" />
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div>
+                            <Label className="text-[10px] font-medium text-muted-foreground">ไอคอนกล่อง</Label>
+                            <div className="mt-2 flex gap-1.5">
+                              {Object.entries(BOX_ICONS).map(([iconName, IconComponent]) => {
+                                const isSelected = (box.icon || "beaker") === iconName;
+                                return (
+                                  <button
+                                    key={iconName}
+                                    aria-label={`เลือกไอคอน ${iconName}`}
+                                    onClick={() => changeBoxIcon(box.id, iconName as BoxIconName)}
+                                    className="grid size-7 shrink-0 place-items-center rounded-lg border transition-colors active:scale-95"
+                                    style={
+                                      isSelected
+                                        ? { borderColor: boxColor, backgroundColor: `${boxColor}14`, color: boxColor }
+                                        : { borderColor: "hsl(var(--border))", backgroundColor: "hsl(var(--card))", color: "hsl(var(--muted-foreground))" }
+                                    }
+                                  >
+                                    <IconComponent className="size-3.5" aria-hidden="true" />
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                         </div>
+                      </details>
 
-                        <div className="mt-3 border-t border-border pt-3">
-                          <button
-                            onClick={() => {
-                              setSettingsOpenId(null);
-                              // Empty box, nothing to lose — skip the confirmation dialog.
-                              if (box.items.length === 0) removeBox(box.id);
-                              else setDeleteConfirmId(box.id);
-                            }}
-                            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
-                          >
-                            <Trash2 className="size-3.5" />
-                            ลบ
-                          </button>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-
-                  {box.items.length > 0 && (
-                    <div className="mt-3 space-y-2">
-                      {/* Water base — not an editable row: it balances to fill
-                          whatever the actives leave, exactly as /assess does. */}
-                      {(() => {
-                        const waterPct = waterPctOf(box);
-                        return waterPct > 0 ? (
-                          <div className="rounded-lg border border-border/60 bg-secondary/40 py-2 pl-2.5 pr-2.5">
-                            <div className="flex items-center gap-2">
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-xs font-medium leading-tight text-foreground">
-                                  Water (Aqua)
-                                </span>
-                                <span className="block truncate font-mono text-[10px] leading-tight text-muted-foreground">
-                                  O
-                                </span>
-                              </span>
-                              <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-                                {waterPct}%
-                              </span>
-                            </div>
-                            <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
-                              เบส · ปรับอัตโนมัติให้รวม 100%
-                            </p>
-                          </div>
-                        ) : (
-                          <p className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-[10px] leading-snug text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400">
-                            ⚠️ สัดส่วนสารรวม ≥ 100% แล้ว จึงไม่เหลือที่ให้น้ำเป็นเบส — ลองลดความเข้มข้นลง
-                          </p>
-                        );
-                      })()}
-                      {box.items.map((it) => {
-                        const c = itemChemical(it);
-                        return (
-                          <div
-                            key={it.chemicalId}
-                            onClick={(e) => e.stopPropagation()}
-                            {...substanceHover.bind(c.name, c.smiles)}
-                            className="flex items-center gap-2 rounded-lg border border-border/60 bg-background/60 py-2 pl-2.5 pr-2.5"
-                          >
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-xs font-medium leading-tight text-foreground">
-                                {c.name}
-                              </span>
-                              <span className="block truncate font-mono text-[10px] leading-tight text-muted-foreground">
-                                {c.smiles}
-                              </span>
-                            </span>
-                            <div className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-card px-1.5 py-1">
-                              <input
-                                type="number"
-                                min={0}
-                                max={100}
-                                value={it.concentration}
-                                onChange={(e) =>
-                                  updateItem(
-                                    box.id,
-                                    it.chemicalId,
-                                    Math.max(0, Math.min(100, Number(e.target.value))),
-                                  )
-                                }
-                                aria-label={`ความเข้มข้น ${c.name}`}
-                                className="w-8 border-0 bg-transparent p-0 text-right text-xs font-semibold tabular-nums text-foreground outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                              />
-                              <span className="text-[10px] text-muted-foreground">%</span>
-                            </div>
-                            <button
-                              aria-label={`ลบ ${c.name}`}
-                              onClick={() => removeItem(box.id, it.chemicalId)}
-                              className="grid size-6 shrink-0 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:border-destructive hover:text-destructive"
-                            >
-                              <Minus className="size-3.5" />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* ── Action buttons ── */}
+                    </PopoverContent>
+                  </Popover>
                   <button
+                    type="button"
+                    aria-expanded={!collapsed}
+                    aria-label={collapsed ? "ขยายกล่องสูตร" : "ย่อกล่องสูตร"}
+                    title={collapsed ? "ขยายกล่องสูตร" : "ย่อกล่องสูตร"}
                     onClick={(e) => {
                       e.stopPropagation();
-                      openPickerFor(box.id);
+                      toggleBoxCollapsed(box.id);
                     }}
-                    className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/40 py-2 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-accent/40"
+                    className="box-accent-control grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors duration-200 focus-visible:outline-none"
                   >
-                    <Plus className="size-3.5" />
-                    เพิ่มสาร
+                    <ChevronDown
+                      className={`size-3.5 transition-transform duration-300 ease-out ${collapsed ? "-rotate-90" : "rotate-0"}`}
+                      aria-hidden="true"
+                    />
                   </button>
+                </div>
 
-                  {/* OCR and AI in a subtle 2-column row */}
-                  <div className="mt-1.5 flex gap-1.5">
+                <div
+                  aria-hidden={collapsed}
+                  inert={collapsed ? true : undefined}
+                  className={`grid overflow-hidden transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none ${collapsed
+                    ? "pointer-events-none grid-rows-[0fr] opacity-0"
+                    : "grid-rows-[1fr] opacity-100"
+                    }`}
+                >
+                  <div className="min-h-0 overflow-hidden">
+                    {box.items.length > 0 ? (
+                      <div className="mt-3 space-y-2.5">
+                        {/* Water base — not an editable row: it balances to fill
+                          whatever the actives leave, exactly as /assess does. */}
+                        {(() => {
+                          const waterPct = waterPctOf(box);
+                          return waterPct > 0 ? (
+                            <div className="rounded-lg border border-sky-200/80 bg-sky-50/80 px-3 py-2.5">
+                              <div className="flex items-center gap-2">
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-xs font-medium leading-tight text-foreground">
+                                    น้ำฐานอัตโนมัติ
+                                  </span>
+                                  <span className="mt-1 block truncate text-[10px] leading-tight text-sky-700">
+                                    Water (Aqua) · เติมให้สูตรครบ 100%
+                                  </span>
+                                </span>
+                                <div className="flex shrink-0 items-center gap-1 rounded-md border border-sky-200 bg-white/90 px-1.5 py-1">
+                                  <span className="w-8 text-right text-xs font-semibold tabular-nums text-foreground">
+                                    {waterPct}
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground">%</span>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-[10px] leading-snug text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400">
+                              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                              <p>
+                                {totalPercent > 100
+                                  ? `สารรวม ${totalPercent}% — ลดสัดส่วน`
+                                  : "สารรวมครบ 100% — ไม่มีพื้นที่สำหรับน้ำ"}
+                              </p>
+                            </div>
+                          );
+                        })()}
+                        {box.items.map((it) => {
+                          const c = itemChemical(it);
+                          const category = categoryStyle(c.category);
+                          const rowKey = `${box.id}:${it.chemicalId}`;
+                          const isRemoving = removingItems.has(rowKey);
+                          return (
+                            <div
+                              key={it.chemicalId}
+                              onClick={(e) => e.stopPropagation()}
+                              {...substanceHover.bind(c.name, c.smiles)}
+                              className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 outline-none transition-[opacity,transform,border-color] duration-200 ease-out motion-reduce:transition-none ${isRemoving
+                                ? "pointer-events-none translate-x-3 scale-[0.98] opacity-0"
+                                : "animate-in fade-in slide-in-from-right-2 translate-x-0 scale-100 opacity-100"
+                                }`}
+                              style={{
+                                borderColor: `${category.accent}24`,
+                                backgroundColor: category.surface,
+                              }}
+                            >
+                              <span className="min-w-0 flex-1">
+                                <span className="flex min-w-0 items-center gap-1.5">
+                                  <span className="min-w-0 flex-1 truncate text-xs font-medium leading-tight text-foreground">
+                                    {c.name}
+                                  </span>
+                                  <span
+                                    className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold leading-none"
+                                    style={{ color: category.accent, backgroundColor: `${category.accent}12` }}
+                                  >
+                                    {category.label}
+                                  </span>
+                                </span>
+                                <span className="mt-1 block truncate font-mono text-[9px] leading-tight text-muted-foreground">
+                                  {c.smiles}
+                                </span>
+                              </span>
+                              <div className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-card px-1.5 py-1">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  value={it.concentration}
+                                  onChange={(e) =>
+                                    updateItem(
+                                      box.id,
+                                      it.chemicalId,
+                                      Math.max(0, Math.min(100, Number(e.target.value))),
+                                    )
+                                  }
+                                  aria-label={`ความเข้มข้น ${c.name}`}
+                                  className="w-8 border-0 bg-transparent p-0 text-right text-xs font-semibold tabular-nums text-foreground outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                />
+                                <span className="text-[10px] text-muted-foreground">%</span>
+                              </div>
+                              <button
+                                aria-label={`ลบ ${c.name}`}
+                                onClick={() => removeItem(box.id, it.chemicalId)}
+                                className="grid size-6 shrink-0 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:border-destructive hover:text-destructive"
+                              >
+                                <Minus className="size-3.5" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="mt-3 rounded-lg border border-dashed border-border bg-secondary/20 px-3 py-4 text-center">
+                        <Beaker className="mx-auto size-5 text-muted-foreground/70" aria-hidden="true" />
+                        <p className="mt-1.5 text-xs font-medium text-foreground">ยังไม่มีสารในสูตร</p>
+                        <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">
+                          เพิ่มจากคลังสาร หรือสแกนฉลากส่วนผสม
+                        </p>
+                      </div>
+                    )}
+
+                    {/* ── Action buttons ── */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        openScanFor(box.id);
+                        openPickerFor(box.id);
                       }}
-                      className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-border/60 bg-secondary/30 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+                      className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/40 py-2 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-accent/40"
                     >
-                      📷 OCR
+                      <Plus className="size-3.5" />
+                      เพิ่มสาร
                     </button>
-                    {box.items.length > 0 && (
+
+                    {/* OCR and AI in a subtle 2-column row */}
+                    <div className="mt-1.5 flex gap-1.5">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          optimizeBox(box);
+                          openScanFor(box.id);
                         }}
-                        disabled={optimizingId === box.id}
-                        className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-border/60 bg-secondary/30 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:opacity-50"
+                        className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-border/60 bg-secondary/30 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
                       >
-                        {optimizingId === box.id ? "⏳ AI ปรับ…" : "🤖 AI ปรับสัดส่วน"}
+                        <Camera className="size-3" aria-hidden="true" />
+                        สแกนฉลาก
                       </button>
+                      {box.items.length > 0 && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            optimizeBox(box);
+                          }}
+                          disabled={optimizingId === box.id}
+                          className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-border/60 bg-secondary/30 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:opacity-50"
+                        >
+                          {optimizingId === box.id ? (
+                            <>
+                              <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
+                              กำลังปรับ…
+                            </>
+                          ) : (
+                            <>
+                              <WandSparkles className="size-3" aria-hidden="true" />
+                              AI ปรับสัดส่วน
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                    {optMsg && optMsg.boxId === box.id && (
+                      <p className={`mt-1 text-[10px] leading-snug ${optMsg.ok ? "text-primary" : "text-destructive"}`}>
+                        {optMsg.text}
+                      </p>
                     )}
                   </div>
-                  {optMsg && optMsg.boxId === box.id && (
-                    <p className={`mt-1 text-[10px] leading-snug ${optMsg.ok ? "text-primary" : "text-destructive"}`}>
-                      {optMsg.text}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-
-            {boxes.length === 0 && (
-              <p className="px-1 py-6 text-center text-xs text-muted-foreground">
-                ยังไม่มีกล่องสูตร — กด + ด้านบนเพื่อสร้างกล่องแรก
-              </p>
-            )}
-          </div>
-
-          <AlertDialog open={!!deleteConfirmId} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>ลบ "{boxPendingDelete?.name}" ใช่ไหม?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  สารทั้งหมดจะถูกลบ และไม่สามารถย้อนกลับได้
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>ยกเลิก</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => {
-                    if (deleteConfirmId) removeBox(deleteConfirmId);
-                    setDeleteConfirmId(null);
-                  }}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                >
-                  ลบ
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </aside>
-
-        {/* Left resize handle */}
-        {!leftCollapsed && (
-          <div
-            role="separator"
-            aria-label="ปรับขนาดแผงกล่องสูตร"
-            onPointerDown={startResize("left")}
-            className="group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize"
-          >
-            <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors group-hover:bg-primary/50" />
-          </div>
-        )}
-
-        {/* ── Center: tabs + 3D head + substance picker ── */}
-        <main className="flex min-w-0 flex-1 flex-col">
-          <Tabs
-            value={tab}
-            onValueChange={(v) => setTab(v as TabKey)}
-            className="relative flex min-h-0 flex-1 flex-col"
-          >
-            {/* View switcher — floating pill only while the side panels are collapsed, otherwise the regular in-flow bar */}
-            {leftCollapsed ? (
-              <div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex justify-center">
-                <div className="pointer-events-auto rounded-xl border border-border bg-card p-1 shadow-md">
-                  <TabsList className="h-9 rounded-lg bg-muted p-1">
-                    {TABS.map((t) => (
-                      <TabsTrigger
-                        key={t.key}
-                        value={t.key}
-                        className="rounded-md px-5 text-sm font-medium text-muted-foreground data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-                      >
-                        {t.label}
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
                 </div>
               </div>
-            ) : (
-              <div className="flex justify-center border-b border-border py-3">
+            );
+          })}
+
+          {boxes.length === 0 && (
+            <div className="w-full animate-in fade-in-0 zoom-in-95 px-4 py-8 text-center duration-200 motion-reduce:animate-none">
+              <span className="mx-auto grid size-11 place-items-center rounded-xl bg-primary/10 text-primary">
+                <Beaker className="size-5" aria-hidden="true" />
+              </span>
+              <p className="mt-3 text-sm font-bold text-foreground">ยังไม่มีกล่องสูตร</p>
+              <p className="mx-auto mt-1 max-w-48 text-[11px] leading-relaxed text-muted-foreground">
+                สร้างกล่องสูตรเพื่อเริ่มเพิ่มสารและกำหนดสัดส่วน
+              </p>
+              <button
+                type="button"
+                onClick={addBox}
+                className="mx-auto mt-4 flex h-9 items-center justify-center gap-1.5 rounded-lg bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-sm transition-[background-color,transform,box-shadow] hover:bg-primary/90 hover:shadow-md active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2"
+              >
+                <Plus className="size-3.5" aria-hidden="true" />
+                สร้างกล่องสูตร
+              </button>
+            </div>
+          )}
+        </div>
+
+        <AlertDialog open={!!deleteConfirmId} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>ลบ "{boxPendingDelete?.name}" ใช่ไหม?</AlertDialogTitle>
+              <AlertDialogDescription>
+                สารทั้งหมดจะถูกลบ และไม่สามารถย้อนกลับได้
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>ยกเลิก</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  if (deleteConfirmId) removeBox(deleteConfirmId);
+                  setDeleteConfirmId(null);
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                ลบ
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </aside>
+
+      {/* Left resize handle */}
+      {!leftCollapsed && (
+        <div
+          role="separator"
+          aria-label="ปรับขนาดแผงกล่องสูตร"
+          onPointerDown={startResize("left")}
+          className="group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize"
+        >
+          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors group-hover:bg-primary/50" />
+        </div>
+      )}
+
+      {/* ── Center: tabs + 3D head + substance picker ── */}
+      <main className="flex min-w-0 flex-1 flex-col">
+        <Tabs
+          value={tab}
+          onValueChange={(v) => setTab(v as TabKey)}
+          className="relative flex min-h-0 flex-1 flex-col"
+        >
+          {/* View switcher — floating pill only while the side panels are collapsed, otherwise the regular in-flow bar */}
+          {leftCollapsed ? (
+            <div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex justify-center">
+              <div className="pointer-events-auto rounded-xl border border-border bg-card p-1 shadow-md">
                 <TabsList className="h-9 rounded-lg bg-muted p-1">
                   {TABS.map((t) => (
                     <TabsTrigger
@@ -1319,267 +1717,296 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                   ))}
                 </TabsList>
               </div>
-            )}
-
-            <TabsContent value="experiment" className="relative min-h-0 flex-1 mt-0">
-              <>
-                <FacePaint
-                  layers={paintLayers}
-                  brushValue={activeBox ? boxIntensity(activeBox) : 0}
-                  armed={!!activeBox && activeBox.items.length > 0}
-                  background="#F7F5F4"
-                  zoomPct={zoomPct}
-                  brushSizePct={brushSizePct}
-                  clearTrigger={clearTrigger}
-                  onZoomChange={setZoomPct}
-                />
-
-                {/* Bottom-centred floating toolbar */}
-                <CanvasToolbar
-                  brushSizePct={brushSizePct}
-                  running={running}
-                  onRun={handleRun}
-                  onClear={handleClear}
-                  onBrushSizeReset={handleBrushSizeReset}
-                  onBrushSizeChange={setBrushSizePct}
-                />
-
-                {/* Substance picker sheet — slides out right after the formula-box panel, no dark backdrop */}
-                <Sheet
-                  open={pickerOpen}
-                  onOpenChange={(open) => {
-                    setPickerOpen(open);
-                    if (!open) {
-                      setPickerQuery("");
-                      setPickerCategory("all");
-                    }
-                  }}
-                >
-                  <SheetContent
-                    side="left"
-                    overlayClassName="z-20 bg-transparent"
-                    style={{ left: pickerLeftOffset - 28 }}
-                    className="z-20 flex w-80 flex-col gap-0 border-r border-border bg-card p-0 pl-7 sm:max-w-none"
+            </div>
+          ) : (
+            <div className="flex justify-center border-b border-border py-3">
+              <TabsList className="h-9 rounded-lg bg-muted p-1">
+                {TABS.map((t) => (
+                  <TabsTrigger
+                    key={t.key}
+                    value={t.key}
+                    className="rounded-md px-5 text-sm font-medium text-muted-foreground data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                   >
-                    <SheetHeader className="flex-row items-center justify-between gap-2 space-y-0 border-b border-border px-4 py-3 pr-12 text-left">
-                      <SheetTitle className="shrink-0">คลังสารเคมี</SheetTitle>
-                      <div className="relative shrink-0">
-                        <select
-                          value={pickerCategory}
-                          onChange={(e) => setPickerCategory(e.target.value)}
-                          className="h-8 appearance-none rounded-lg border border-border bg-card py-0 pl-3 pr-8 text-xs text-foreground outline-none focus:border-primary"
-                        >
-                          <option value="all">หมวดหมู่ทั้งหมด</option>
-                          {pickerCategories.map((role) => (
-                            <option key={role} value={role}>
-                              {role}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                      </div>
-                    </SheetHeader>
+                    {t.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
+          )}
 
-                    <div className="px-4 py-3">
-                      <div className="relative w-full">
-                        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                        <input
-                          value={pickerQuery}
-                          onChange={(e) => setPickerQuery(e.target.value)}
-                          placeholder="ค้นหาสารเคมี หรือ INCI"
-                          className="h-9 w-full rounded-lg border border-border bg-secondary/50 pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
-                        />
-                      </div>
+          <TabsContent value="experiment" className="relative min-h-0 flex-1 mt-0">
+            <>
+              <FacePaint
+                layers={paintLayers}
+                brushValue={activeBox ? boxIntensity(activeBox) : 0}
+                armed={!!activeBox && activeBox.items.length > 0}
+                background="#F7F5F4"
+                zoomPct={zoomPct}
+                brushSizePct={brushSizePct}
+                clearTrigger={clearTrigger}
+                onZoomChange={setZoomPct}
+              />
+
+              {/* Bottom-centred floating toolbar */}
+              <CanvasToolbar
+                brushSizePct={brushSizePct}
+                running={running}
+                onRun={handleRun}
+                onClear={handleClear}
+                onBrushSizeReset={handleBrushSizeReset}
+                onBrushSizeChange={setBrushSizePct}
+              />
+
+              {/* Substance picker sheet — slides out right after the formula-box panel, no dark backdrop */}
+              <Sheet
+                open={pickerOpen}
+                onOpenChange={(open) => {
+                  setPickerOpen(open);
+                  if (!open) {
+                    setPickerQuery("");
+                    setPickerCategory("all");
+                  }
+                }}
+              >
+                <SheetContent
+                  side="left"
+                  overlayClassName="z-20 bg-transparent"
+                  style={{ left: pickerLeftOffset - 28 }}
+                  className="z-20 flex w-80 flex-col gap-0 border-r border-border bg-card p-0 pl-7 sm:max-w-none"
+                >
+                  <SheetHeader className="flex-row items-center justify-between gap-2 space-y-0 border-b border-border px-4 py-3 pr-12 text-left">
+                    <SheetTitle className="shrink-0">คลังสารเคมี</SheetTitle>
+                    <div className="relative w-28 min-w-0 shrink">
+                      <select
+                        aria-label="กรองสารตามหมวดหมู่"
+                        value={pickerCategory}
+                        onChange={(e) => setPickerCategory(e.target.value)}
+                        className="h-8 w-full min-w-0 appearance-none truncate rounded-lg border border-border bg-card py-0 pl-3 pr-8 text-xs text-foreground outline-none transition-colors focus:border-primary"
+                      >
+                        <option value="all">หมวดหมู่ทั้งหมด</option>
+                        {pickerCategories.map((role) => (
+                          <option key={role} value={role}>
+                            {role}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                     </div>
+                  </SheetHeader>
 
-                    <div className="flex-1 overflow-y-auto px-4 pb-4">
-                      {pickerTarget &&
-                        pickerGroups.map((g) => (
-                          <div key={g.category} className="mb-4 last:mb-0">
-                            <h4 className="sticky top-0 z-10 -mx-1 bg-background/95 px-1 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                  <div className="px-4 py-3">
+                    <div className="relative w-full">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        value={pickerQuery}
+                        onChange={(e) => setPickerQuery(e.target.value)}
+                        placeholder="ค้นหาสารเคมี หรือ INCI"
+                        className="h-9 w-full rounded-lg border border-border bg-secondary/50 pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-4 pb-4">
+                    {pickerTarget &&
+                      pickerGroups.map((g) => {
+                        const groupStyle = categoryStyle(g.category);
+                        return (
+                          <div key={g.category} className="mb-5 last:mb-0">
+                            <h4 className="sticky top-0 z-10 -mx-1 flex items-center gap-2 bg-background/95 px-1 py-2 text-[11px] font-semibold text-foreground backdrop-blur">
                               {g.category}
+                              <span className="ml-auto font-normal tabular-nums text-muted-foreground">
+                                {g.items.length} รายการ
+                              </span>
                             </h4>
                             <div className="space-y-2">
                               {g.items.map((c) => {
-                                const already = pickerTarget.items.some((it) => it.chemicalId === c.id);
+                                const selectedItem = pickerTarget.items.find((it) => it.chemicalId === c.id);
+                                const already = !!selectedItem;
+                                const displayConcentration = selectedItem?.concentration ?? c.conc;
                                 return (
                                   <div
                                     key={c.id}
                                     role="button"
                                     tabIndex={0}
-                                    {...substanceHover.bind(c.name, c.smiles)}
-                                    onClick={() => !already && addItem(pickerTarget.id, c.id)}
+                                    aria-pressed={already}
+                                    aria-label={already ? `ลบ ${c.name} ออกจากสูตร` : `เพิ่ม ${c.name} เข้าสูตร`}
+                                    onClick={() =>
+                                      already
+                                        ? removeItem(pickerTarget.id, c.id)
+                                        : addItem(pickerTarget.id, c.id)
+                                    }
                                     onKeyDown={(e) => {
-                                      if ((e.key === "Enter" || e.key === " ") && !already) {
+                                      if (e.key === "Enter" || e.key === " ") {
                                         e.preventDefault();
-                                        addItem(pickerTarget.id, c.id);
+                                        already
+                                          ? removeItem(pickerTarget.id, c.id)
+                                          : addItem(pickerTarget.id, c.id);
                                       }
                                     }}
-                                    className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${already
-                                      ? "border-border bg-secondary/40"
-                                      : "cursor-pointer border-border bg-card hover:border-primary/50 hover:bg-accent/40"
+                                    className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 ${already ? "ring-1" : ""
                                       }`}
+                                    style={{
+                                      borderColor: already ? `${groupStyle.accent}70` : `${groupStyle.accent}24`,
+                                      backgroundColor: groupStyle.surface,
+                                      boxShadow: already ? `inset 0 0 0 1px ${groupStyle.accent}20` : undefined,
+                                      ...(already ? { "--tw-ring-color": `${groupStyle.accent}30` } : {}),
+                                    } as React.CSSProperties}
                                   >
                                     <span className="min-w-0 flex-1">
-                                      <span className="block truncate text-sm font-medium text-foreground">
-                                        {c.name} ({c.conc}%)
+                                      <span className="block truncate text-sm font-semibold text-slate-800">
+                                        {c.name}
                                       </span>
-                                      <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                                      <span className="mt-1 block truncate font-mono text-[10px] text-slate-500">
                                         {c.smiles}
                                       </span>
                                     </span>
-                                    {already ? (
-                                      <button
-                                        aria-label={`ลบ ${c.name} ออกจากกล่อง`}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          removeItem(pickerTarget.id, c.id);
-                                        }}
-                                        className="grid size-6 shrink-0 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:border-destructive hover:text-destructive"
-                                      >
-                                        <Minus className="size-3.5" />
-                                      </button>
-                                    ) : (
-                                      <span className="shrink-0 rounded-full border border-primary/40 px-2.5 py-1 text-xs font-medium text-primary">
-                                        เพิ่ม
-                                      </span>
-                                    )}
+                                    <span
+                                      className="shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-bold tabular-nums"
+                                      style={{
+                                        borderColor: `${groupStyle.accent}42`,
+                                        backgroundColor: already ? groupStyle.accent : "#FFFFFFCC",
+                                        color: already ? "#FFFFFF" : groupStyle.accent,
+                                      }}
+                                    >
+                                      {displayConcentration}%
+                                    </span>
                                   </div>
                                 );
                               })}
                             </div>
                           </div>
-                        ))}
-                      {pickerTarget && pickerGroups.length === 0 && (
-                        <p className="py-6 text-center text-xs text-muted-foreground">
-                          ไม่พบสารเคมีที่ตรงกับคำค้นหา
-                        </p>
-                      )}
-                    </div>
-                  </SheetContent>
-                </Sheet>
-              </>
-            </TabsContent>
+                        );
+                      })}
+                    {pickerTarget && pickerGroups.length === 0 && (
+                      <p className="py-6 text-center text-xs text-muted-foreground">
+                        ไม่พบสารเคมีที่ตรงกับคำค้นหา
+                      </p>
+                    )}
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </>
+          </TabsContent>
 
-            <TabsContent value="nodemods" className="relative min-h-0 flex-1 mt-0">
-              {/* key: rebuild the graph when the active box changes, so it
+          <TabsContent value="nodemods" className="relative min-h-0 flex-1 mt-0">
+            {/* key: rebuild the graph when the active box changes, so it
                   seeds from that box instead of keeping the old nodes. */}
-              <FormulaGraph
-                key={activeBoxId}
-                seed={activeBox ? boxToFormulaItems(activeBox) : []}
-                region={region}
-                onSaveFormula={saveGraphAsFormula}
-              />
-            </TabsContent>
-
-            <TabsContent value="trust" className="relative min-h-0 flex-1 mt-0">
-              <TrustReport />
-            </TabsContent>
-          </Tabs>
-        </main>
-
-        {/* Right resize handle */}
-        {!leftCollapsed && (
-          <div
-            role="separator"
-            aria-label="ปรับขนาดแผงรายละเอียด"
-            onPointerDown={startResize("right")}
-            className="group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize"
-          >
-            <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors group-hover:bg-primary/50" />
-          </div>
-        )}
-
-        {/* ── Right: time-course selector + AI chat panel ── */}
-        <aside
-          style={{ width: leftCollapsed ? 0 : rightWidth }}
-          className={`flex shrink-0 flex-col overflow-hidden bg-card ${
-            isResizing ? "" : "transition-all duration-300 ease-in-out"
-          } ${leftCollapsed ? "border-l-0" : "border-l border-border"}`}
-        >
-          <div className="border-b border-border px-4 py-3">
-            <p className="text-xs font-medium text-muted-foreground">การจำลองตามเวลา</p>
-            <p className="mb-2 text-[10px] leading-snug text-muted-foreground/70">
-              {activeResult
-                ? "เลือกวันเพื่อโหลดความรุนแรงของวันนั้นเข้าพู่กัน แล้วคลิก/ลากบนโมเดลเพื่อดูผล"
-                : "กด “เริ่มทดสอบ” ก่อน แล้วค่อยเลือกวันเพื่อดูความรุนแรงที่คาดว่าจะเกิดขึ้น"}
-            </p>
-            <div className="flex gap-1.5">
-              {DAY_LABELS.map((d, i) => (
-                <button
-                  key={d}
-                  onClick={() => setDayIdx(i as 0 | 1 | 2)}
-                  className={`flex-1 rounded-lg py-1.5 text-xs font-semibold transition-colors ${dayIdx === i
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-muted-foreground hover:bg-secondary/80"
-                    }`}
-                >
-                  Day {d}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="min-h-0 flex-1 opacity-90">
-            <AiChatPanel
-              buildContext={buildChatContext}
-              onAction={runAssistantAction}
-              onImportFormula={importAssistantFormula}
+            <FormulaGraph
+              key={activeBoxId}
+              seed={activeBox ? boxToFormulaItems(activeBox) : []}
+              region={region}
+              onSaveFormula={saveGraphAsFormula}
             />
-          </div>
+          </TabsContent>
 
-          {/* Reserved results area — always visible, filled in once an assessment runs */}
-          <div className="h-64 shrink-0 overflow-y-auto border-t border-border bg-accent/30 px-4 py-4">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <p className="text-sm font-bold text-foreground">
-                ผลการประเมิน{activeResult && ` · Day ${DAY_LABELS[dayIdx]}`}
-              </p>
-              {activeResult && (
-                <button
-                  onClick={() => router.push(`/projects/${params.id}/results`)}
-                  className="shrink-0 text-[11px] font-medium text-primary hover:underline"
-                >
-                  ดูรายงานฉบับเต็ม →
-                </button>
-              )}
-            </div>
-            {runBoxId === activeBoxId && runError && (
-              <p className="mb-3 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-[11px] leading-snug text-destructive">
-                ⚠️ {runError}
-              </p>
-            )}
-            {runBoxId === activeBoxId && running && !runError && (
-              <p className="mb-3 text-xs text-muted-foreground">กำลังประเมิน…</p>
-            )}
-            {activeResult ? (
-              <div className="space-y-3.5">
-                {RESULT_ENDPOINTS.map((ep) => {
-                  const e = activeResult.endpoints[ep.key];
-                  const score = Math.round(e?.timecourse?.[dayIdx] ?? e?.peak_score ?? 0);
-                  return (
-                    <div key={ep.key}>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-foreground">{ep.label}</span>
-                        <span className="font-mono text-sm font-bold text-primary">
-                          {score} <span className="text-xs font-medium text-muted-foreground">- {bandTH(score)}</span>
-                        </span>
-                      </div>
-                      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-secondary">
-                        <div
-                          className={`h-full rounded-full ${bandColor(score)}`}
-                          style={{ width: `${Math.min(100, score)}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="py-6 text-center text-xs text-muted-foreground">
-                กด Run เพื่อประเมินความเสี่ยง ผลลัพธ์จะแสดงที่นี่
-              </p>
+          <TabsContent value="trust" className="relative min-h-0 flex-1 mt-0">
+            <TrustReport />
+          </TabsContent>
+        </Tabs>
+      </main>
+
+      {/* Right resize handle */}
+      {!leftCollapsed && (
+        <div
+          role="separator"
+          aria-label="ปรับขนาดแผงรายละเอียด"
+          onPointerDown={startResize("right")}
+          className="group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize"
+        >
+          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors group-hover:bg-primary/50" />
+        </div>
+      )}
+
+      {/* ── Right: time-course selector + AI chat panel ── */}
+      <aside
+        style={{ width: leftCollapsed ? 0 : rightWidth }}
+        className={`flex shrink-0 flex-col overflow-hidden bg-card ${isResizing ? "" : "transition-all duration-300 ease-in-out"
+          } ${leftCollapsed ? "border-l-0" : "border-l border-border"}`}
+      >
+        <div className="border-b border-border px-4 py-3">
+          <p className="text-xs font-medium text-muted-foreground">การจำลองตามเวลา</p>
+          <p className="mb-2 text-[10px] leading-snug text-muted-foreground/70">
+            {activeResult
+              ? "เลือกวันเพื่อโหลดความรุนแรงของวันนั้นเข้าพู่กัน แล้วคลิก/ลากบนโมเดลเพื่อดูผล"
+              : "กด “เริ่มทดสอบ” ก่อน แล้วค่อยเลือกวันเพื่อดูความรุนแรงที่คาดว่าจะเกิดขึ้น"}
+          </p>
+          <div className="flex gap-1.5">
+            {DAY_LABELS.map((d, i) => (
+              <button
+                key={d}
+                onClick={() => setDayIdx(i as 0 | 1 | 2)}
+                className={`flex-1 rounded-lg py-1.5 text-xs font-semibold transition-colors ${dayIdx === i
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-muted-foreground hover:bg-secondary/80"
+                  }`}
+              >
+                Day {d}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 opacity-90">
+          <AiChatPanel
+            buildContext={buildChatContext}
+            onAction={runAssistantAction}
+            onImportFormula={importAssistantFormula}
+          />
+        </div>
+
+        {/* Reserved results area — always visible, filled in once an assessment runs */}
+        <div className="h-64 shrink-0 overflow-y-auto border-t border-border bg-accent/30 px-4 py-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <p className="text-sm font-bold text-foreground">
+              ผลการประเมิน{activeResult && ` · Day ${DAY_LABELS[dayIdx]}`}
+            </p>
+            {activeResult && (
+              <button
+                onClick={() => router.push(`/projects/${params.id}/results`)}
+                className="shrink-0 text-[11px] font-medium text-primary hover:underline"
+              >
+                ดูรายงานฉบับเต็ม →
+              </button>
             )}
           </div>
-        </aside>
+          {runBoxId === activeBoxId && runError && (
+            <div className="mb-3 flex gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-[11px] leading-snug text-destructive">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <p>{runError}</p>
+            </div>
+          )}
+          {runBoxId === activeBoxId && running && !runError && (
+            <p className="mb-3 text-xs text-muted-foreground">กำลังประเมิน…</p>
+          )}
+          {activeResult ? (
+            <div className="space-y-3.5">
+              {RESULT_ENDPOINTS.map((ep) => {
+                const e = activeResult.endpoints[ep.key];
+                const score = Math.round(e?.timecourse?.[dayIdx] ?? e?.peak_score ?? 0);
+                return (
+                  <div key={ep.key}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-foreground">{ep.label}</span>
+                      <span className="font-mono text-sm font-bold text-primary">
+                        {score} <span className="text-xs font-medium text-muted-foreground">- {bandTH(score)}</span>
+                      </span>
+                    </div>
+                    <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className={`h-full rounded-full ${bandColor(score)}`}
+                        style={{ width: `${Math.min(100, score)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="py-6 text-center text-xs text-muted-foreground">
+              กด Run เพื่อประเมินความเสี่ยง ผลลัพธ์จะแสดงที่นี่
+            </p>
+          )}
+        </div>
+      </aside>
       {substanceHover.card}
       <LabelScanModal
         open={scanOpen}
@@ -1597,8 +2024,8 @@ function TrustReport() {
   const [metrics, setMetrics] = useState<ModelMetricsPayload | null>(null);
   const [info, setInfo] = useState<ModelInfoPayload | null>(null);
   useEffect(() => {
-    api.getModelMetrics().then(setMetrics).catch(() => {});
-    api.getModelInfo().then(setInfo).catch(() => {});
+    api.getModelMetrics().then(setMetrics).catch(() => { });
+    api.getModelInfo().then(setInfo).catch(() => { });
   }, []);
   const pct = (x: number | null | undefined) => (x == null ? "—" : x.toFixed(2));
 

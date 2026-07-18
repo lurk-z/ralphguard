@@ -3,7 +3,7 @@
 // Redesigned project card — shared by the Overview and Projects pages.
 // Adds a permanently visible edit/delete affordance.
 // Clicking edit opens a modal to edit name, description, icon, and color.
-import { useRef, useState, useMemo, useCallback } from "react";
+import { useRef, useState, useMemo, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -118,8 +118,18 @@ export default function ProjectCard({
   const [isNavigating, setIsNavigating] = useState(false);
   const [navProgress, setNavProgress] = useState(0);
   const navTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
+
+  useEffect(
+    () => () => {
+      if (navTimer.current) clearInterval(navTimer.current);
+      if (deleteTimer.current) clearTimeout(deleteTimer.current);
+    },
+    [],
+  );
 
   // States for modal editing
   const accentColor = project.color ?? FALLBACK_COLORS[index % FALLBACK_COLORS.length];
@@ -133,7 +143,7 @@ export default function ProjectCard({
   }, [editName, project.id]);
 
   const handleNavigate = useCallback(() => {
-    if (isNavigating) return;
+    if (isNavigating || isDeleting) return;
     setIsNavigating(true);
     setNavProgress(0);
     let pct = 0;
@@ -145,7 +155,7 @@ export default function ProjectCard({
         router.push(`/projects/${project.id}/assess`);
       }
     }, 60);
-  }, [isNavigating, project.id, router]);
+  }, [isDeleting, isNavigating, project.id, router]);
 
   const IconComp: LucideIcon = (ICONS.find((i) => i.key === (project.icon ?? "folder-open")) ?? ICONS[0]).icon;
 
@@ -171,6 +181,26 @@ export default function ProjectCard({
     setIsEditOpen(true);
   };
 
+  const handleDelete = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (isDeleting) return;
+
+    setConfirmDelete(false);
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reducedMotion) {
+      deleteProject(project.id);
+      onChanged();
+      return;
+    }
+
+    setIsDeleting(true);
+    deleteTimer.current = setTimeout(() => {
+      deleteProject(project.id);
+      onChanged();
+      deleteTimer.current = null;
+    }, 300);
+  };
+
   return (
     <>
       {isNavigating && (
@@ -190,7 +220,9 @@ export default function ProjectCard({
       )}
       <Card
         role="button"
-        tabIndex={0}
+        tabIndex={isDeleting ? -1 : 0}
+        aria-hidden={isDeleting}
+        inert={isDeleting ? true : undefined}
         onClick={handleNavigate}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -201,8 +233,9 @@ export default function ProjectCard({
         style={{ animationDelay: `${index * 60}ms`, animationFillMode: "backwards" }}
         className={cn(
           "group relative animate-in fade-in slide-in-from-bottom-2 overflow-hidden border-border py-0 shadow-sm duration-300",
-          "cursor-pointer transition-shadow hover:shadow-md",
+          "cursor-pointer transition-[opacity,transform,filter,box-shadow] ease-out hover:shadow-md",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          isDeleting && "pointer-events-none -translate-y-2 scale-[0.96] opacity-0 blur-[1px]",
         )}
       >
         {/* Accent bar — uses the project's saved colour */}
@@ -273,11 +306,7 @@ export default function ProjectCard({
             <AlertDialogCancel onClick={(e) => e.stopPropagation()}>ยกเลิก</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteProject(project.id);
-                onChanged();
-              }}
+              onClick={handleDelete}
             >
               ลบโปรเจกต์
             </AlertDialogAction>

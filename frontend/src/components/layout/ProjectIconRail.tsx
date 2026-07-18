@@ -10,7 +10,6 @@ import {
   Beaker,
   FlaskConical,
   Grid2x2,
-  Home,
   LayoutGrid,
   LineChart,
   SlidersHorizontal,
@@ -71,7 +70,12 @@ export default function ProjectIconRail({ projectId }: { projectId: string }) {
                     onClick={() => setShowHomeConfirm(true)}
                     className="size-10 justify-center p-0 text-muted-foreground hover:text-foreground active:scale-95"
                   >
-                    <Home className="size-[18px]" />
+                    <img
+                      src="/icons/logo.svg"
+                      alt=""
+                      aria-hidden="true"
+                      className="size-7 object-contain"
+                    />
                   </SidebarMenuButton>
                 </TooltipTrigger>
                 <TooltipContent side="right" className="text-white">

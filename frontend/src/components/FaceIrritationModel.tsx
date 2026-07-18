@@ -31,11 +31,9 @@ const TIP_BAND_HEX: Record<string, string> = {
 
 export type PaintLayer = { key: string; label: string; score: number; color: string; band: string };
 
-// The shader keys off the brush HUE to pick lesion morphology (flat/wet for eye,
-// hives for sensitisation, …), so anything synthesising a layer must reuse these
-// exact colours rather than an arbitrary red. Exported so callers building their
-// own PaintLayer[] (e.g. from a day-by-day timecourse) use the real ones instead
-// of risking a drift/typo that would silently paint the wrong lesion shape.
+// Endpoint colours remain part of PaintLayer metadata and are exported for
+// callers that build their own day-by-day layers. Paint mode itself now renders
+// every endpoint as the same white cream.
 export const EP_COLOR: Record<string, string> = {
   skin: "#FF3B5C", // แดง
   eye: "#22D3EE", // ฟ้า
@@ -43,15 +41,9 @@ export const EP_COLOR: Record<string, string> = {
   acute: "#F59E0B", // ส้ม
 };
 
-/** #RRGGBB -> [r,g,b] in 0..1 */
-function hex01(hex: string): [number, number, number] {
-  const n = parseInt(hex.replace("#", ""), 16);
-  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
-}
-
 /**
  * Map a 0..1 risk score to paint intensity. Near-proportional (mild curve) so the
- * swelling/redness tracks the actual score: low score → faint, high score → strong.
+ * cream opacity tracks the actual score: low score → faint, high score → strong.
  */
 function gain(raw: number) {
   return raw <= 0 ? 0 : Math.min(1, Math.pow(raw, 0.8) * 1.1);
@@ -75,9 +67,13 @@ export function regionSensitivity(region: string): number {
   if (region.includes("จมูก")) return 1.1;
   if (region.includes("หน้าผาก")) return 0.9;
   if (region.includes("คาง")) return 0.85;
+  if (region.includes("หลังหู")) return 0.65;
   if (region.includes("หู")) return 0.7;
+  if (region.includes("ท้ายทอย")) return 0.6;
   if (region.includes("คอ")) return 0.6;
+  if (region.includes("ด้านหลังศีรษะ")) return 0.55;
   if (region.includes("หนังศีรษะ")) return 0.55;
+  if (region.includes("หลัง") || region.includes("บ่า")) return 0.5;
   return 1.0; // แก้ม / ทั่วไป
 }
 
@@ -360,7 +356,7 @@ export function FaceIrritationCanvas({
 
 // ─────────────────────────────────────────────────────────────
 // Paint mode — the assessment result becomes a "loaded brush"; the user
-// drags on the skin to paint it, and the redness blooms where painted.
+// drags on the skin to apply a flat, cream-like colour overlay.
 // Paint is accumulated into a CanvasTexture sampled by UV in the shader.
 // ─────────────────────────────────────────────────────────────
 
@@ -416,26 +412,24 @@ function PaintFaceModel({
     canvas.width = 1024;
     canvas.height = 1024;
     const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const committedCanvas = document.createElement("canvas");
+    committedCanvas.width = canvas.width;
+    committedCanvas.height = canvas.height;
+    const committedCtx = committedCanvas.getContext("2d")!;
     const tex = new THREE.CanvasTexture(canvas);
     tex.flipY = false;
     tex.colorSpace = THREE.NoColorSpace;
-    return { canvas, ctx, tex };
+    return { canvas, ctx, committedCanvas, committedCtx, tex };
   }, []);
 
-  const uBloom = useRef({ value: 1 });
-  const uSwell = useRef({ value: 0 }); // max displacement (local units) at full intensity
-  const uTime = useRef({ value: 0 });  // drives the swelling pulse
   const uSkinLift = useRef({ value: SKIN_LIFT }); // brighten the skin albedo
+  const uPaintTime = useRef({ value: 0 }); // animates the locator scan only
   const hasPainted = useRef(false);
-  // Stamps still "developing" — each click grows 0→full over STAMP_DURATION seconds.
-  const stampsRef = useRef<
-    { cx: number; cy: number; r: number; R: number; G: number; B: number; t0: number }[]
-  >([]);
+  type CreamStamp = { cx: number; cy: number; r: number; opacity: number; t0: number };
+  const activeStampsRef = useRef<CreamStamp[]>([]);
   const painting = useRef(false);
   const brushRef = useRef(0); // set per-click from the region's dominant endpoint
-  const colorRef = useRef<[number, number, number]>([1, 0.23, 0.36]);
   const layersRef = useRef<PaintLayer[]>(layers);
   useEffect(() => {
     layersRef.current = layers;
@@ -450,7 +444,9 @@ function PaintFaceModel({
   const eyeMeshRef = useRef<THREE.Object3D | null>(null); // eyeball mesh → calibrates eye line
   const calibRef = useRef<{ minY: number; maxY: number; eyeY: number } | null>(null);
 
-  // Inject the paint-driven erythema shader onto a per-instance skin material.
+  // Inject a flat white overlay onto a per-instance skin material. The shader
+  // deliberately leaves vertex position, normals, roughness and emissive light
+  // untouched so painting never deforms the face or resembles a skin reaction.
   useMemo(() => {
     scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
@@ -477,172 +473,63 @@ function PaintFaceModel({
       mesh.geometry.computeBoundingBox();
       const bb = mesh.geometry.boundingBox!;
       bbRef.current = { min: bb.min.clone(), max: bb.max.clone() };
-      // Max swell ≈ 13% of the head size, in the mesh's own local units.
-      const _sz = Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z);
-      uSwell.current.value = _sz * 0.09;
 
       const uPaint = { value: paint.tex };
-      const uB = uBloom.current;
       mat.onBeforeCompile = (shader) => {
         shader.uniforms.uPaintMap = uPaint;
-        shader.uniforms.uBloom = uB;
-        shader.uniforms.uSwell = uSwell.current;
-        shader.uniforms.uTime = uTime.current;
         shader.uniforms.uSkinLift = uSkinLift.current;
+        shader.uniforms.uPaintTime = uPaintTime.current;
 
         shader.vertexShader = shader.vertexShader
           .replace(
             "#include <common>",
             `#include <common>
-varying vec3 vLocalPos;
-varying vec2 vPaintUv;
-uniform sampler2D uPaintMap;
-uniform float uBloom;
-uniform float uSwell;
-uniform float uTime;
-float vhash(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }
-float vnz(vec3 p){
-  vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f);
-  float n000=vhash(i), n100=vhash(i+vec3(1,0,0)), n010=vhash(i+vec3(0,1,0)), n110=vhash(i+vec3(1,1,0));
-  float n001=vhash(i+vec3(0,0,1)), n101=vhash(i+vec3(1,0,1)), n011=vhash(i+vec3(0,1,1)), n111=vhash(i+vec3(1,1,1));
-  return mix(mix(mix(n000,n100,f.x),mix(n010,n110,f.x),f.y),mix(mix(n001,n101,f.x),mix(n011,n111,f.x),f.y),f.z);
-}`
+varying vec2 vPaintUv;`
           )
           .replace(
             "#include <begin_vertex>",
             `#include <begin_vertex>
-vLocalPos = position;
-vPaintUv = uv;
-// Swelling per endpoint (identified by painted hue): skin=swell, sens=very bumpy,
-// eye=flat & wet, acute=flat. Plus procedural papule bumps and a gentle pulse.
-vec3 _pt = texture2D(uPaintMap, uv).rgb;
-float _pmax = max(max(_pt.r, _pt.g), _pt.b);
-float _pv = _pmax * uBloom;
-if (_pv > 0.02) {
-  vec3 _hue = _pt / max(_pmax, 1e-4);
-  float _sw = 1.0;                                                     // skin irritation
-  if (_hue.b > 0.55 && _hue.g > 0.55 && _hue.r < 0.5) _sw = 0.25;      // eye: flat/wet
-  else if (_hue.r > 0.5 && _hue.b > 0.5 && _hue.g < 0.55) _sw = 0.85;  // sensitization
-  else if (_hue.r > 0.6 && _hue.g > 0.35 && _hue.b < 0.35) _sw = 0.35; // acute: flat
-  float _pulse = 1.0 + 0.08 * sin(uTime * 4.0);
-  // Band scale: low = NO swelling; higher bands swell more but capped.
-  float _band = 0.0;                    // ต่ำ (score < 25) → ไม่บวม
-  if (_pv >= 0.87) _band = 0.85;        // รุนแรง
-  else if (_pv >= 0.63) _band = 0.60;   // สูง
-  else if (_pv >= 0.36) _band = 0.40;   // กลาง
-  // Smooth the profile (smoothstep) + uniform push along the normal → rounded
-  // dome with soft edges instead of faceted ridges.
-  float _s = _pv * _pv * (3.0 - 2.0 * _pv);
-  float _rise = _s * uSwell * _sw * _pulse * _band;
-  transformed += objectNormal * _rise;
-}`
+vPaintUv = uv;`
           );
 
         shader.fragmentShader = shader.fragmentShader
           .replace(
             "#include <common>",
             `#include <common>
-varying vec3 vLocalPos;
 varying vec2 vPaintUv;
 uniform sampler2D uPaintMap;
-uniform float uBloom;
-uniform float uTime;
 uniform float uSkinLift;
-float _paintH(vec2 uv){ vec3 c = texture2D(uPaintMap, uv).rgb; return max(max(c.r, c.g), c.b); }
-float hash13(vec3 p){
-  p = fract(p * 0.1031);
-  p += dot(p, p.yzx + 33.33);
-  return fract((p.x + p.y) * p.z);
-}
-float vnoise(vec3 p){
-  vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f);
-  float n000=hash13(i+vec3(0,0,0)); float n100=hash13(i+vec3(1,0,0));
-  float n010=hash13(i+vec3(0,1,0)); float n110=hash13(i+vec3(1,1,0));
-  float n001=hash13(i+vec3(0,0,1)); float n101=hash13(i+vec3(1,0,1));
-  float n011=hash13(i+vec3(0,1,1)); float n111=hash13(i+vec3(1,1,1));
-  return mix(mix(mix(n000,n100,f.x),mix(n010,n110,f.x),f.y),
-             mix(mix(n001,n101,f.x),mix(n011,n111,f.x),f.y),f.z);
-}
-float fbm(vec3 p){ float s=0.0,a=0.5; for(int i=0;i<3;i++){s+=a*vnoise(p);p*=2.02;a*=0.5;} return s; }`
+uniform float uPaintTime;`
           )
           .replace(
             "#include <map_fragment>",
             `#include <map_fragment>
-// Skin brightening (frontend look) — lift base albedo toward white on skin only.
+// Keep the brighter workspace skin, then lay a soft, flat cream colour over it.
 diffuseColor.rgb = mix(diffuseColor.rgb, min(diffuseColor.rgb * 1.55 + 0.10, vec3(1.0)), uSkinLift);
-vec3  pTex  = texture2D(uPaintMap, vPaintUv).rgb;      // endpoint hue * intensity
-float pMax  = max(max(pTex.r, pTex.g), pTex.b);        // intensity (brightest channel)
-float gMask = clamp(pMax * uBloom, 0.0, 1.0);          // reveal with bloom
-float gRough = 0.0;
-vec3  gNeon  = vec3(0.0);
-if (gMask > 0.02) {
-  vec3 hue = pTex / max(pMax, 1e-4);
-  int eff = 0;                                                        // skin irritation (red)
-  if (hue.b > 0.55 && hue.g > 0.55 && hue.r < 0.5) eff = 1;           // eye (cyan)
-  else if (hue.r > 0.5 && hue.b > 0.5 && hue.g < 0.55) eff = 2;       // sensitization (purple)
-  else if (hue.r > 0.6 && hue.g > 0.35 && hue.b < 0.35) eff = 3;      // acute (orange)
+vec4 paintSample = texture2D(uPaintMap, vPaintUv);
+float coverage = clamp(paintSample.a, 0.0, 1.0);
+if (coverage > 0.001) {
+  vec3 creamColor = vec3(1.0);
+  float present = smoothstep(0.01, 0.18, coverage);
+  float opacity = smoothstep(0.01, 0.72, coverage) * 0.44;
+  diffuseColor.rgb = mix(diffuseColor.rgb, creamColor, opacity);
 
-  // Severity for color — compressed at the high end (low scores stay the same),
-  // so a high score isn't overwhelmingly red. The grid (below) still uses gMask.
-  float sev = gMask * (1.0 - 0.4 * gMask);
-  vec3 c = diffuseColor.rgb;
-  if (eff == 0) {
-    // Skin irritation: red erythema
-    c = mix(c, vec3(0.95, 0.16, 0.18), sev * 0.75);
-    gRough = sev * 0.10;
-  } else if (eff == 1) {
-    // Eye irritation: glossy pink / wet
-    c = mix(c, vec3(1.0, 0.45, 0.5), sev * 0.6);
-    c += vec3(0.14) * sev;
-    gRough = -0.35 * sev;
-  } else if (eff == 2) {
-    // Sensitization: mottled allergic wheals
-    float blotch = smoothstep(0.4, 0.8, fbm(vLocalPos * 40.0));
-    c = mix(c, vec3(0.85, 0.22, 0.55), sev * (0.4 + 0.55 * blotch));
-    gRough = sev * 0.25;
-  } else {
-    // Acute toxicity: pale / desaturated
-    float lum = dot(c, vec3(0.299, 0.587, 0.114));
-    c = mix(c, mix(vec3(lum), vec3(0.34, 0.32, 0.29), 0.5), sev * 0.7);
-    gRough = sev * 0.35;
-  }
+  // Fine locator grid, restored without any swelling or endpoint colour.
+  vec2 gridUv = vPaintUv * 60.0;
+  vec2 gridCell = abs(fract(gridUv) - 0.5);
+  float grid = 1.0 - smoothstep(0.0, 0.045, min(gridCell.x, gridCell.y));
 
-  // Locator grid + endpoint-colored glow that breathes over time (interaction)
-  float breathe = 0.82 + 0.24 * sin(uTime * 3.0);
-  vec2 guv = vPaintUv * 60.0;
-  vec2 gf  = abs(fract(guv) - 0.5);
-  float grid = 1.0 - smoothstep(0.0, 0.05, min(gf.x, gf.y)); // thin, fine lines
-  vec3 gridCol = mix(hue, vec3(1.0), 0.4);       // slight whiten
-  // "present" = wherever painted (any score) → the grid stays BRIGHT as a
-  // location marker, while the redness/swelling above track the actual score.
-  float present = smoothstep(0.02, 0.12, gMask);
-  c += gridCol * grid * present * 1.6 * breathe; // bright location grid
-  c += hue * present * 0.10;                       // faint tint marking the patch
-  diffuseColor.rgb = clamp(c, 0.0, 1.0);
-  gNeon = (gridCol * grid * 1.1 + hue * 0.2) * present * breathe;
-}`
-          )
-          .replace(
-            "#include <emissivemap_fragment>",
-            `#include <emissivemap_fragment>
-totalEmissiveRadiance += gNeon;`
-          )
-          .replace(
-            "#include <roughnessmap_fragment>",
-            `#include <roughnessmap_fragment>
-roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
-          )
-          .replace(
-            "#include <normal_fragment_begin>",
-            `#include <normal_fragment_begin>
-{
-  // Shade the swelling as a smooth rounded dome by tilting the shading normal
-  // along the paint-height gradient (sampled from the height texture, so it's
-  // smooth across the whole patch — not just the edges). Independent of mesh res.
-  float _e = 0.004;
-  float _hx = _paintH(vPaintUv + vec2(_e, 0.0)) - _paintH(vPaintUv - vec2(_e, 0.0));
-  float _hy = _paintH(vPaintUv + vec2(0.0, _e)) - _paintH(vPaintUv - vec2(0.0, _e));
-  normal = normalize(normal - vec3(vec2(_hx, _hy) * uBloom * 16.0, 0.0));
+  // A soft horizontal scan passes over the painted UV area. Using a wrapped
+  // distance keeps the motion continuous when it reaches the texture edge.
+  float scanPosition = fract(uPaintTime * 0.16);
+  float scanDistance = abs(fract(vPaintUv.y - scanPosition + 0.5) - 0.5);
+  float scanLine = 1.0 - smoothstep(0.008, 0.025, scanDistance);
+  float scanGlow = 1.0 - smoothstep(0.025, 0.10, scanDistance);
+
+  float gridOpacity = grid * present * (0.34 + scanGlow * 0.34);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), gridOpacity);
+  diffuseColor.rgb += vec3(1.0) * scanLine * present * 0.16;
+  diffuseColor.rgb = clamp(diffuseColor.rgb, 0.0, 1.0);
 }`
           );
       };
@@ -655,54 +542,62 @@ roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
     if (!apiRef) return;
     apiRef.current = {
       clear: () => {
-        stampsRef.current = [];
-        paint.ctx.fillStyle = "#000000";
-        paint.ctx.fillRect(0, 0, paint.canvas.width, paint.canvas.height);
+        activeStampsRef.current = [];
+        paint.ctx.clearRect(0, 0, paint.canvas.width, paint.canvas.height);
+        paint.committedCtx.clearRect(0, 0, paint.committedCanvas.width, paint.committedCanvas.height);
         paint.tex.needsUpdate = true;
         hasPainted.current = false;
       },
     };
   }, [apiRef, paint]);
 
-  // Bloom: once anything is painted, ease the reveal toward 1 (~0.8s) so the
-  // erythema "develops" instead of snapping on.
-  const STAMP_DURATION = 0.7; // seconds for a click to fully "develop"
+  const STAMP_DURATION = 0.42;
 
-  // Redraw one stamp at intensity fraction k (0..1) into the paint canvas.
+  // Draw one soft-edged white cream dab. Developing stamps use both radius and
+  // opacity progress, while completed stamps are committed exactly once.
   const drawStamp = (
-    s: { cx: number; cy: number; r: number; R: number; G: number; B: number },
-    k: number,
+    ctx: CanvasRenderingContext2D,
+    s: CreamStamp,
+    progress = 1,
   ) => {
-    const R = Math.round(s.R * k);
-    const G = Math.round(s.G * k);
-    const B = Math.round(s.B * k);
-    const g = paint.ctx.createRadialGradient(s.cx, s.cy, 0, s.cx, s.cy, s.r);
-    // Smooth dome falloff (no flat plateau) → rounded swelling, soft edges.
-    g.addColorStop(0.0, `rgba(${R},${G},${B},1)`);
-    g.addColorStop(0.35, `rgba(${R},${G},${B},0.88)`);
-    g.addColorStop(0.7, `rgba(${R},${G},${B},0.45)`);
-    g.addColorStop(1.0, `rgba(${R},${G},${B},0)`);
-    paint.ctx.globalCompositeOperation = "source-over";
-    paint.ctx.fillStyle = g;
-    paint.ctx.beginPath();
-    paint.ctx.arc(s.cx, s.cy, s.r, 0, Math.PI * 2);
-    paint.ctx.fill();
+    const radius = s.r * (0.32 + progress * 0.68);
+    const alpha = s.opacity * progress;
+    const g = ctx.createRadialGradient(s.cx, s.cy, 0, s.cx, s.cy, radius);
+    // Soft radial falloff keeps each dab cream-like without changing geometry.
+    g.addColorStop(0.0, `rgba(255,255,255,${alpha})`);
+    g.addColorStop(0.38, `rgba(255,255,255,${alpha * 0.9})`);
+    g.addColorStop(0.74, `rgba(255,255,255,${alpha * 0.48})`);
+    g.addColorStop(1.0, "rgba(255,255,255,0)");
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(s.cx, s.cy, radius, 0, Math.PI * 2);
+    ctx.fill();
   };
 
   useFrame(() => {
-    uBloom.current.value = 1;
-    uTime.current.value = performance.now() / 1000;
-    const stamps = stampsRef.current;
-    if (!stamps.length) return;
+    uPaintTime.current.value = performance.now() / 1000;
+    const active = activeStampsRef.current;
+    if (!active.length) return;
     const now = performance.now() / 1000;
-    const still: typeof stamps = [];
-    for (const s of stamps) {
-      const p = Math.min(1, (now - s.t0) / STAMP_DURATION);
-      const k = p * p * (3 - 2 * p); // smoothstep ease
-      drawStamp(s, k);
-      if (p < 1) still.push(s);
+    const developing: CreamStamp[] = [];
+
+    paint.ctx.clearRect(0, 0, paint.canvas.width, paint.canvas.height);
+    paint.ctx.drawImage(paint.committedCanvas, 0, 0);
+
+    for (const stamp of active) {
+      const raw = Math.min(1, (now - stamp.t0) / STAMP_DURATION);
+      const eased = 1 - Math.pow(1 - raw, 3);
+      if (raw >= 1) {
+        drawStamp(paint.committedCtx, stamp, 1);
+        drawStamp(paint.ctx, stamp, 1);
+      } else {
+        drawStamp(paint.ctx, stamp, eased);
+        developing.push(stamp);
+      }
     }
-    stampsRef.current = still;
+
+    activeStampsRef.current = developing;
     paint.tex.needsUpdate = true;
   });
 
@@ -710,19 +605,14 @@ roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
     const W = paint.canvas.width;
     const H = paint.canvas.height;
     const v = brushRef.current;
-    const [cr, cg, cb] = colorRef.current;
     // Map the toolbar's 10–100 slider onto a 0.010–0.030 × W stamp radius.
     const mappedPct = 10 + ((brushSizeRef.current - 10) * 20) / 90;
     const r = (mappedPct / 1000) * W;
-    // Register a stamp at full target value/color; the frame loop grows it 0→full
-    // so the swelling/redness develops gradually after the click.
-    stampsRef.current.push({
+    activeStampsRef.current.push({
       cx: uv.x * W,
       cy: uv.y * H, // flipY=false + raw uv → no inversion
       r,
-      R: Math.round(cr * v * 255),
-      G: Math.round(cg * v * 255),
-      B: Math.round(cb * v * 255),
+      opacity: v,
       t0: performance.now() / 1000,
     });
     if (!hasPainted.current) {
@@ -740,10 +630,10 @@ roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
     const sy = Math.max(0, Math.min(H - 1, Math.floor(uv.y * H)));
     const img = paint.ctx.getImageData(0, 0, W, H);
     const d = img.data;
-    const TH = 12; // painted if any channel > TH
+    const TH = 12; // painted if alpha > TH
     const painted = (x: number, y: number) => {
       const i = (y * W + x) * 4;
-      return Math.max(d[i], d[i + 1], d[i + 2]) > TH;
+      return d[i + 3] > TH;
     };
     if (!painted(sx, sy)) return; // clicked empty skin → nothing to erase
     const seen = new Uint8Array(W * H);
@@ -761,17 +651,15 @@ roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
       if (y - 1 >= 0 && !seen[p - W] && painted(x, y - 1)) { seen[p - W] = 1; stack.push(p - W); }
     }
     paint.ctx.putImageData(img, 0, 0);
+    // Make the erased result the new committed base and cancel any in-flight
+    // dabs so an animation cannot redraw a mark that was just removed.
+    activeStampsRef.current = [];
+    paint.committedCtx.clearRect(0, 0, W, H);
+    paint.committedCtx.drawImage(paint.canvas, 0, 0);
     paint.tex.needsUpdate = true;
-    // Drop stamps inside the cleared blob or right next to the click.
-    const rr = 0.08 * W;
-    stampsRef.current = stampsRef.current.filter((s) => {
-      const px = Math.max(0, Math.min(W - 1, Math.round(s.cx)));
-      const py = Math.max(0, Math.min(H - 1, Math.round(s.cy)));
-      return !seen[py * W + px] && Math.hypot(s.cx - sx, s.cy - sy) > rr;
-    });
   };
 
-  // Read back the painted intensity (red channel 0..255) at a UV — used to tell
+  // Read back painted alpha at a UV — used to tell
   // whether the pointer is hovering over an already-painted spot.
   const sampleAt = (uv: THREE.Vector2) => {
     const W = paint.canvas.width;
@@ -779,13 +667,13 @@ roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
     const x = Math.max(0, Math.min(W - 1, Math.floor(uv.x * W)));
     const y = Math.max(0, Math.min(H - 1, Math.floor(uv.y * H)));
     const d = paint.ctx.getImageData(x, y, 1, 1).data;
-    return Math.max(d[0], d[1], d[2]);
+    return d[3];
   };
 
-  // Map a world-space hit point on the skin to a named facial part.
-  // Uses world-up (Y) for height — robust to the model's rotation — and anchors
-  // the bands to the real eye line (from the eyeball mesh's bounding box). Bands
-  // are expressed as fractions of the eye→crown distance (≈ half a head).
+  // Map a world-space hit point on the skin to a named body part.
+  // Height uses world-up (Y), while front/back uses the Head mesh's local Y axis
+  // (the GLB rotates the mesh 90° around X, so local Y points toward the face).
+  // This extra depth dimension prevents rear surfaces from being called cheeks.
   const regionAt = (world: THREE.Vector3): string => {
     const m = skinMesh.current;
     const bb = bbRef.current;
@@ -807,6 +695,18 @@ roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
     const p = m.worldToLocal(world.clone());
     const nx = (p.x - bb.min.x) / Math.max(1e-4, bb.max.x - bb.min.x);
     const side = Math.abs(nx - 0.5);
+    const frontDepth = (p.y - bb.min.y) / Math.max(1e-4, bb.max.y - bb.min.y);
+
+    // Rear and rear-side zones must be resolved before the face-height bands.
+    // Values near 0 are the back of the mesh; values near 1 are nose/face.
+    if (side > 0.18 && frontDepth < 0.5 && t < 0.45 && t > -1.15) return "หลังหู";
+    if (frontDepth < 0.42) {
+      if (t > 0.2) return "ด้านหลังศีรษะ";
+      if (t >= -0.85) return "ท้ายทอย";
+      if (t >= -2.0) return "คอด้านหลัง";
+      return "แผ่นหลัง / บ่า";
+    }
+
     if (side > 0.3 && Math.abs(t) < 0.6) return "หู";
     if (t > 0.8) return "หนังศีรษะ";
     if (t > 0.25) return "หน้าผาก";
@@ -818,7 +718,8 @@ roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
     return "ไหล่ / หน้าอก";
   };
 
-  // Set the brush (value + color) from the dominant relevant endpoint at a point.
+  // Set intensity from the dominant relevant endpoint. Colour is intentionally
+  // fixed to white in the shader so every formula looks like applied cream.
   // Returns false if no relevant endpoint applies there (nothing to paint).
   const setBrushForRegion = (world: THREE.Vector3): boolean => {
     const region = regionAt(world);
@@ -828,7 +729,6 @@ roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
     const top = cands.reduce((a, b) => (b.score > a.score ? b : a));
     // Same substance, different part → scale intensity by local skin sensitivity.
     brushRef.current = Math.min(1, gain(top.score / 100) * regionSensitivity(region));
-    colorRef.current = hex01(top.color);
     return true;
   };
 
@@ -899,7 +799,7 @@ roughnessFactor = clamp(roughnessFactor + gRough, 0.0, 1.0);`
 
 /**
  * Interactive paint canvas — the assessment result arms a brush; the user drags
- * on the skin and the redness blooms where painted. Self-contained wrapper.
+ * on the skin to apply animated white cream. Self-contained wrapper.
  */
 // Two-way bridge between the toolbar's zoom slider and OrbitControls: pushes
 // slider changes onto the camera, and reports orbit/wheel zoom back as a
@@ -989,12 +889,10 @@ export function FacePaintCanvas({
   clearTrigger?: number;
 }) {
   const apiRef = useRef<PaintApi | null>(null);
-  const [painted, setPainted] = useState(false);
   const [zoomOn, setZoomOn] = useState(false); // wheel-zoom only while hovering the model
 
   // Fall back to a flat brush when the caller only has one number: give skin and
-  // eye the same score so every region still paints, in the endpoint colours the
-  // shader expects.
+  // eye the same score so every region remains paintable.
   const effectiveLayers = useMemo(() => {
     if (layers.length || brushValue == null) return layers;
     const score = Math.max(0, Math.min(1, brushValue)) * 100;
@@ -1010,7 +908,6 @@ export function FacePaintCanvas({
     if (clearTrigger === lastClear.current) return;
     lastClear.current = clearTrigger;
     apiRef.current?.clear();
-    setPainted(false);
   }, [clearTrigger]);
 
   // Hover-hold tooltip: show a small info box after the pointer rests ~2s on a
@@ -1065,7 +962,6 @@ export function FacePaintCanvas({
             armed={armed}
             eraseMode={eraseMode}
             apiRef={apiRef}
-            onPaintStart={() => setPainted(true)}
             onHover={handleHover}
             onOverModel={setZoomOn}
             brushSizePct={brushSizePct}
@@ -1088,19 +984,12 @@ export function FacePaintCanvas({
         />
       </Canvas>
 
-      {/* Hint + clear */}
-      {armed && !painted && effectiveLayers.length > 0 && (
-        <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-brand/40 bg-white/85 px-4 py-1.5 text-xs font-medium text-brand-dark shadow-card backdrop-blur">
-          🖌️ คลิกบนส่วนของโมเดล — ผิวจะแสดง ระคายผิว/แพ้/พิษ · ตาจะแสดงระคายตา
-        </div>
-      )}
       {/* A caller passing clearTrigger owns clearing from its own toolbar, so the
           built-in button would just be a duplicate. */}
       {clearTrigger === undefined && (
         <button
           onClick={() => {
             apiRef.current?.clear();
-            setPainted(false);
           }}
           className="absolute bottom-3 right-3 rounded-lg border border-slate-200 bg-white/85 px-3 py-1.5 text-xs text-slate-700 shadow-card backdrop-blur hover:border-brand hover:text-brand"
         >

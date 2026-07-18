@@ -10,7 +10,37 @@
 // models. A project therefore doesn't own its runs — it just remembers the job
 // ids the backend handed back, newest first, and reads each run by id. That
 // keeps the backend a stateless calculator as far as this app is concerned.
+import type { AssessmentResultPayload, Region } from "@/lib/api";
+
 const KEY = "ralphguard.projects";
+
+export type ProjectWorkspaceFormulaItem = {
+  chemicalId: string;
+  concentration: number;
+  name?: string;
+};
+
+export type ProjectWorkspaceFormulaBox = {
+  id: string;
+  name: string;
+  items: ProjectWorkspaceFormulaItem[];
+  color?: string;
+  icon?: string;
+  region?: Region;
+};
+
+export type ProjectWorkspace = {
+  version: 1;
+  boxes: ProjectWorkspaceFormulaBox[];
+  activeBoxId: string | null;
+  resultByBox: Record<string, AssessmentResultPayload>;
+  dayIdx: 0 | 1 | 2;
+  activeTab: "experiment" | "nodemods" | "trust";
+  collapsedBoxIds?: string[];
+  updatedAt: string;
+};
+
+export type ProjectWorkspaceDraft = Omit<ProjectWorkspace, "version" | "updatedAt">;
 
 export type LocalProject = {
   id: string;
@@ -23,6 +53,8 @@ export type LocalProject = {
   icon?: string;
   /** Accent colour chosen by the user — stored as a CSS hex value. */
   color?: string;
+  /** Auto-saved state of the experiment workspace for this project. */
+  workspace?: ProjectWorkspace;
 };
 
 /** [] on the server and in a browser that refuses storage (private mode). */
@@ -92,6 +124,34 @@ export function updateProject(
   updates: Partial<Pick<LocalProject, "name" | "description" | "icon" | "color">>,
 ) {
   write(read().map((p) => (p.id === id ? { ...p, ...updates } : p)));
+}
+
+/** Return a supported workspace snapshot, ignoring malformed or future data. */
+export function getProjectWorkspace(id: string): ProjectWorkspace | undefined {
+  const workspace = getProject(id)?.workspace;
+  if (workspace?.version !== 1 || !Array.isArray(workspace.boxes)) return undefined;
+  return workspace;
+}
+
+/**
+ * Persist meaningful experiment state inside its owning local project.
+ * Unknown project ids are ignored so a stale browser tab cannot recreate one.
+ */
+export function saveProjectWorkspace(id: string, draft: ProjectWorkspaceDraft) {
+  write(
+    read().map((project) =>
+      project.id === id
+        ? {
+            ...project,
+            workspace: {
+              ...draft,
+              version: 1,
+              updatedAt: new Date().toISOString(),
+            },
+          }
+        : project,
+    ),
+  );
 }
 
 export function deleteProject(id: string) {

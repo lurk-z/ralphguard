@@ -250,3 +250,53 @@ html {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* A compact scrollbar for dense side panels. It remains scrollable with a
+   wheel/trackpad while the visual thumb only appears when the panel is hovered. */
+.hover-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.hover-scrollbar:hover {
+  scrollbar-color: hsl(var(--muted-foreground) / 0.45) transparent;
+}
+
+.hover-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.hover-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hover-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background-color: transparent;
+}
+
+.hover-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.45);
+}
+
+/* Formula-card interactions inherit that card's configured accent, keeping
+   hover feedback consistent with its icon and colour setting. */
+.box-accent-card-hover:hover {
+  border-color: var(--box-accent, #009fa5);
+  background-color: color-mix(in srgb, var(--box-accent, #009fa5) 8%, transparent);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--box-accent, #009fa5) 12%, transparent);
+}
+
+.box-accent-header-hover:hover {
+  background-color: color-mix(in srgb, var(--box-accent, #009fa5) 11%, transparent);
+}
+
+.box-accent-control:hover {
+  color: var(--box-accent, #009fa5);
+  background-color: color-mix(in srgb, var(--box-accent, #009fa5) 16%, transparent);
+}
+
+.box-accent-control:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--box-accent, #009fa5) 55%, transparent);
+  outline-offset: 2px;
+}
