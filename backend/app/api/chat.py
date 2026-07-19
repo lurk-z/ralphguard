@@ -1,5 +1,4 @@
-"""
-Gemini-backed chat endpoint for the RalphGuard voice assistant.
+"""Gemini-backed chat endpoint for the RalphGuard voice assistant.
 
 The API key lives only in the backend environment (settings.GEMINI_API_KEY) and
 is never exposed to the browser. The frontend posts a question + the current
@@ -13,7 +12,7 @@ from app.core.config import settings
 
 router = APIRouter()
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 SYSTEM_TH = """คุณคือ "แรลฟ์" (Ralph) เพื่อนร่วมทีมช่วยพัฒนาสูตรเครื่องสำอางในระบบ RalphGuard —
 ระบบคัดกรองความเสี่ยงการระคายเคือง/ความเป็นพิษของสารเคมีด้วยแบบจำลอง QSAR (in-silico) เพื่อลดการทดลองในสัตว์
@@ -78,8 +77,8 @@ class ChatOut(BaseModel):
 
 @router.post("/", response_model=ChatOut)
 async def chat(body: ChatIn):
-    if not settings.GROQ_API_KEY:
-        raise HTTPException(status_code=503, detail="GROQ_API_KEY not configured")
+    if not settings.GEMINI_API_KEY:
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY not configured")
 
     question = (body.question or "").strip()
     if not question:
@@ -90,21 +89,29 @@ async def chat(body: ChatIn):
         prompt = f"ข้อมูลผลประเมินปัจจุบัน:\n{body.context}\n\nคำถาม: {question}"
 
     payload = {
-        "model": settings.GROQ_MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM_TH},
-            {"role": "user", "content": prompt},
+        "system_instruction": {"parts": [{"text": SYSTEM_TH}]},
+        "contents": [
+            {"role": "user", "parts": [{"text": prompt}]},
         ],
-        "temperature": 0.6,
-        "top_p": 0.95,
-        "max_tokens": 800,
+        "generationConfig": {
+            "temperature": 0.6,
+            "topP": 0.95,
+            "maxOutputTokens": 800,
+        },
     }
+
+    # Accept either "gemini-..." or the "models/gemini-..." format.
+    model = settings.GEMINI_MODEL.removeprefix("models/")
+    url = f"{GEMINI_API_BASE}/{model}:generateContent"
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
-                GROQ_URL,
-                headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": settings.GEMINI_API_KEY,
+                },
                 json=payload,
             )
     except Exception as e:  # network / DNS / timeout
@@ -114,10 +121,11 @@ async def chat(body: ChatIn):
         raise HTTPException(status_code=502, detail=f"LLM error {r.status_code}: {r.text[:300]}")
 
     data = r.json()
-    try:
-        text = data["choices"][0]["message"]["content"].strip()
-    except (KeyError, IndexError):
-        text = ""
+    candidates = data.get("candidates") or []
+    parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+    text = "".join(part.get("text", "") for part in parts).strip()
     if not text:
-        raise HTTPException(status_code=502, detail="LLM returned empty response")
+        block_reason = data.get("promptFeedback", {}).get("blockReason")
+        detail = f"Gemini blocked the request: {block_reason}" if block_reason else "Gemini returned empty response"
+        raise HTTPException(status_code=502, detail=detail)
     return ChatOut(answer=text)

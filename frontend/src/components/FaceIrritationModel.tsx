@@ -41,13 +41,9 @@ export const EP_COLOR: Record<string, string> = {
   acute: "#F59E0B", // ส้ม
 };
 
-/**
- * Map a 0..1 risk score to paint intensity. Near-proportional (mild curve) so the
- * cream opacity tracks the actual score: low score → faint, high score → strong.
- */
-function gain(raw: number) {
-  return raw <= 0 ? 0 : Math.min(1, Math.pow(raw, 0.8) * 1.1);
-}
+// Applying a product and visualising its risk are separate concerns. Keep the
+// cream visible even when every assessed endpoint has a safe score of zero.
+const CREAM_APPLICATION_OPACITY = 0.72;
 
 /**
  * Which endpoints are relevant to the part being painted.
@@ -718,17 +714,15 @@ if (coverage > 0.001) {
     return "ไหล่ / หน้าอก";
   };
 
-  // Set intensity from the dominant relevant endpoint. Colour is intentionally
-  // fixed to white in the shader so every formula looks like applied cream.
-  // Returns false if no relevant endpoint applies there (nothing to paint).
+  // Endpoint data decides whether the selected body region is supported, but it
+  // must not control application opacity: a zero-risk formula is still a real
+  // product that the user should be able to paint onto the model.
   const setBrushForRegion = (world: THREE.Vector3): boolean => {
     const region = regionAt(world);
     const keys = regionEndpoints(region);
     const cands = layersRef.current.filter((L) => keys.includes(L.key));
     if (!cands.length) return false;
-    const top = cands.reduce((a, b) => (b.score > a.score ? b : a));
-    // Same substance, different part → scale intensity by local skin sensitivity.
-    brushRef.current = Math.min(1, gain(top.score / 100) * regionSensitivity(region));
+    brushRef.current = CREAM_APPLICATION_OPACITY;
     return true;
   };
 
