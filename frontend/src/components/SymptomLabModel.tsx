@@ -123,6 +123,8 @@ vec2 worley(vec3 P, float freq, float seed){
 
 export type PaintApi = {
   clear: () => void;
+  clearGroup: (groupId: string) => void;
+  clearAllGroups: () => void;
   /** Keep every paint mask, but return the visual to white cream while waiting. */
   prepare: () => void;
   /** Cross-fade the preserved cream masks into the assessed symptoms. */
@@ -134,7 +136,43 @@ export type PaintHoverInfo = {
   y: number;
   region: string;
   symptoms: SkinKey[];
+  groupIds?: string[];
 };
+
+export type PaintFormulaGroup = {
+  id: string;
+  name: string;
+  color: string;
+  sev: Record<SkinKey, number>;
+  eyeRed: number;
+  resultReady: boolean;
+  waiting?: boolean;
+};
+
+type PaintMaskSurface = {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  tex: THREE.CanvasTexture;
+};
+
+function createMaskSurface(): PaintMaskSurface {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.flipY = false;
+  tex.colorSpace = THREE.NoColorSpace;
+  return { canvas, ctx, tex };
+}
+
+function clearMaskSurface(surface: PaintMaskSurface) {
+  surface.ctx.globalAlpha = 1;
+  surface.ctx.globalCompositeOperation = "source-over";
+  surface.ctx.clearRect(0, 0, surface.canvas.width, surface.canvas.height);
+  surface.tex.needsUpdate = true;
+}
 
 export type AssessmentEndpointScores = {
   skin: number;
@@ -251,6 +289,13 @@ export function PaintSymptomModel({
   paintEnabled = true,
   eyeRevealControlled = false,
   onOverModel,
+  onPaintStateChange,
+  paintGroupId,
+  paintGroups,
+  onPaintGroupStateChange,
+  onPaintGroupChange,
+  onPaintGroupRegion,
+  onPaintBlocked,
 }: {
   activeSymptom: SkinKey;
   sev: Record<SkinKey, number>; // 0..1 severity PER symptom (each kept independently)
@@ -269,6 +314,17 @@ export function PaintSymptomModel({
   eyeRevealControlled?: boolean;
   /** Lets a parent enable wheel zoom only while the pointer is over the model. */
   onOverModel?: (over: boolean) => void;
+  /** Reports whether this model currently has formula exposure paint. */
+  onPaintStateChange?: (hasPaint: boolean) => void;
+  /** Multi-formula assessment mode: the currently selected paint owner. */
+  paintGroupId?: string | null;
+  /** Every formula that can keep an independent mask on the same model. */
+  paintGroups?: PaintFormulaGroup[];
+  onPaintGroupStateChange?: (groupId: string, hasPaint: boolean) => void;
+  /** Fires once per successful stroke that changes a formula's paint mask. */
+  onPaintGroupChange?: (groupId: string) => void;
+  onPaintGroupRegion?: (groupId: string, region: string) => void;
+  onPaintBlocked?: (ownerGroupIds: string[]) => void;
 }) {
   const { scene: rawScene, animations } = useGLTF("/models/head.glb", true);
   const gl = useThree((s) => s.gl);
@@ -345,8 +401,29 @@ export function PaintSymptomModel({
   // still has any exposure paint. Without this guard, changing Day after Clear
   // would call run() and make the eyeballs red again over an empty face.
   const hasExposurePaint = useRef(false);
+  const onPaintStateChangeRef = useRef(onPaintStateChange);
+  useEffect(() => {
+    onPaintStateChangeRef.current = onPaintStateChange;
+  }, [onPaintStateChange]);
+  const onPaintGroupStateChangeRef = useRef(onPaintGroupStateChange);
+  const onPaintGroupChangeRef = useRef(onPaintGroupChange);
+  const onPaintGroupRegionRef = useRef(onPaintGroupRegion);
+  const onPaintBlockedRef = useRef(onPaintBlocked);
+  useEffect(() => {
+    onPaintGroupStateChangeRef.current = onPaintGroupStateChange;
+    onPaintGroupChangeRef.current = onPaintGroupChange;
+    onPaintGroupRegionRef.current = onPaintGroupRegion;
+    onPaintBlockedRef.current = onPaintBlocked;
+  }, [onPaintBlocked, onPaintGroupChange, onPaintGroupRegion, onPaintGroupStateChange]);
+  const paintGroupIdRef = useRef(paintGroupId);
+  useEffect(() => {
+    paintGroupIdRef.current = paintGroupId;
+  }, [paintGroupId]);
   const painting = useRef(false);
+  const paintChangeNotified = useRef(false);
+  const lastBlockedNoticeRef = useRef(0);
   const lastPaintUv = useRef<THREE.Vector2 | null>(null);
+  const currentPaintRegionRef = useRef<string | null>(null);
   const skinMesh = useRef<THREE.Mesh | null>(null);
   const skinBounds = useRef<THREE.Box3 | null>(null);
   const eyeMesh = useRef<THREE.Object3D | null>(null);
@@ -360,23 +437,113 @@ export function PaintSymptomModel({
   }, [paintSymptoms, activeSymptom]);
 
   // One 1024² grayscale mask per skin symptom — white where the user painted it.
-  const masks = useMemo(() => {
-    const make = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 1024;
-      canvas.height = 1024;
-      const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = "#000000";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      const tex = new THREE.CanvasTexture(canvas);
-      tex.flipY = false;
-      tex.colorSpace = THREE.NoColorSpace;
-      return { canvas, ctx, tex };
-    };
-    return {
-      redness: make(), papule: make(), peeling: make(), edema: make(),
-    } as Record<SkinKey, { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture }>;
-  }, []);
+  const masks = useMemo(
+    () => ({
+      redness: createMaskSurface(),
+      papule: createMaskSurface(),
+      peeling: createMaskSurface(),
+      edema: createMaskSurface(),
+    }) as Record<SkinKey, PaintMaskSurface>,
+    [],
+  );
+  // Multi-formula mode keeps one ownership mask per box, then composites those
+  // non-overlapping masks into the four symptom textures consumed by the shader.
+  const creamMask = useMemo(createMaskSurface, []);
+  const groupMasksRef = useRef<Map<string, PaintMaskSurface>>(new Map());
+  const groupConfigsRef = useRef<Map<string, PaintFormulaGroup>>(new Map());
+  const previousGroupConfigsRef = useRef<Map<string, PaintFormulaGroup>>(new Map());
+  const groupRevealRef = useRef<Map<string, number>>(new Map());
+  const compositeDirtyRef = useRef(false);
+  const compositeClockRef = useRef(0);
+  const multiGroupMode = Array.isArray(paintGroups);
+
+  function ensureGroupMask(groupId: string) {
+    let surface = groupMasksRef.current.get(groupId);
+    if (!surface) {
+      surface = createMaskSurface();
+      groupMasksRef.current.set(groupId, surface);
+    }
+    return surface;
+  }
+
+  function rebuildGroupComposites() {
+    if (!multiGroupMode) return;
+    SKIN_KEYS.forEach((key) => clearMaskSurface(masks[key]));
+    clearMaskSurface(creamMask);
+
+    let maxEye = 0;
+    let hasAnyPaint = false;
+    groupMasksRef.current.forEach((surface, groupId) => {
+      const config = groupConfigsRef.current.get(groupId);
+      if (!config) return;
+      hasAnyPaint = true;
+      const reveal = config.resultReady && !config.waiting
+        ? Math.max(0, Math.min(1, groupRevealRef.current.get(groupId) ?? 1))
+        : 0;
+
+      if (reveal < 1) {
+        creamMask.ctx.globalCompositeOperation = "source-over";
+        creamMask.ctx.globalAlpha = 1 - reveal;
+        creamMask.ctx.drawImage(surface.canvas, 0, 0);
+      }
+      if (reveal > 0) {
+        SKIN_KEYS.forEach((key) => {
+          const target = masks[key];
+          target.ctx.globalCompositeOperation = "source-over";
+          target.ctx.globalAlpha = Math.max(0, Math.min(1, config.sev[key] * reveal));
+          target.ctx.drawImage(surface.canvas, 0, 0);
+        });
+        maxEye = Math.max(maxEye, config.eyeRed * reveal);
+      }
+    });
+
+    creamMask.ctx.globalAlpha = 1;
+    creamMask.tex.needsUpdate = true;
+    SKIN_KEYS.forEach((key) => {
+      masks[key].ctx.globalAlpha = 1;
+      masks[key].tex.needsUpdate = true;
+      revealTargets.current[key] = 1;
+      revealRefs[key].current.value = 1;
+    });
+    severityTargets.current.redness = 1;
+    severityTargets.current.papule = 1;
+    severityTargets.current.peeling = 1;
+    severityTargets.current.edema = 1;
+    severityTargets.current.eyeLeft = maxEye;
+    severityTargets.current.eyeRight = maxEye;
+    eyeRevealTarget.current = maxEye > 0 ? 1 : 0;
+    hasExposurePaint.current = hasAnyPaint;
+  }
+
+  useEffect(() => {
+    if (!multiGroupMode) return;
+    const previous = previousGroupConfigsRef.current;
+    const next = new Map((paintGroups ?? []).map((group) => [group.id, group]));
+    groupConfigsRef.current = next;
+
+    next.forEach((group, groupId) => {
+      const before = previous.get(groupId);
+      if (group.waiting || !group.resultReady) {
+        groupRevealRef.current.set(groupId, 0);
+      } else if (before?.waiting || !before?.resultReady) {
+        groupRevealRef.current.set(groupId, 0);
+      } else if (!groupRevealRef.current.has(groupId)) {
+        groupRevealRef.current.set(groupId, 1);
+      }
+    });
+    previous.forEach((_, groupId) => {
+      if (next.has(groupId)) return;
+      groupMasksRef.current.get(groupId)?.tex.dispose();
+      groupMasksRef.current.delete(groupId);
+      groupRevealRef.current.delete(groupId);
+      onPaintGroupStateChangeRef.current?.(groupId, false);
+    });
+    previousGroupConfigsRef.current = next;
+    rebuildGroupComposites();
+    // paintGroups is a declarative snapshot; the refs above intentionally own
+    // the high-frequency canvas state between React renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [multiGroupMode, paintGroups]);
 
   // Seamless tiling vesicle-relief map (baked from the Blender dome pattern).
   // Sampled triplanar in object space inside the papule branch.
@@ -507,12 +674,14 @@ roughnessFactor = mix(roughnessFactor, 0.06, _eyeWetness * 0.72);`,
       const uMaskPapule = { value: masks.papule.tex };
       const uMaskPeeling = { value: masks.peeling.tex };
       const uMaskEdema = { value: masks.edema.tex };
+      const uCreamMask = { value: creamMask.tex };
 
       mat.onBeforeCompile = (shader) => {
         shader.uniforms.uMaskRedness = uMaskRedness;
         shader.uniforms.uMaskPapule = uMaskPapule;
         shader.uniforms.uMaskPeeling = uMaskPeeling;
         shader.uniforms.uMaskEdema = uMaskEdema;
+        shader.uniforms.uCreamMask = uCreamMask;
         shader.uniforms.uRevealRedness = uRevealRedness.current;
         shader.uniforms.uRevealPapule = uRevealPapule.current;
         shader.uniforms.uRevealPeeling = uRevealPeeling.current;
@@ -539,6 +708,7 @@ roughnessFactor = mix(roughnessFactor, 0.06, _eyeWetness * 0.72);`,
 varying vec2 vPaintUv;
 varying vec3 vLocalPos;
 uniform sampler2D uMaskEdema;
+uniform sampler2D uCreamMask;
 uniform float uRevealEdema;
 uniform float uEdema;
 uniform float uEdemaScale;
@@ -572,6 +742,7 @@ uniform sampler2D uMaskRedness;
 uniform sampler2D uMaskPapule;
 uniform sampler2D uMaskPeeling;
 uniform sampler2D uMaskEdema;
+uniform sampler2D uCreamMask;
 uniform float uRevealRedness;
 uniform float uRevealPapule;
 uniform float uRevealPeeling;
@@ -600,11 +771,12 @@ float _mR = clamp(texture2D(uMaskRedness, vPaintUv).r, 0.0, 1.0);
 float _mP = clamp(texture2D(uMaskPapule,  vPaintUv).r, 0.0, 1.0);
 float _mK = clamp(texture2D(uMaskPeeling, vPaintUv).r, 0.0, 1.0);
 float _mE = clamp(texture2D(uMaskEdema,   vPaintUv).r, 0.0, 1.0);
+float _mCream = clamp(texture2D(uCreamMask, vPaintUv).r, 0.0, 1.0);
 
 // White "test cream" marking = any symptom painted but not yet revealed.
-float _cream = clamp(max(
+float _cream = clamp(max(_mCream, max(
   max(_mR * (1.0 - uRevealRedness), _mP * (1.0 - uRevealPapule)),
-  max(_mK * (1.0 - uRevealPeeling), _mE * (1.0 - uRevealEdema))), 0.0, 1.0);
+  max(_mK * (1.0 - uRevealPeeling), _mE * (1.0 - uRevealEdema)))), 0.0, 1.0);
 
 float gRed   = clamp(_mR * uRevealRedness * uRedness, 0.0, 1.0);
 float gPap   = clamp(_mP * uRevealPapule  * uPapule,  0.0, 1.0);
@@ -621,7 +793,7 @@ vec3 _c = diffuseColor.rgb;
 // ═══════════════ [SX:SCAN-GRID] — paint interaction feedback ═══════════════
 // This locator is driven only by the masks, never by risk severity. A score of
 // zero therefore still produces clear feedback that the brush hit the model.
-float _paintPresence = smoothstep(0.015, 0.12, max(max(_mR, _mP), max(_mK, _mE)));
+float _paintPresence = smoothstep(0.015, 0.12, max(_mCream, max(max(_mR, _mP), max(_mK, _mE))));
 float _revealPresence = max(
   max(uRevealRedness, uRevealPapule),
   max(uRevealPeeling, uRevealEdema)
@@ -630,7 +802,7 @@ vec2 _gridUv = fract(vPaintUv * 68.0);
 vec2 _edge = min(_gridUv, 1.0 - _gridUv);
 float _gridX = 1.0 - smoothstep(0.018, 0.045, _edge.x);
 float _gridY = 1.0 - smoothstep(0.018, 0.045, _edge.y);
-float _grid = max(_gridX, _gridY) * _paintPresence * _revealPresence;
+float _grid = max(_gridX, _gridY) * _paintPresence * max(_revealPresence, _mCream);
 float _scanBand = 1.0 - smoothstep(
   0.018,
   0.065,
@@ -639,7 +811,7 @@ float _scanBand = 1.0 - smoothstep(
 vec3 _scanColor = vec3(0.02, 0.95, 0.88);
 _c += _scanColor * (
   _grid * 0.42
-  + _scanBand * _paintPresence * _revealPresence * 0.18
+  + _scanBand * _paintPresence * max(_revealPresence, _mCream) * 0.18
 );
 
 // White "test cream" marking (fades out as the symptom develops).
@@ -812,14 +984,36 @@ roughnessFactor = clamp(
       };
       mat.needsUpdate = true;
     });
-  }, [scene, gl, masks, blisterTex, blisterNormalTex]);
+  }, [scene, gl, masks, creamMask, blisterTex, blisterNormalTex]);
 
   // Run reveals ALL painted symptoms at once; Clear wipes the current paint set
   // (one selected symptom in the lab, or all mapped symptoms in assessment).
   useEffect(() => {
     if (!apiRef) return;
+    const clearGroup = (groupId: string) => {
+      const surface = groupMasksRef.current.get(groupId);
+      if (!surface) return;
+      surface.tex.dispose();
+      groupMasksRef.current.delete(groupId);
+      groupRevealRef.current.delete(groupId);
+      onPaintGroupStateChangeRef.current?.(groupId, false);
+      rebuildGroupComposites();
+    };
+    const clearAllGroups = () => {
+      groupMasksRef.current.forEach((surface, groupId) => {
+        surface.tex.dispose();
+        onPaintGroupStateChangeRef.current?.(groupId, false);
+      });
+      groupMasksRef.current.clear();
+      groupRevealRef.current.clear();
+      rebuildGroupComposites();
+    };
     apiRef.current = {
       clear: () => {
+        if (multiGroupMode) {
+          clearAllGroups();
+          return;
+        }
         paintSymptomsRef.current.forEach((k) => {
           const m = masks[k];
           if (!m) return;
@@ -831,10 +1025,21 @@ roughnessFactor = clamp(
           revealRefs[k].current.value = 0;
         });
         hasExposurePaint.current = false;
+        onPaintStateChangeRef.current?.(false);
         eyeRevealTarget.current = 0;
         uRevealEye.current.value = 0;
       },
+      clearGroup,
+      clearAllGroups,
       prepare: () => {
+        if (multiGroupMode) {
+          const groupId = paintGroupIdRef.current;
+          if (groupId) {
+            groupRevealRef.current.set(groupId, 0);
+            rebuildGroupComposites();
+          }
+          return;
+        }
         // Preserve all grayscale paint masks and the camera. Only return the
         // reveal animation to its cream state while the backend is working.
         SKIN_KEYS.forEach((k) => {
@@ -843,6 +1048,7 @@ roughnessFactor = clamp(
         eyeRevealTarget.current = 0;
       },
       run: () => {
+        if (multiGroupMode) return;
         // One press reveals every painted symptom (empty masks show nothing).
         SKIN_KEYS.forEach((k) => {
           revealTargets.current[k] = 1;
@@ -852,6 +1058,7 @@ roughnessFactor = clamp(
       // Fill every mask so the whole face shows the mapped symptoms at once
       // (used by the results-driven canvas — no manual painting required).
       fillAll: () => {
+        if (multiGroupMode) return;
         SKIN_KEYS.forEach((k) => {
           const m = masks[k];
           if (!m) return;
@@ -862,14 +1069,32 @@ roughnessFactor = clamp(
           revealTargets.current[k] = 1;
         });
         hasExposurePaint.current = true;
+        onPaintStateChangeRef.current?.(true);
         eyeRevealTarget.current = 1;
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiRef, masks]);
+  }, [apiRef, masks, multiGroupMode]);
 
   // Ease every symptom's reveal toward its own target (~0.9s).
   useFrame((_, dt) => {
+    if (multiGroupMode) {
+      let animating = false;
+      groupConfigsRef.current.forEach((group, groupId) => {
+        if (!group.resultReady || group.waiting) return;
+        const current = groupRevealRef.current.get(groupId) ?? 0;
+        if (current >= 1) return;
+        groupRevealRef.current.set(groupId, Math.min(1, current + dt / 0.9));
+        compositeDirtyRef.current = true;
+        animating = true;
+      });
+      compositeClockRef.current += dt;
+      if (compositeDirtyRef.current && (compositeClockRef.current >= 1 / 30 || !animating)) {
+        compositeClockRef.current = 0;
+        compositeDirtyRef.current = false;
+        rebuildGroupComposites();
+      }
+    }
     const k = Math.min(1, dt * 2.2);
     const severityK = 1 - Math.exp(-dt * 5.5);
     uScanTime.current.value += dt;
@@ -888,10 +1113,72 @@ roughnessFactor = clamp(
   });
 
   const dabAt = (uv: THREE.Vector2) => {
+    if (multiGroupMode) {
+      const groupId = paintGroupIdRef.current;
+      if (!groupId || !groupConfigsRef.current.has(groupId)) return;
+      const W = 1024;
+      const H = 1024;
+      const radiusUv = (brushSizeRef.current / 100) * 0.09;
+      const sampleOffsets = [
+        [0, 0],
+        [0.55, 0], [-0.55, 0], [0, 0.55], [0, -0.55],
+        [0.8, 0.8], [0.8, -0.8], [-0.8, 0.8], [-0.8, -0.8],
+      ];
+      const owners = new Set<string>();
+      groupMasksRef.current.forEach((surface, ownerId) => {
+        if (ownerId === groupId) return;
+        for (const [ox, oy] of sampleOffsets) {
+          const sx = Math.max(0, Math.min(W - 1, Math.floor((uv.x + ox * radiusUv) * W)));
+          const sy = Math.max(0, Math.min(H - 1, Math.floor((uv.y + oy * radiusUv) * H)));
+          if (surface.ctx.getImageData(sx, sy, 1, 1).data[0] > 12) {
+            owners.add(ownerId);
+            break;
+          }
+        }
+      });
+      if (owners.size) {
+        const now = Date.now();
+        if (now - lastBlockedNoticeRef.current > 800) {
+          lastBlockedNoticeRef.current = now;
+          onPaintBlockedRef.current?.([...owners]);
+        }
+        return;
+      }
+
+      const wasPainted = groupMasksRef.current.has(groupId);
+      const surface = ensureGroupMask(groupId);
+      const px = uv.x * W;
+      const py = uv.y * H;
+      const radius = radiusUv * W;
+      const gradient = surface.ctx.createRadialGradient(px, py, 0, px, py, radius);
+      gradient.addColorStop(0, "rgba(255,255,255,0.85)");
+      gradient.addColorStop(1, "rgba(255,255,255,0)");
+      surface.ctx.globalCompositeOperation = "lighter";
+      surface.ctx.globalAlpha = 1;
+      surface.ctx.fillStyle = gradient;
+      surface.ctx.beginPath();
+      surface.ctx.arc(px, py, radius, 0, Math.PI * 2);
+      surface.ctx.fill();
+      surface.tex.needsUpdate = true;
+      compositeDirtyRef.current = true;
+      if (!paintChangeNotified.current) {
+        paintChangeNotified.current = true;
+        onPaintGroupChangeRef.current?.(groupId);
+      }
+      if (!wasPainted) onPaintGroupStateChangeRef.current?.(groupId, true);
+      if (currentPaintRegionRef.current) {
+        onPaintGroupRegionRef.current?.(groupId, currentPaintRegionRef.current);
+      }
+      return;
+    }
+
     // Erasing uses the same brush interaction as painting and clears every
     // symptom mask underneath it so no hidden reaction layer is left behind.
     const targetSymptoms = eraseRef.current ? SKIN_KEYS : paintSymptomsRef.current;
-    if (!eraseRef.current) hasExposurePaint.current = true;
+    if (!eraseRef.current && !hasExposurePaint.current) {
+      hasExposurePaint.current = true;
+      onPaintStateChangeRef.current?.(true);
+    }
     targetSymptoms.forEach((k) => {
       const m = masks[k];
       if (!m) return;
@@ -931,9 +1218,8 @@ roughnessFactor = clamp(
       m.ctx.fill();
       m.tex.needsUpdate = true;
     });
-    // Do NOT reset this symptom's reveal: already-revealed areas stay revealed
-    // when you paint MORE of the same symptom. New marks show as cream only
-    // before the first Run (reveal 0); after that they appear immediately.
+    // Assessment pages invalidate an older result when the paint mask changes;
+    // the parent then returns this mask to cream until Run finishes again.
   };
 
   const paintStrokeTo = (uv: THREE.Vector2) => {
@@ -964,12 +1250,29 @@ roughnessFactor = clamp(
   // check next to the masks means a hover tooltip can never appear on untouched
   // skin just because the pointer happens to be over the model.
   const paintedSymptomsAt = (uv: THREE.Vector2): SkinKey[] => {
+    if (multiGroupMode) {
+      const owners = paintedGroupIdsAt(uv);
+      return SKIN_KEYS.filter((key) =>
+        owners.some((groupId) => (groupConfigsRef.current.get(groupId)?.sev[key] ?? 0) > 0.001),
+      );
+    }
     return SKIN_KEYS.filter((k) => {
       const m = masks[k];
       const x = Math.max(0, Math.min(m.canvas.width - 1, Math.floor(uv.x * m.canvas.width)));
       const y = Math.max(0, Math.min(m.canvas.height - 1, Math.floor(uv.y * m.canvas.height)));
       return m.ctx.getImageData(x, y, 1, 1).data[0] > 12;
     });
+  };
+
+  const paintedGroupIdsAt = (uv: THREE.Vector2): string[] => {
+    if (!multiGroupMode) return [];
+    const owners: string[] = [];
+    groupMasksRef.current.forEach((surface, groupId) => {
+      const x = Math.max(0, Math.min(surface.canvas.width - 1, Math.floor(uv.x * surface.canvas.width)));
+      const y = Math.max(0, Math.min(surface.canvas.height - 1, Math.floor(uv.y * surface.canvas.height)));
+      if (surface.ctx.getImageData(x, y, 1, 1).data[0] > 12) owners.push(groupId);
+    });
+    return owners;
   };
 
   // Convert a hit point to a human-readable facial region. The vertical bands
@@ -1029,6 +1332,7 @@ roughnessFactor = clamp(
     if (painting.current) {
       painting.current = false;
       lastPaintUv.current = null;
+      currentPaintRegionRef.current = null;
       setControls(true);
     }
   };
@@ -1048,27 +1352,38 @@ roughnessFactor = clamp(
           e.stopPropagation();
           onHover?.(null);
           painting.current = true;
+          paintChangeNotified.current = false;
           lastPaintUv.current = null;
           setControls(false);
-          if (e.uv) paintStrokeTo(e.uv);
+          if (e.uv) {
+            const groupId = paintGroupIdRef.current;
+            if (multiGroupMode && groupId) currentPaintRegionRef.current = regionAt(e.point);
+            paintStrokeTo(e.uv);
+          }
         }}
         onPointerMove={(e: any) => {
           if (!isSkin(e.object)) return;
           if (painting.current) {
             e.stopPropagation();
             onHover?.(null);
-            if (e.uv) paintStrokeTo(e.uv);
+            if (e.uv) {
+              const groupId = paintGroupIdRef.current;
+              if (multiGroupMode && groupId) currentPaintRegionRef.current = regionAt(e.point);
+              paintStrokeTo(e.uv);
+            }
             return;
           }
 
           if (!e.uv) return onHover?.(null);
+          const groupIds = paintedGroupIdsAt(e.uv);
           const symptoms = paintedSymptomsAt(e.uv);
-          if (!symptoms.length) return onHover?.(null);
+          if (!symptoms.length && !groupIds.length) return onHover?.(null);
           onHover?.({
             x: e.nativeEvent.offsetX,
             y: e.nativeEvent.offsetY,
             region: regionAt(e.point),
             symptoms,
+            groupIds,
           });
         }}
         onPointerOut={() => {

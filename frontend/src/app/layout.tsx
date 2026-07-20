@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Toaster } from "@/components/ui/sonner";
 import localFont from "next/font/local";
 import { IBM_Plex_Mono, Noto_Sans_Thai } from "next/font/google";
 import "./globals.css";
@@ -66,6 +67,7 @@ export default function RootLayout({
     >
       <body className="antialiased" suppressHydrationWarning>
         {children}
+        <Toaster position="top-right" richColors />
       </body>
     </html>
   );

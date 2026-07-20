@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Eraser, Paintbrush, Play } from "lucide-react";
+import { ChevronDown, Eraser, Paintbrush, Play, Trash2 } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -16,12 +16,18 @@ interface CanvasToolbarProps {
   onRun?: () => void;
   /** Called when user clicks ล้างรอย */
   onClear?: () => void;
+  /** Clears paint owned by every formula box. */
+  onClearAll?: () => void;
   /** Called when brush-size reset is clicked */
   onBrushSizeReset?: () => void;
   /** Called when the brush size is changed via the slider */
   onBrushSizeChange?: (size: number) => void;
   /** Whether the Run button should show a loading spinner */
   running?: boolean;
+  /** Prevent running until the current experiment is ready. */
+  runDisabled?: boolean;
+  /** Explains why Run is unavailable. */
+  runDisabledReason?: string;
   /** Minimum brush size percent (default 10) */
   minBrushSize?: number;
   /** Maximum brush size percent (default 100) */
@@ -32,9 +38,12 @@ export default function CanvasToolbar({
   brushSizePct,
   onRun,
   onClear,
+  onClearAll,
   onBrushSizeReset,
   onBrushSizeChange,
   running = false,
+  runDisabled = false,
+  runDisabledReason,
   minBrushSize = 10,
   maxBrushSize = 100,
 }: CanvasToolbarProps) {
@@ -119,7 +128,7 @@ export default function CanvasToolbar({
           <TooltipTrigger asChild>
             <button
               id="canvas-toolbar-clear"
-              aria-label="ล้างรอย"
+              aria-label="ล้างรอยที่เลือก"
               onClick={onClear}
               disabled={running}
               className={[
@@ -130,11 +139,33 @@ export default function CanvasToolbar({
               ].join(" ")}
             >
               <Eraser className="size-4" aria-hidden />
-              <span>ล้างรอย</span>
+              <span>ล้างรอยที่เลือก</span>
             </button>
           </TooltipTrigger>
-          <TooltipContent side="top">ลบรอยทาสารทดสอบทั้งหมด</TooltipContent>
+          <TooltipContent side="top">ลบรอยทาของกล่องสูตรที่เลือก</TooltipContent>
         </Tooltip>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              aria-label="ตัวเลือกล้างรอย"
+              disabled={running}
+              className="grid size-9 place-items-center rounded-xl text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+            >
+              <ChevronDown className="size-4" aria-hidden />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-48 p-1.5" side="top" align="center">
+            <button
+              type="button"
+              onClick={onClearAll}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+            >
+              <Trash2 className="size-4" aria-hidden />
+              <span>ล้างรอยทั้งหมด</span>
+            </button>
+          </PopoverContent>
+        </Popover>
 
         {/* ── เริ่มทดสอบ button (far right) ── */}
         <Tooltip>
@@ -142,8 +173,9 @@ export default function CanvasToolbar({
             <button
               id="canvas-toolbar-run"
               aria-label="เริ่มทดสอบ"
+              title={runDisabled && !running ? runDisabledReason : undefined}
               onClick={onRun}
-              disabled={running}
+              disabled={running || runDisabled}
               className={[
                 "flex h-9 items-center gap-2 rounded-xl px-4",
                 "bg-primary text-primary-foreground text-sm font-semibold",
@@ -180,7 +212,11 @@ export default function CanvasToolbar({
               <span>{running ? "กำลังทดสอบ…" : "เริ่มทดสอบ"}</span>
             </button>
           </TooltipTrigger>
-          <TooltipContent side="top">เริ่มประเมินและจำลองผลลัพธ์</TooltipContent>
+          <TooltipContent side="top">
+            {runDisabled && !running
+              ? runDisabledReason || "ยังไม่พร้อมเริ่มทดสอบ"
+              : "เริ่มประเมินและจำลองผลลัพธ์"}
+          </TooltipContent>
         </Tooltip>
       </div>
     </div>

@@ -25,9 +25,44 @@ import ReactFlow, {
   type Node,
   type NodeProps,
 } from "reactflow";
+import {
+  AlertTriangle,
+  Beaker,
+  CheckCircle2,
+  ChevronDown,
+  CircleX,
+  FilePenLine,
+  FlaskConical,
+  Link2,
+  LoaderCircle,
+  Play,
+  Plus,
+  Save,
+  SlidersHorizontal,
+  Target,
+  Trash2,
+} from "lucide-react";
 
 import { FormulaItem, Region, api } from "../lib/api";
 import { SUBSTANCE_LIBRARY, withWaterBase, substanceInfo, type CatalogItem } from "../lib/catalog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const ENDPOINTS = ["skin", "eye", "sens", "acute"] as const;
 const ENDPOINT_LABEL_TH: Record<string, string> = {
@@ -108,16 +143,20 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
     };
   }, [data.smiles]);
 
+  const nameInputId = `substance-${id}-name`;
+  const smilesInputId = `substance-${id}-smiles`;
+  const concentrationInputId = `substance-${id}-concentration`;
+
   return (
     <div
-      className="relative w-56 rounded-lg border border-border bg-card shadow-md"
+      className="relative w-64 overflow-visible rounded-xl border border-border bg-card shadow-md"
       onMouseEnter={startHover}
       onMouseLeave={endHover}
     >
       {showInfo && (data.smiles?.trim() || data.name) && (
         <div className="nodrag nowheel absolute left-full top-0 z-30 ml-3 w-60 rounded-xl border border-border bg-card p-3 text-left shadow-md">
           <div className="flex items-center gap-1.5">
-            <span className="text-primary">◇</span>
+            <FlaskConical className="size-3.5 shrink-0 text-primary" aria-hidden />
             <span className="flex-1 truncate text-xs font-semibold text-foreground">{data.name || "สารไม่ระบุชื่อ"}</span>
             {mw != null && <span className="font-mono text-[9px] text-muted-foreground">MW {mw}</span>}
           </div>
@@ -129,8 +168,8 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
           {info ? (
             <>
               <div className="mt-1.5 text-[11px] leading-snug text-foreground">{info.role}</div>
-              <div className="mt-1 flex gap-1 text-[10px] leading-snug text-amber-700">
-                <span>⚠️</span>
+              <div className="mt-1 flex gap-1.5 text-[10px] leading-snug text-amber-700">
+                <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden />
                 <span>{info.note}</span>
               </div>
             </>
@@ -142,51 +181,108 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
           <div className="mt-1.5 font-mono text-[9px] text-muted-foreground">SMILES: {data.smiles || "-"}</div>
         </div>
       )}
-      <button
-        onClick={remove}
-        title="ลบ node"
-        className="nodrag nopan absolute -right-2 -top-2 z-10 grid size-5 place-items-center rounded-full border border-border bg-card text-sm leading-none text-muted-foreground shadow-md transition hover:border-rose-300 hover:bg-rose-500 hover:text-white"
-      >
-        ×
-      </button>
-      <div className="flex items-center justify-between rounded-t-lg bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground">
-        <span>🧪 สาร</span>
-        <span className="font-mono text-[10px] text-muted-foreground">#{id}</span>
-      </div>
-      <div className="nodrag nowheel space-y-1.5 p-3">
-        <input
-          className="w-full rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
-          placeholder="ชื่อสาร"
-          value={data.name ?? ""}
-          onChange={(e) => patch({ name: e.target.value })}
-        />
-        <input
-          className="w-full rounded border border-border bg-background px-2 py-1 font-mono text-xs text-foreground"
-          placeholder="SMILES เช่น CCO"
-          value={data.smiles}
-          onChange={(e) => patch({ smiles: e.target.value })}
-        />
-        <div className="flex items-center gap-1">
-          <input
-            type="number"
-            min={0}
-            max={100}
-            step={0.1}
-            className="w-full rounded border border-border bg-background px-2 py-1 font-mono text-xs tabular-nums text-foreground"
-            value={data.concentration}
-            onChange={(e) => patch({ concentration: parseFloat(e.target.value) || 0 })}
-          />
-          <span className="text-xs text-muted-foreground">%</span>
+      <div className="flex items-center gap-2 rounded-t-xl border-b border-border bg-secondary/60 px-3 py-2">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+          <Beaker className="size-4" aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-muted-foreground">สารเคมี</p>
+          <p
+            className="truncate text-sm font-semibold text-foreground"
+            title={data.name?.trim() || "ยังไม่ระบุชื่อสาร"}
+          >
+            {data.name?.trim() || "ยังไม่ระบุชื่อสาร"}
+          </p>
         </div>
-        {valid === true && (
-          <div className="text-[10px] text-emerald-600">✓ ถูกต้อง{mw != null ? ` · MW ${mw}` : ""}</div>
-        )}
-        {valid === false && <div className="text-[10px] text-rose-500">✗ SMILES ไม่ถูกต้อง</div>}
+        <span className="shrink-0 rounded-md bg-background px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+          #{id}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={remove}
+          title="ลบโหนดสาร"
+          aria-label={`ลบโหนดสาร ${data.name?.trim() || id}`}
+          className="nodrag nopan text-destructive hover:bg-destructive/10 hover:text-destructive"
+        >
+          <Trash2 aria-hidden />
+        </Button>
       </div>
+      <div className="nodrag nowheel space-y-3 p-3">
+        <div className="space-y-1.5">
+          <Label htmlFor={nameInputId} className="text-xs font-medium text-foreground">
+            ชื่อสาร
+          </Label>
+          <Input
+            id={nameInputId}
+            className="h-9 px-2.5 text-sm"
+            placeholder="เช่น Ethanol"
+            value={data.name ?? ""}
+            onChange={(e) => patch({ name: e.target.value })}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={smilesInputId} className="text-xs font-medium text-foreground">
+            โครงสร้าง SMILES
+          </Label>
+          <Input
+            id={smilesInputId}
+            className="h-9 px-2.5 font-mono text-sm"
+            placeholder="เช่น CCO"
+            value={data.smiles}
+            aria-invalid={valid === false || undefined}
+            aria-describedby={valid !== null ? `${smilesInputId}-status` : undefined}
+            onChange={(e) => patch({ smiles: e.target.value })}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={concentrationInputId} className="text-xs font-medium text-foreground">
+            ความเข้มข้น
+          </Label>
+          <InputGroup className="h-9">
+            <InputGroupInput
+              id={concentrationInputId}
+              type="number"
+              min={0}
+              max={100}
+              step={0.1}
+              className="h-9 px-2.5 font-mono text-sm font-semibold tabular-nums"
+              value={data.concentration}
+              onChange={(e) => patch({ concentration: parseFloat(e.target.value) || 0 })}
+            />
+            <InputGroupAddon align="inline-end" className="pr-2.5 text-sm font-semibold text-foreground">
+              %
+            </InputGroupAddon>
+          </InputGroup>
+        </div>
+      </div>
+      {valid !== null && (
+        <div
+          id={`${smilesInputId}-status`}
+          role={valid ? "status" : "alert"}
+          className={`flex items-center gap-1.5 rounded-b-xl border-t border-border px-3 py-2 text-xs font-medium ${
+            valid
+              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+              : "bg-destructive/10 text-destructive"
+          }`}
+        >
+          {valid ? (
+            <CheckCircle2 className="size-3.5 shrink-0" aria-hidden />
+          ) : (
+            <CircleX className="size-3.5 shrink-0" aria-hidden />
+          )}
+          <span>
+            {valid
+              ? `โครงสร้างถูกต้อง${mw != null ? ` · MW ${mw}` : ""}`
+              : "โครงสร้าง SMILES ไม่ถูกต้อง"}
+          </span>
+        </div>
+      )}
       <Handle
         type="source"
         position={Position.Right}
-        className="!h-3 !w-3 !border-2 !border-background !bg-primary"
+        className="!h-3.5 !w-3.5 !border-2 !border-background !bg-primary"
       />
     </div>
   );
@@ -281,8 +377,9 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
         position={Position.Left}
         className="!h-3 !w-3 !border-2 !border-background !bg-primary"
       />
-      <div className="rounded-t-lg bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
-        🎯 ผลการประเมิน
+      <div className="flex items-center gap-1.5 rounded-t-lg bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
+        <Target className="size-3.5" aria-hidden />
+        <span>ผลการประเมิน</span>
       </div>
       <div className="nodrag nowheel space-y-2 p-3">
         <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
@@ -298,17 +395,21 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
           </select>
         </label>
 
-        <button
+        <Button
+          type="button"
+          size="sm"
           onClick={run}
           disabled={busy}
-          className="w-full rounded-lg bg-primary py-2 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+          className="w-full text-xs"
         >
-          {busy ? "กำลังประเมิน…" : "▶ ประเมิน"}
-        </button>
+          {busy ? <LoaderCircle className="animate-spin" aria-hidden /> : <Play aria-hidden />}
+          {busy ? "กำลังประเมิน…" : "ประเมิน"}
+        </Button>
 
         {data.status === "failed" && (
-          <div className="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] text-rose-600">
-            {data.error}
+          <div className="flex gap-1.5 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-[10px] text-destructive">
+            <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden />
+            <span>{data.error}</span>
           </div>
         )}
 
@@ -386,29 +487,36 @@ function ModifierNode({ id, data }: NodeProps<ModifierData>) {
   };
   return (
     <div className="relative w-52 rounded-lg border-2 border-amber-300 bg-amber-50 shadow-md">
-      <button
+      <Button
+        type="button"
+        variant="destructive"
+        size="icon-xs"
         onClick={remove}
         title="ลบ node"
-        className="nodrag nopan absolute -right-2 -top-2 z-10 grid size-5 place-items-center rounded-full border border-border bg-card text-sm leading-none text-muted-foreground shadow-md hover:border-rose-300 hover:bg-rose-500 hover:text-white"
+        aria-label="ลบ node ตัวปรับสูตร"
+        className="nodrag nopan absolute -right-2 -top-2 z-10 rounded-full shadow-sm"
       >
-        ×
-      </button>
+        <Trash2 aria-hidden />
+      </Button>
       <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-background !bg-amber-400" />
-      <div className="rounded-t-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800">🧩 ตัวปรับสูตร</div>
+      <div className="flex items-center gap-1.5 rounded-t-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800">
+        <SlidersHorizontal className="size-3.5" aria-hidden />
+        <span>ตัวปรับสูตร</span>
+      </div>
       <div className="nodrag nowheel space-y-1.5 p-3 text-xs">
         <div className="flex items-center gap-1">
-          <span className="text-amber-600">◈</span>
-          <input
-            className="min-w-0 flex-1 rounded border border-amber-200 bg-card px-2 py-1 text-foreground"
+          <FlaskConical className="size-3.5 shrink-0 text-amber-600" aria-hidden />
+          <Input
+            className="h-7 min-w-0 flex-1 border-amber-200 px-2 text-xs"
             value={data.name}
             onChange={(e) => patch({ name: e.target.value })}
             placeholder="ชื่อสาร"
           />
-          <input
+          <Input
             type="number"
             min={0}
             max={100}
-            className="w-11 rounded border border-amber-200 bg-card px-1 py-1 text-right font-mono tabular-nums text-foreground"
+            className="h-7 w-12 border-amber-200 px-1 text-right font-mono text-xs tabular-nums"
             value={data.concentration}
             onChange={(e) => patch({ concentration: parseFloat(e.target.value) || 0 })}
           />
@@ -427,15 +535,15 @@ function ModifierNode({ id, data }: NodeProps<ModifierData>) {
             ))}
           </select>
         </label>
-        <label className="block text-[11px] text-muted-foreground">
-          ลดลง {Math.round(data.reduce * 100)}%
-          <input
-            type="range"
+        <label className="block space-y-1.5 text-[11px] text-muted-foreground">
+          <span>ลดลง {Math.round(data.reduce * 100)}%</span>
+          <Slider
             min={0}
             max={90}
-            value={Math.round(data.reduce * 100)}
-            onChange={(e) => patch({ reduce: Number(e.target.value) / 100 })}
-            className="w-full accent-amber-500"
+            step={1}
+            value={[Math.round(data.reduce * 100)]}
+            onValueChange={([value]) => patch({ reduce: value / 100 })}
+            className="[&_[role=slider]]:border-amber-400 [&_[role=slider]]:bg-background [&_[data-orientation=horizontal]>span]:bg-amber-500"
           />
         </label>
       </div>
@@ -449,13 +557,8 @@ const nodeTypes = { substance: SubstanceNode, result: ResultNode, modifier: Modi
 let idCounter = 100;
 const nextId = () => String(++idCounter);
 
-const DEFAULT_SEED: FormulaItem[] = [
-  { name: "Ethanol", smiles: "CCO", concentration: 40 },
-  { name: "Aspirin", smiles: "CC(=O)Oc1ccccc1C(=O)O", concentration: 5 },
-];
-
 function buildGraph(seed: FormulaItem[], region: Region): { nodes: Node[]; edges: Edge[] } {
-  const items = seed.length ? seed : DEFAULT_SEED;
+  const items = seed;
   const nodes: Node[] = items.map((it, i) => ({
     id: `s${i + 1}`,
     type: "substance",
@@ -486,49 +589,22 @@ function GraphInner({
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
 
-  // Keep substance nodes in sync with the formula (e.g. AI reduced a concentration).
-  // Updates matching nodes' conc/name and appends substances that have no node yet,
-  // without wiping user-added modifier/result nodes.
-  const prevSeedRef = useRef<string>(JSON.stringify(seed.map((s) => [s.smiles, s.concentration])));
+  // The selected formula is the source of truth. Rebuild when its substances,
+  // percentages or test region change so removed/empty formulas cannot leave
+  // stale nodes from a previous graph behind.
+  const prevSeedRef = useRef<string>(
+    JSON.stringify({ region, items: seed.map((s) => [s.smiles, s.concentration, s.name]) }),
+  );
   useEffect(() => {
-    const sig = JSON.stringify(seed.map((s) => [s.smiles, s.concentration, s.name]));
+    const sig = JSON.stringify({ region, items: seed.map((s) => [s.smiles, s.concentration, s.name]) });
     if (sig === prevSeedRef.current) return;
     prevSeedRef.current = sig;
-    if (!seed.length) return;
-    setNodes((nds) => {
-      let next = nds.map((n) => {
-        if (n.type !== "substance") return n;
-        const d = n.data as SubstanceData;
-        const m = seed.find((s) => s.smiles === d.smiles);
-        return m ? { ...n, data: { ...d, concentration: m.concentration, name: m.name ?? d.name } } : n;
-      });
-      const have = new Set(
-        next.filter((n) => n.type === "substance").map((n) => (n.data as SubstanceData).smiles),
-      );
-      let base = next.filter((n) => n.type === "substance").length;
-      seed
-        .filter((s) => s.smiles && !have.has(s.smiles))
-        .forEach((s) => {
-          next = [
-            ...next,
-            {
-              id: nextId(),
-              type: "substance",
-              position: { x: 40, y: 40 + base * 200 },
-              data: { name: s.name, smiles: s.smiles, concentration: s.concentration },
-            },
-          ];
-          base += 1;
-        });
-      return next;
-    });
-  }, [seed, setNodes]);
+    const graph = buildGraph(seed, region);
+    setNodes(graph.nodes);
+    setEdges(graph.edges);
+  }, [region, seed, setEdges, setNodes]);
 
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [edgeMenu, setEdgeMenu] = useState<{ id: string; x: number; y: number } | null>(null);
-  // categories collapsed state — all open by default
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const toggleCat = (c: string) => setCollapsed((s) => ({ ...s, [c]: !s[c] }));
 
   const onConnect = useCallback(
     (c: Connection) => setEdges((eds) => addEdge({ ...c, animated: true }, eds)),
@@ -585,126 +661,102 @@ function GraphInner({
   };
 
   return (
-    <div className="relative h-[75vh] min-h-[520px] w-full overflow-hidden rounded-xl border border-border bg-background">
-      <div className="absolute left-3 top-3 z-10 flex items-start gap-2">
-        {/* Add-substance button + category picker */}
-        <div className="relative">
-          <button
-            onClick={() => setPickerOpen((o) => !o)}
-            className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium shadow-md transition ${
-              pickerOpen
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border bg-card text-primary hover:border-primary"
-            }`}
-          >
-            + เพิ่ม node สาร
-            <span className={`text-[9px] transition ${pickerOpen ? "rotate-180" : ""}`}>▾</span>
-          </button>
+    <div className="relative h-full min-h-0 w-full overflow-hidden border-y border-border bg-background">
+      <div className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-border bg-card/95 p-1 shadow-sm backdrop-blur">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" size="sm" className="text-primary">
+              <Plus aria-hidden />
+              เพิ่มโหนด
+              <ChevronDown className="ml-0.5 size-3" aria-hidden />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="max-h-[70vh] w-80 overflow-y-auto">
+            <DropdownMenuLabel className="text-xs text-muted-foreground">โหนดสาร</DropdownMenuLabel>
+            <DropdownMenuItem onSelect={() => addSubstance()}>
+              <FilePenLine aria-hidden />
+              <span className="flex-1">สารเปล่า</span>
+              <span className="text-xs font-medium text-foreground">กรอกเอง</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {SUBSTANCE_LIBRARY.map((group) => (
+              <DropdownMenuGroup key={group.category}>
+                <DropdownMenuLabel className="sticky top-0 z-10 flex items-center gap-2 bg-popover/95 py-2 text-xs text-foreground backdrop-blur">
+                  <Beaker className="size-3.5 text-primary" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">{group.category}</span>
+                  <span className="text-xs font-semibold tabular-nums text-foreground">{group.items.length}</span>
+                </DropdownMenuLabel>
+                {group.items.map((item) => (
+                  <DropdownMenuItem
+                    key={item.smiles}
+                    onSelect={() => addSubstance(item)}
+                    className="py-1.5"
+                  >
+                    <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{item.name}</span>
+                    <span className="shrink-0 text-xs font-semibold tabular-nums text-foreground">{item.conc}%</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={addResult}>
+              <Target aria-hidden />
+              เพิ่มโหนดผลการประเมิน
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-          {pickerOpen && (
-            <div className="absolute left-0 top-[calc(100%+6px)] z-20 max-h-[62vh] w-64 overflow-y-auto rounded-xl border border-border bg-card p-2 shadow-md">
-              <div className="mb-1 flex items-center justify-between px-1">
-                <span className="text-[11px] font-semibold text-muted-foreground">เลือกสารจากหมวดหมู่</span>
-                <button
-                  onClick={() => setPickerOpen(false)}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  ×
-                </button>
-              </div>
-
-              {/* blank node option */}
-              <button
-                onClick={() => addSubstance()}
-                className="mb-1.5 w-full rounded-lg border border-dashed border-border px-2 py-1.5 text-left text-xs text-muted-foreground hover:border-primary hover:text-primary"
-              >
-                ✎ สารเปล่า (กรอกเอง)
-              </button>
-
-              {SUBSTANCE_LIBRARY.map((group) => {
-                const open = !collapsed[group.category];
-                return (
-                  <div key={group.category} className="mb-1">
-                    <button
-                      onClick={() => toggleCat(group.category)}
-                      className="flex w-full items-center gap-1.5 rounded-md bg-secondary px-2 py-1 text-left text-[11px] font-semibold text-foreground hover:bg-secondary"
-                    >
-                      <span>{group.icon}</span>
-                      <span className="flex-1">{group.category}</span>
-                      <span className="text-[9px] text-muted-foreground">{group.items.length}</span>
-                      <span className={`text-[9px] transition ${open ? "" : "-rotate-90"}`}>▾</span>
-                    </button>
-                    {open && (
-                      <div className="mt-0.5 space-y-0.5 pl-1">
-                        {group.items.map((it) => (
-                          <button
-                            key={it.smiles}
-                            onClick={() => addSubstance(it)}
-                            title={it.smiles}
-                            className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-foreground hover:bg-primary/10"
-                          >
-                            <span className="text-primary">◇</span>
-                            <span className="flex-1 truncate">{it.name}</span>
-                            <span className="font-mono text-[10px] text-muted-foreground">{it.conc}%</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {pickerOpen && (
-            <div className="absolute left-[16.5rem] top-[calc(100%+6px)] z-20 w-52 rounded-xl border border-border bg-card p-2 shadow-md">
-              <div className="mb-1 px-1 text-[11px] font-semibold text-muted-foreground">ทดสอบหลายชุดพร้อมกัน</div>
-              <button
-                onClick={addResult}
-                className="flex w-full items-center gap-2 rounded-md border border-primary/40 bg-primary/10 px-2 py-2 text-xs font-medium text-primary transition hover:bg-primary hover:text-primary-foreground"
-              >
-                🎯 เพิ่ม node ผลการประเมิน
-              </button>
-              <p className="mt-1.5 px-1 text-[10px] leading-snug text-muted-foreground">
-                ต่อสารแต่ละกลุ่มไปคนละ node ผล เพื่อเทียบหลายสูตรพร้อมกัน
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Add-modifier — pick a REAL substance from the catalog */}
-        <select
-          value=""
-          onChange={(e) => {
-            if (e.target.value) addModifierBySmiles(e.target.value);
-            e.currentTarget.selectedIndex = 0;
-          }}
-          title="เพิ่มตัวปรับจากคลังสารจริง"
-          className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-800 shadow-md"
-        >
-          <option value="">🧩 + ตัวปรับ (เลือกจากคลังสาร)…</option>
-          {SUBSTANCE_LIBRARY.map((g) => (
-            <optgroup key={g.category} label={`${g.icon} ${g.category}`}>
-              {g.items.map((it) => (
-                <option key={it.smiles} value={it.smiles}>{it.name}</option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" size="sm">
+              <SlidersHorizontal aria-hidden />
+              เพิ่มตัวปรับ
+              <ChevronDown className="ml-0.5 size-3" aria-hidden />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="max-h-[70vh] w-80 overflow-y-auto">
+            <DropdownMenuLabel className="text-xs text-muted-foreground">เลือกสารสำหรับตัวปรับ</DropdownMenuLabel>
+            {SUBSTANCE_LIBRARY.map((group) => (
+              <DropdownMenuGroup key={group.category}>
+                <DropdownMenuLabel className="sticky top-0 z-10 flex items-center gap-2 bg-popover/95 py-2 text-xs text-foreground backdrop-blur">
+                  <SlidersHorizontal className="size-3.5 text-primary" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">{group.category}</span>
+                  <span className="text-xs font-semibold tabular-nums text-foreground">{group.items.length}</span>
+                </DropdownMenuLabel>
+                {group.items.map((item) => (
+                  <DropdownMenuItem
+                    key={item.smiles}
+                    onSelect={() => addModifierBySmiles(item.smiles)}
+                    className="py-1.5"
+                  >
+                    <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{item.name}</span>
+                    <span className="shrink-0 text-xs font-semibold tabular-nums text-foreground">{item.conc}%</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         {onSaveFormula && (
-          <button
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
             onClick={saveAsFormula}
-            title="บันทึก node graph ปัจจุบันเป็นสูตรใหม่ในลิสต์ (น้ำเติมให้ครบ 100% อัตโนมัติ)"
-            className="flex items-center gap-1 rounded-lg border border-primary bg-card px-3 py-1.5 text-xs font-medium text-primary shadow-md transition hover:bg-primary hover:text-primary-foreground"
+            title="บันทึก node graph ปัจจุบันเป็นสูตรใหม่ในลิสต์"
           >
-            💾 บันทึกเป็นสูตร
-          </button>
+            <Save aria-hidden />
+            บันทึกเป็นสูตร
+          </Button>
         )}
 
-        <span className="rounded-lg border border-border bg-card/80 px-3 py-1.5 text-[11px] text-muted-foreground shadow-md">
-          ลากเส้น node → node · แทรก “ตัวปรับ” ระหว่างสาร→ผล เพื่อลดฤทธิ์
-        </span>
+        <div className="hidden items-center gap-1.5 border-l border-border px-2 text-[11px] text-muted-foreground xl:flex">
+          <Link2 className="size-3.5" aria-hidden />
+          <span>ลากจุดเชื่อมระหว่างโหนดเพื่อสร้างลำดับทดสอบ</span>
+        </div>
       </div>
       <ReactFlow
         nodes={nodes}
@@ -724,16 +776,20 @@ function GraphInner({
       </ReactFlow>
 
       {edgeMenu && (
-        <button
+        <Button
+          type="button"
+          variant="destructive"
+          size="xs"
           style={{ position: "fixed", left: edgeMenu.x, top: edgeMenu.y, transform: "translate(-50%, -130%)" }}
           onClick={() => {
             setEdges((eds) => eds.filter((e) => e.id !== edgeMenu.id));
             setEdgeMenu(null);
           }}
-          className="z-50 rounded-md bg-rose-500 px-2.5 py-1 text-[11px] font-semibold text-white shadow-lg hover:bg-rose-600"
+          className="z-50 shadow-lg"
         >
-          ✕ ลบเส้นเชื่อม
-        </button>
+          <Trash2 aria-hidden />
+          ลบเส้นเชื่อม
+        </Button>
       )}
     </div>
   );

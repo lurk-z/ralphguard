@@ -10,12 +10,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import {
   Beaker,
   Camera,
   ChevronDown,
   Download,
+  Eraser,
   Eye,
   FileUp,
   FlaskConical,
@@ -23,6 +25,7 @@ import {
   MapPin,
   Minus,
   Palette,
+  Paintbrush,
   PanelLeft,
   PencilLine,
   Plus,
@@ -64,6 +67,7 @@ import {
 import AiChatPanel from "@/components/AiChatPanel";
 import CanvasToolbar from "@/components/CanvasToolbar";
 import LabelScanModal from "@/components/LabelScanModal";
+import CsvImportModal, { type CsvImportItem } from "@/components/CsvImportModal";
 import { CHEMICAL_GROUPS, CHEMICALS, chemById } from "@/lib/chemicals";
 import { PRODUCT_TEMPLATES, isWaterItem, withWaterBase } from "@/lib/catalog";
 import { normalizeFormulaIdentity, parseFormulaCsv } from "@/lib/formula-csv";
@@ -168,7 +172,6 @@ const BOX_ICONS = {
 type BoxIconName = keyof typeof BOX_ICONS;
 
 /** Names boxes saved out of the node graph, and counts them for numbering. */
-const GRAPH_BOX_PREFIX = "สูตรจาก Node";
 const UNTITLED_FORMULA_NAME = "ไม่มีชื่อสูตร";
 
 const BOX_COLORS = [
@@ -188,6 +191,16 @@ const DEFAULT_BOX_COLOR = BOX_COLORS[0];
 /** The real substance total shown in the formula card, including overflow. */
 function boxTotalPercent(box: FormulaBox) {
   return box.items.reduce((sum, item) => sum + item.concentration, 0);
+}
+
+/** Only assessment inputs belong in this signature; presentation metadata does not. */
+function assessmentInputSignature(box: FormulaBox) {
+  return JSON.stringify({
+    region: box.region ?? "face",
+    items: box.items
+      .map((item) => [item.chemicalId, Number(item.concentration)] as const)
+      .sort(([a], [b]) => a.localeCompare(b)),
+  });
 }
 
 // Paint strength is capped at 100%, even though the card badge reports the
@@ -273,6 +286,13 @@ const RESULT_ENDPOINTS = [
   { key: "acute", label: "พิษเฉียบพลัน" },
 ] as const;
 
+const ENDPOINT_SYMPTOMS: Record<(typeof RESULT_ENDPOINTS)[number]["key"], string[]> = {
+  skin: ["ผิวแดง", "แสบหรือคัน", "ผิวบวมเมื่อคะแนนสูง"],
+  eye: ["ตาแดง", "แสบตา", "ระคายเคืองรอบดวงตา"],
+  sens: ["ผื่นแพ้", "ตุ่มแดง", "อาการคัน"],
+  acute: ["บวมเฉียบพลัน", "แสบร้อน", "ระคายเคืองทันที"],
+};
+
 // Same 4 colours FaceIrritationModel.tsx's shader expects — it reads the brush
 // HUE to pick lesion morphology, so these can't drift from that file's EP_COLOR.
 const EP_COLOR: Record<string, string> = {
@@ -335,11 +355,75 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   const [runBoxId, setRunBoxId] = useState<string | null>(null);
 
   const [brushSizePct, setBrushSizePct] = useState(10);
-  const [clearTrigger, setClearTrigger] = useState(0);
+  const [paintedBoxIds, setPaintedBoxIds] = useState<Set<string>>(() => new Set());
+  // A saved backend result is not enough to reveal symptoms: it must belong to
+  // the paint mask currently on the model. New/cleared paint requires Run again.
+  const [assessedPaintBoxIds, setAssessedPaintBoxIds] = useState<Set<string>>(() => new Set());
+  const [paintedRegionsByBox, setPaintedRegionsByBox] = useState<Record<string, string[]>>({});
+  const [clearGroupRequest, setClearGroupRequest] = useState<{ groupId: string; token: number } | null>(null);
+  const [clearAllTrigger, setClearAllTrigger] = useState(0);
 
   const ZOOM_STEP = 10;
   const BRUSH_STEP = 10;
-  const handleClear = () => setClearTrigger((t) => t + 1);
+  const handleClear = () => {
+    if (!activeBoxId) {
+      toast("ยังไม่ได้เลือกกล่องสูตร — เลือกกล่องที่ต้องการล้างรอยก่อน", {
+        icon: <Eraser className="size-4 text-amber-500" />,
+      });
+      return;
+    }
+    setPaintedBoxIds((current) => {
+      const next = new Set(current);
+      next.delete(activeBoxId);
+      return next;
+    });
+    setAssessedPaintBoxIds((current) => {
+      if (!current.has(activeBoxId)) return current;
+      const next = new Set(current);
+      next.delete(activeBoxId);
+      return next;
+    });
+    setPaintedRegionsByBox((current) => {
+      if (!(activeBoxId in current)) return current;
+      const next = { ...current };
+      delete next[activeBoxId];
+      return next;
+    });
+    setClearGroupRequest((current) => ({ groupId: activeBoxId, token: (current?.token ?? 0) + 1 }));
+  };
+  const handleClearAll = () => {
+    if (!paintedBoxIds.size) {
+      toast("ยังไม่มีรอยทาบนโมเดล");
+      return;
+    }
+    setPaintedBoxIds(new Set());
+    setAssessedPaintBoxIds(new Set());
+    setPaintedRegionsByBox({});
+    setClearAllTrigger((trigger) => trigger + 1);
+  };
+  const handlePaintGroupStateChange = (groupId: string, hasPaint: boolean) => {
+    setPaintedBoxIds((current) => {
+      const next = new Set(current);
+      if (hasPaint) next.add(groupId);
+      else next.delete(groupId);
+      return next;
+    });
+  };
+  const handlePaintGroupChange = (groupId: string) => {
+    setAssessedPaintBoxIds((current) => {
+      if (!current.has(groupId)) return current;
+      const next = new Set(current);
+      next.delete(groupId);
+      return next;
+    });
+  };
+  const handlePaintGroupRegion = (groupId: string, regionName: string) => {
+    setPaintedRegionsByBox((current) => {
+      const regions = current[groupId] ?? [];
+      if (regions.includes(regionName)) return current;
+      return { ...current, [groupId]: [...regions, regionName] };
+    });
+  };
   /**
    * Submit the active box to the QSAR backend, exactly as /assess does: actives
    * only, water balanced back in, and no dose-less rows. The job is queued, so
@@ -351,8 +435,22 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
     const actives = activeBox
       ? boxToFormulaItems(activeBox).filter((it) => it.smiles.trim() && it.concentration > 0)
       : [];
-    if (!boxId || !actives.length) {
-      setRunError("เพิ่มอย่างน้อย 1 สาร + ความเข้มข้น");
+    if (!boxId) {
+      toast("ยังไม่ได้เลือกกล่องสูตร — เลือกกล่องที่ต้องการทดสอบก่อน", {
+        icon: <TriangleAlert className="size-4 text-amber-500" />,
+      });
+      return;
+    }
+    if (!actives.length) {
+      toast("ยังไม่มีสารในกล่องสูตร — เพิ่มสารอย่างน้อย 1 รายการก่อน", {
+        icon: <Beaker className="size-4 text-amber-500" />,
+      });
+      return;
+    }
+    if (!paintedBoxIds.has(boxId)) {
+      toast("ยังไม่ได้ทาครีม — ทาลงบนผิวโมเดลก่อนเริ่มทดสอบ", {
+        icon: <Paintbrush className="size-4 text-amber-500" />,
+      });
       return;
     }
     setRunning(true);
@@ -378,21 +476,30 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   useEffect(() => {
     if (!jobId) return;
     let alive = true;
+    let settled = false;
     const settle = (err: string | null) => {
-      if (!alive) return;
+      if (!alive || settled) return false;
+      settled = true;
       setRunning(false);
       setJobId(null);
       setRunError(err);
+      return true;
     };
     const tick = async () => {
       try {
         const rec = await api.getAssessment(jobId);
         if (!alive) return;
         if (rec.status === "completed") {
-          settle(null);
+          if (!settle(null)) return;
           if (runBoxId && rec.result) {
             setResultByBox((prev) => ({ ...prev, [runBoxId]: rec.result! }));
+            setAssessedPaintBoxIds((current) => {
+              const next = new Set(current);
+              next.add(runBoxId);
+              return next;
+            });
           }
+          toast.success("วิเคราะห์เสร็จสิ้น — แสดงผลการประเมินแล้ว");
         } else if (rec.status === "failed") {
           settle(rec.error ?? "การประเมินล้มเหลว");
         }
@@ -480,6 +587,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   const nameSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const boxIdSeq = useRef(1);
   const [loadedWorkspaceId, setLoadedWorkspaceId] = useState<string | null>(null);
+  const assessmentSignaturesRef = useRef<Record<string, string>>({});
 
   // Restore the experiment workspace that belongs to this project. The loaded
   // id doubles as a hydration guard: without it, the initial empty React state
@@ -521,6 +629,12 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
       }, 1);
 
       boxIdSeq.current = highestBoxNumber;
+      assessmentSignaturesRef.current = Object.fromEntries(
+        restoredBoxes.map((box) => [box.id, assessmentInputSignature(box)]),
+      );
+      setPaintedBoxIds(new Set());
+      setAssessedPaintBoxIds(new Set());
+      setPaintedRegionsByBox({});
       setBoxes(restoredBoxes);
       setActiveBoxId(
         workspace.activeBoxId && restoredIds.has(workspace.activeBoxId)
@@ -544,7 +658,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
       );
     } else {
       boxIdSeq.current = 1;
-      setBoxes([
+      const initialBoxes: FormulaBox[] = [
         {
           id: "box-1",
           name: UNTITLED_FORMULA_NAME,
@@ -553,7 +667,14 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
           region: "face",
           items: [],
         },
-      ]);
+      ];
+      assessmentSignaturesRef.current = Object.fromEntries(
+        initialBoxes.map((box) => [box.id, assessmentInputSignature(box)]),
+      );
+      setPaintedBoxIds(new Set());
+      setAssessedPaintBoxIds(new Set());
+      setPaintedRegionsByBox({});
+      setBoxes(initialBoxes);
       setActiveBoxId("box-1");
       setResultByBox({});
       setJobId(null);
@@ -594,10 +715,93 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
   }, []);
 
   const activeBox = boxes.find((b) => b.id === activeBoxId) ?? null;
-  const activeResult = activeBoxId ? resultByBox[activeBoxId] : undefined;
+  // Keep the backend payload in project storage, but expose it to both the
+  // model and result panel only after the current paint mask completes Run.
+  const activeResult = activeBoxId && assessedPaintBoxIds.has(activeBoxId)
+    ? resultByBox[activeBoxId]
+    : undefined;
   // Which body site the active box is assessed against — a property of the
   // box (see FormulaBox.region), not page-level state.
   const region: Region = activeBox?.region ?? "face";
+  const handlePaintBlocked = (ownerGroupIds: string[]) => {
+    const ownerNames = ownerGroupIds
+      .map((groupId) => {
+        const index = boxes.findIndex((box) => box.id === groupId);
+        const box = boxes[index];
+        if (!box) return null;
+        return box.name === UNTITLED_FORMULA_NAME
+          ? `กล่องสูตร ${index + 1}`
+          : box.name;
+      })
+      .filter(Boolean)
+      .join(", ");
+    toast(
+      ownerNames
+        ? `บริเวณนี้ถูกใช้โดย ${ownerNames} แล้ว — กรุณาเลือกตำแหน่งอื่น`
+        : "บริเวณนี้มีกล่องสูตรอื่นทาอยู่แล้ว — กรุณาเลือกตำแหน่งอื่น",
+      { icon: <TriangleAlert className="size-4 text-amber-500" /> },
+    );
+  };
+
+  // Results are valid only for the exact formula and test region submitted.
+  // Any input mutation invalidates stale scores, symptoms and in-flight work.
+  useEffect(() => {
+    if (loadedWorkspaceId !== params.id) return;
+
+    const previous = assessmentSignaturesRef.current;
+    const next = Object.fromEntries(
+      boxes.map((box) => [box.id, assessmentInputSignature(box)]),
+    );
+    const changed = new Set<string>();
+
+    boxes.forEach((box) => {
+      if (previous[box.id] !== undefined && previous[box.id] !== next[box.id]) {
+        changed.add(box.id);
+      }
+    });
+    Object.keys(previous).forEach((boxId) => {
+      if (!(boxId in next)) changed.add(boxId);
+    });
+    assessmentSignaturesRef.current = next;
+    if (!changed.size) return;
+
+    setResultByBox((current) => {
+      if (![...changed].some((boxId) => boxId in current)) return current;
+      const updated = { ...current };
+      changed.forEach((boxId) => delete updated[boxId]);
+      return updated;
+    });
+
+    setPaintedBoxIds((current) => {
+      const updated = new Set(current);
+      changed.forEach((boxId) => updated.delete(boxId));
+      return updated;
+    });
+    setAssessedPaintBoxIds((current) => {
+      if (![...changed].some((boxId) => current.has(boxId))) return current;
+      const updated = new Set(current);
+      changed.forEach((boxId) => updated.delete(boxId));
+      return updated;
+    });
+    setPaintedRegionsByBox((current) => {
+      const updated = { ...current };
+      changed.forEach((boxId) => delete updated[boxId]);
+      return updated;
+    });
+    const changedBoxId = [...changed][0];
+    if (changedBoxId) {
+      setClearGroupRequest((current) => ({
+        groupId: changedBoxId,
+        token: (current?.token ?? 0) + 1,
+      }));
+    }
+    if (runBoxId && changed.has(runBoxId)) {
+      setJobId(null);
+      setRunBoxId(null);
+      setRunning(false);
+      setRunError(null);
+    }
+  }, [boxes, loadedWorkspaceId, params.id, runBoxId]);
   const changeBoxRegion = (id: string, next: Region) => {
     setBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, region: next } : b)));
   };
@@ -618,6 +822,47 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
       return { key: ep.key, label: ep.label, score, color: EP_COLOR[ep.key], band: bandOf(score) };
     });
   }, [activeResult, dayIdx]);
+
+  const formulaPaintGroups = useMemo(
+    () => boxes.map((box, index) => {
+      const result = assessedPaintBoxIds.has(box.id) ? resultByBox[box.id] : undefined;
+      const layers = result
+        ? RESULT_ENDPOINTS.map((endpoint) => {
+          const value = result.endpoints[endpoint.key];
+          const score = value?.timecourse?.[dayIdx] ?? value?.peak_score ?? 0;
+          return {
+            key: endpoint.key,
+            label: endpoint.label,
+            score,
+            color: EP_COLOR[endpoint.key],
+            band: bandOf(score),
+          };
+        })
+        : [];
+      return {
+        id: box.id,
+        name: box.name === UNTITLED_FORMULA_NAME
+          ? `กล่องสูตร ${index + 1} · ${UNTITLED_FORMULA_NAME}`
+          : box.name,
+        color: box.color || DEFAULT_BOX_COLOR,
+        layers,
+        waiting: running && runBoxId === box.id,
+      };
+    }),
+    [assessedPaintBoxIds, boxes, dayIdx, resultByBox, runBoxId, running],
+  );
+  const activePaintedRegions = activeBoxId ? paintedRegionsByBox[activeBoxId] ?? [] : [];
+  const activeSymptomDetails = activeResult
+    ? RESULT_ENDPOINTS.map((endpoint) => {
+      const value = activeResult.endpoints[endpoint.key];
+      const score = Math.round(value?.timecourse?.[dayIdx] ?? value?.peak_score ?? 0);
+      return {
+        ...endpoint,
+        score,
+        symptoms: ENDPOINT_SYMPTOMS[endpoint.key],
+      };
+    }).filter((item) => item.score > 0)
+    : [];
 
   const pickerCategories = useMemo(() => CHEMICAL_GROUPS.map((g) => g.category), []);
   // Keep the catalog's grouping so the list can carry a header per category,
@@ -851,18 +1096,6 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
     });
   };
 
-  /**
-   * "บันทึกเป็นสูตร" in the node graph. The graph hands its substances back
-   * with the water base already applied; boxes hold actives only, so drop it
-   * again — /assess does exactly the same on its side.
-   */
-  const saveGraphAsFormula = (items: FormulaItem[]) => {
-    const rows = toBoxItems(items);
-    if (!rows.length) return;
-    const n = boxes.filter((b) => b.name.startsWith(GRAPH_BOX_PREFIX)).length + 1;
-    addBoxFrom(`${GRAPH_BOX_PREFIX} ${n}`, rows);
-  };
-
   // ── Arriving from the templates page with ?template=<id> ──
   // Build a box from the catalog template, mirroring what /assess's create-
   // formula modal does. Runs once: the param is dropped straight afterwards so
@@ -994,6 +1227,14 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
     setScanTargetId(boxId);
     setScanOpen(true);
   };
+
+  // ── CSV modal state ──────────────────────────────────────────
+  const [csvModalOpen, setCsvModalOpen] = useState(false);
+  const [csvModalBoxId, setCsvModalBoxId] = useState<string | null>(null);
+  const openCsvFor = (boxId: string) => {
+    setCsvModalBoxId(boxId);
+    setCsvModalOpen(true);
+  };
   /**
    * Merge scanned substances into the target box. Unlike /assess (which has one
    * formula and replaces it wholesale), this workspace holds several named
@@ -1021,173 +1262,111 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
     );
   };
 
-  // ─── CSV: parse locally, validate structures with the backend, then append
-  // only to the formula box whose CSV action the user selected. ─────────────
-  const [csvBusyId, setCsvBusyId] = useState<string | null>(null);
-  const [csvStatus, setCsvStatus] = useState<{
-    boxId: string;
-    ok: boolean;
-    text: string;
-  } | null>(null);
+  // --- CSV modal helpers -------------------------------------------------------
+  // parseCsvFile: validate + return item list for CsvImportModal to preview
+  // handleCsvConfirm: called when user confirms the list in the modal
 
-  const importCsvFile = async (boxId: string, file: File) => {
-    setActiveBoxId(boxId);
-    setCsvBusyId(boxId);
-    setCsvStatus(null);
+  const parseCsvFile = async (boxId: string, file: File): Promise<CsvImportItem[]> => {
+    const targetBox = boxes.find((b) => b.id === boxId);
+    if (!targetBox) throw new Error("ไม่พบกล่องสูตรที่เลือก");
 
-    try {
-      if (!file.name.toLocaleLowerCase().endsWith(".csv")) {
-        throw new Error("กรุณาเลือกไฟล์นามสกุล .csv");
-      }
+    const parsed = parseFormulaCsv(await file.text());
+    const catalogByName = new Map(
+      CHEMICALS.map((c) => [normalizeFormulaIdentity(c.name), c]),
+    );
+    const prepared = parsed.items.map((item) => {
+      const catalog = item.name ? catalogByName.get(normalizeFormulaIdentity(item.name)) : undefined;
+      const smiles = item.smiles || catalog?.smiles || "";
+      if (!smiles) throw new Error(`แถว ${item.line}: ไม่พบ SMILES และชื่อสารไม่อยู่ในคลัง`);
+      return { ...item, catalog, smiles };
+    });
 
-      const targetBox = boxes.find((box) => box.id === boxId);
-      if (!targetBox) throw new Error("ไม่พบกล่องสูตรที่เลือก");
-
-      const parsed = parseFormulaCsv(await file.text());
-      const catalogByName = new Map(
-        CHEMICALS.map((chemical) => [normalizeFormulaIdentity(chemical.name), chemical]),
-      );
-      const prepared = parsed.items.map((item) => {
-        const catalog = item.name
-          ? catalogByName.get(normalizeFormulaIdentity(item.name))
-          : undefined;
-        const smiles = item.smiles || catalog?.smiles || "";
-        if (!smiles) {
-          throw new Error(`แถว ${item.line}: ไม่พบ SMILES และชื่อสารไม่อยู่ในคลัง`);
+    const smilesToValidate = new Set<string>([
+      ...prepared.flatMap((i) => [i.smiles, i.catalog?.smiles ?? ""]),
+      ...targetBox.items.map((i) => i.chemicalId),
+    ].filter(Boolean));
+    const validationPairs = await Promise.all(
+      [...smilesToValidate].map(async (smiles) => {
+        let result;
+        try { result = await api.validateSmiles(smiles); } catch (err) {
+          throw new Error(`ตรวจสอบ SMILES กับ Backend ไม่สำเร็จ: ${err instanceof Error ? err.message : String(err)}`);
         }
-        return { ...item, catalog, smiles };
-      });
-
-      // Validate each unique structure once. Existing rows are included so a
-      // different-but-equivalent SMILES cannot bypass duplicate detection.
-      const smilesToValidate = new Set<string>([
-        ...prepared.flatMap((item) => [item.smiles, item.catalog?.smiles ?? ""]),
-        ...targetBox.items.map((item) => item.chemicalId),
-      ].filter(Boolean));
-      const validationPairs = await Promise.all(
-        [...smilesToValidate].map(async (smiles) => {
-          let result;
-          try {
-            result = await api.validateSmiles(smiles);
-          } catch (error) {
-            throw new Error(
-              `ตรวจสอบ SMILES กับ Backend ไม่สำเร็จ: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-          if (!result.valid) {
-            const source = prepared.find(
-              (item) => item.smiles === smiles || item.catalog?.smiles === smiles,
-            );
-            throw new Error(
-              `${source ? `แถว ${source.line}: ` : ""}SMILES ไม่ถูกต้อง: ${smiles}`,
-            );
-          }
-          return [smiles, result.canonical || smiles] as const;
-        }),
-      );
-      const canonicalBySmiles = new Map(validationPairs);
-
-      const imported = prepared
-        .map((item) => {
-          const canonical = canonicalBySmiles.get(item.smiles) || item.smiles;
-          if (item.catalog) {
-            const catalogCanonical =
-              canonicalBySmiles.get(item.catalog.smiles) || item.catalog.smiles;
-            if (canonical !== catalogCanonical) {
-              throw new Error(`แถว ${item.line}: name “${item.name}” ไม่ตรงกับ SMILES`);
-            }
-          }
-          return {
-            line: item.line,
-            name: item.catalog?.name || item.name || canonical,
-            // Keep the catalog's original key when available so category,
-            // role and color metadata continue to resolve in the new UI.
-            chemicalId: item.catalog?.smiles || canonical,
-            canonicalId: canonical,
-            concentration: item.concentration,
-          };
-        })
-        .filter((item) => !isWaterItem({ name: item.name, smiles: item.chemicalId }));
-
-      if (!imported.length) throw new Error("CSV ไม่มีสารออกฤทธิ์ที่นำเข้าได้");
-
-      const seenCanonical = new Map<string, number>();
-      imported.forEach((item) => {
-        const previousLine = seenCanonical.get(item.canonicalId);
-        if (previousLine) {
-          throw new Error(`แถว ${item.line}: โครงสร้างซ้ำกับแถว ${previousLine}`);
+        if (!result.valid) {
+          const src = prepared.find((i) => i.smiles === smiles || i.catalog?.smiles === smiles);
+          throw new Error(`${src ? `แถว ${src.line}: ` : ""}SMILES ไม่ถูกต้อง: ${smiles}`);
         }
-        seenCanonical.set(item.canonicalId, item.line);
-      });
+        return [smiles, result.canonical || smiles] as const;
+      }),
+    );
+    const canonicalBySmiles = new Map(validationPairs);
 
-      const existingCanonical = new Set(
-        targetBox.items.map(
-          (item) => canonicalBySmiles.get(item.chemicalId) || item.chemicalId,
-        ),
-      );
-      const existingNames = new Set(
-        targetBox.items.map((item) => normalizeFormulaIdentity(itemChemical(item).name)),
-      );
-      const duplicate = imported.find(
-        (item) =>
-          existingCanonical.has(item.canonicalId) ||
-          existingNames.has(normalizeFormulaIdentity(item.name)),
-      );
-      if (duplicate) {
-        throw new Error(`แถว ${duplicate.line}: “${duplicate.name}” มีอยู่ในกล่องสูตรแล้ว`);
-      }
+    const imported = prepared
+      .map((item) => {
+        const canonical = canonicalBySmiles.get(item.smiles) || item.smiles;
+        if (item.catalog) {
+          const catalogCanonical = canonicalBySmiles.get(item.catalog.smiles) || item.catalog.smiles;
+          if (canonical !== catalogCanonical)
+            throw new Error(`แถว ${item.line}: name "${item.name}" ไม่ตรงกับ SMILES`);
+        }
+        return {
+          line: item.line,
+          name: item.catalog?.name || item.name || canonical,
+          chemicalId: item.catalog?.smiles || canonical,
+          canonicalId: canonical,
+          concentration: item.concentration,
+        };
+      })
+      .filter((item) => !isWaterItem({ name: item.name, smiles: item.chemicalId }));
 
-      const existingTotal = targetBox.items.reduce(
-        (sum, item) => sum + item.concentration,
-        0,
-      );
-      const importedTotal = imported.reduce(
-        (sum, item) => sum + item.concentration,
-        0,
-      );
-      const combinedTotal = existingTotal + importedTotal;
-      if (combinedTotal > 100.0001) {
-        throw new Error(`สัดส่วนรวมหลังนำเข้าเท่ากับ ${combinedTotal.toFixed(2)}% ซึ่งเกิน 100%`);
-      }
+    if (!imported.length) throw new Error("CSV ไม่มีสารออกฤทธิ์ที่นำเข้าได้");
 
-      setBoxes((previous) =>
-        previous.map((box) =>
-          box.id === boxId
-            ? {
-              ...box,
-              items: [
-                ...box.items,
-                ...imported.map((item) => ({
-                  chemicalId: item.chemicalId,
-                  concentration: item.concentration,
-                  ...(chemById(item.chemicalId) ? {} : { name: item.name }),
-                })),
-              ],
-            }
-            : box,
-        ),
-      );
-      setResultByBox((previous) => {
-        const next = { ...previous };
-        delete next[boxId];
-        return next;
-      });
-      setClearTrigger((trigger) => trigger + 1);
-      setCsvStatus({
-        boxId,
-        ok: true,
-        text: `นำเข้า ${imported.length} สารจาก ${file.name} แล้ว`,
-      });
-    } catch (error) {
-      setCsvStatus({
-        boxId,
-        ok: false,
-        text: error instanceof Error ? error.message : "นำเข้า CSV ไม่สำเร็จ",
-      });
-    } finally {
-      setCsvBusyId(null);
-    }
+    const seenCanonical = new Map<string, number>();
+    imported.forEach((item) => {
+      const prev = seenCanonical.get(item.canonicalId);
+      if (prev) throw new Error(`แถว ${item.line}: โครงสร้างซ้ำกับแถว ${prev}`);
+      seenCanonical.set(item.canonicalId, item.line);
+    });
+
+    const existingCanonical = new Set(targetBox.items.map((i) => canonicalBySmiles.get(i.chemicalId) || i.chemicalId));
+    const existingNames = new Set(targetBox.items.map((i) => normalizeFormulaIdentity(itemChemical(i).name)));
+    const dup = imported.find((i) => existingCanonical.has(i.canonicalId) || existingNames.has(normalizeFormulaIdentity(i.name)));
+    if (dup) throw new Error(`แถว ${dup.line}: "${dup.name}" มีอยู่ในกล่องสูตรแล้ว`);
+
+    const existingTotal = targetBox.items.reduce((s, i) => s + i.concentration, 0);
+    const importedTotal = imported.reduce((s, i) => s + i.concentration, 0);
+    const combinedTotal = existingTotal + importedTotal;
+    if (combinedTotal > 100.0001)
+      throw new Error(`สัดส่วนรวมหลังนำเข้าเท่ากับ ${combinedTotal.toFixed(2)}% ซึ่งเกิน 100%`);
+
+    return imported.map((item) => ({
+      name: item.name,
+      chemicalId: item.chemicalId,
+      concentration: item.concentration,
+    }));
   };
+
+  const handleCsvConfirm = (boxId: string, items: CsvImportItem[]) => {
+    setActiveBoxId(boxId);
+    setBoxes((prev) =>
+      prev.map((box) =>
+        box.id === boxId
+          ? {
+            ...box,
+            items: [
+              ...box.items,
+              ...items.map((item) => ({
+                chemicalId: item.chemicalId,
+                concentration: item.concentration,
+                ...(chemById(item.chemicalId) ? {} : { name: item.name }),
+              })),
+            ],
+          }
+          : box,
+      ),
+    );
+  };
+
+
 
   // ── AI: nudge each substance's % toward realistic, safer cosmetic levels ──
   const [optimizingId, setOptimizingId] = useState<string | null>(null);
@@ -1768,103 +1947,74 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                     )}
 
                     {/* ── Action buttons ── */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openPickerFor(box.id);
-                      }}
-                      className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/40 py-2 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-accent/40"
-                    >
-                      <Plus className="size-3.5" />
-                      เพิ่มสาร
-                    </button>
+                    <div className="mt-2.5 flex flex-col gap-1.5">
+                      {/* Split button: กดข้อความ → picker / กดลูกศร → dropdown */}
+                      <div className="flex overflow-hidden rounded-lg border border-dashed border-primary/40 transition-colors hover:border-primary">
+                        {/* Main action */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openPickerFor(box.id); }}
+                          className="flex flex-1 items-center justify-center gap-1.5 py-2 text-xs font-medium text-primary hover:bg-accent/40 transition-colors"
+                        >
+                          <Plus className="size-3.5" />
+                          เพิ่มสาร
+                        </button>
+                        {/* Divider */}
+                        <span className="w-px self-stretch bg-primary/20" />
+                        {/* Dropdown trigger */}
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button
+                              onClick={(e) => e.stopPropagation()}
+                              aria-label="ตัวเลือกเพิ่มเติม"
+                              className="flex items-center justify-center px-2 py-2 text-primary hover:bg-accent/40 transition-colors"
+                            >
+                              <ChevronDown className="size-3.5" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            side="bottom"
+                            align="end"
+                            sideOffset={6}
+                            className="w-44 p-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); openScanFor(box.id); }}
+                              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                            >
+                              <Camera className="size-3.5 text-muted-foreground" />
+                              สแกนฉลาก
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); openCsvFor(box.id); }}
+                              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                            >
+                              <FileUp className="size-3.5 text-muted-foreground" />
+                              นำเข้าจาก CSV
+                            </button>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
 
-                    {/* Import and AI actions stay scoped to this formula box. */}
-                    <div
-                      className={`mt-1.5 grid gap-1.5 ${box.items.length > 0 ? "grid-cols-3" : "grid-cols-2"}`}
-                    >
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openScanFor(box.id);
-                        }}
-                        className="flex min-w-0 items-center justify-center gap-1 rounded-lg border border-border/60 bg-secondary/30 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
-                      >
-                        <Camera className="size-3" aria-hidden="true" />
-                        สแกนฉลาก
-                      </button>
-                      <label
-                        title="CSV: name, smiles, concentration"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setActiveBoxId(box.id);
-                        }}
-                        className={`flex min-w-0 cursor-pointer items-center justify-center gap-1 rounded-lg border border-border/60 bg-secondary/30 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground ${csvBusyId === box.id ? "pointer-events-none opacity-50" : ""}`}
-                      >
-                        {csvBusyId === box.id ? (
-                          <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
-                        ) : (
-                          <FileUp className="size-3" aria-hidden="true" />
-                        )}
-                        <span>{csvBusyId === box.id ? "กำลังอ่าน" : "CSV"}</span>
-                        <input
-                          type="file"
-                          accept=".csv,text/csv"
-                          disabled={csvBusyId === box.id}
-                          className="sr-only"
-                          aria-label={`นำเข้า CSV ไปยัง ${box.name}`}
-                          onChange={(event) => {
-                            const file = event.currentTarget.files?.[0];
-                            event.currentTarget.value = "";
-                            if (file) void importCsvFile(box.id, file);
-                          }}
-                        />
-                      </label>
+                      {/* AI ปรับสัดส่วน — ด้านล่าง แสดงเฉพาะเมื่อมีสาร */}
                       {box.items.length > 0 && (
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            optimizeBox(box);
-                          }}
+                          onClick={(e) => { e.stopPropagation(); optimizeBox(box); }}
                           disabled={optimizingId === box.id}
-                          className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-border/60 bg-secondary/30 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:opacity-50"
+                          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-secondary/30 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:opacity-50"
                         >
                           {optimizingId === box.id ? (
-                            <>
-                              <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
-                              กำลังปรับ…
-                            </>
+                            <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
                           ) : (
-                            <>
-                              <WandSparkles className="size-3" aria-hidden="true" />
-                              AI ปรับสัดส่วน
-                            </>
+                            <WandSparkles className="size-3" aria-hidden="true" />
                           )}
+                          {optimizingId === box.id ? "กำลังปรับ…" : "AI ปรับสัดส่วน"}
                         </button>
                       )}
                     </div>
-                    <div className="mt-1 flex items-center justify-between gap-2 text-[9px] text-muted-foreground/70">
-                      <span className="truncate font-mono">name, smiles, concentration</span>
-                      <a
-                        href="/formula-example.csv"
-                        download
-                        onClick={(event) => event.stopPropagation()}
-                        className="shrink-0 font-medium text-primary hover:underline"
-                      >
-                        ไฟล์ตัวอย่าง
-                      </a>
-                    </div>
-                    {csvStatus && csvStatus.boxId === box.id && (
-                      <p
-                        role="status"
-                        className={`mt-1 rounded-md border px-2 py-1.5 text-[10px] leading-snug ${csvStatus.ok
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : "border-destructive/25 bg-destructive/5 text-destructive"
-                          }`}
-                      >
-                        {csvStatus.text}
-                      </p>
-                    )}
+
                     {optMsg && optMsg.boxId === box.id && (
                       <p className={`mt-1 text-[10px] leading-snug ${optMsg.ok ? "text-primary" : "text-destructive"}`}>
                         {optMsg.text}
@@ -1983,10 +2133,17 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                 background="#F7F5F4"
                 zoomPct={zoomPct}
                 brushSizePct={brushSizePct}
-                clearTrigger={clearTrigger}
                 onZoomChange={setZoomPct}
                 waitingForResult={running}
                 day={DAY_LABELS[dayIdx]}
+                formulaGroups={formulaPaintGroups}
+                activeGroupId={activeBoxId}
+                clearGroupRequest={clearGroupRequest}
+                clearAllTrigger={clearAllTrigger}
+                onPaintGroupStateChange={handlePaintGroupStateChange}
+                onPaintGroupChange={handlePaintGroupChange}
+                onPaintGroupRegion={handlePaintGroupRegion}
+                onPaintBlocked={handlePaintBlocked}
               />
 
               {/* Bottom-centred floating toolbar */}
@@ -1995,6 +2152,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                 running={running}
                 onRun={handleRun}
                 onClear={handleClear}
+                onClearAll={handleClearAll}
                 onBrushSizeReset={handleBrushSizeReset}
                 onBrushSizeChange={setBrushSizePct}
               />
@@ -2130,15 +2288,10 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
             </>
           </TabsContent>
 
-          <TabsContent value="nodemods" className="relative min-h-0 flex-1 mt-0">
-            {/* key: rebuild the graph when the active box changes, so it
-                  seeds from that box instead of keeping the old nodes. */}
-            <FormulaGraph
-              key={activeBoxId}
-              seed={activeBox ? boxToFormulaItems(activeBox) : []}
-              region={region}
-              onSaveFormula={saveGraphAsFormula}
-            />
+          <TabsContent value="nodemods" className="relative mt-0 min-h-0 flex-1 overflow-hidden">
+            {/* Independent node-based assessment. It intentionally owns its
+                own substances and never reads from or writes to formula boxes. */}
+            <FormulaGraph />
           </TabsContent>
 
           <TabsContent value="trust" className="relative min-h-0 flex-1 mt-0">
@@ -2165,13 +2318,20 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
         className={`flex shrink-0 flex-col overflow-hidden bg-card ${isResizing ? "" : "transition-all duration-300 ease-in-out"
           } ${leftCollapsed ? "border-l-0" : "border-l border-border"}`}
       >
-        <div className="border-b border-border px-4 py-3">
-          <p className="text-xs font-medium text-muted-foreground">การจำลองตามเวลา</p>
-          <p className="mb-2 text-[10px] leading-snug text-muted-foreground/70">
-            {activeResult
-              ? `${DAY_DESCRIPTIONS[dayIdx]} · รอยที่ทาและมุมกล้องจะคงเดิม`
-              : "กด “เริ่มทดสอบ” ก่อน แล้วค่อยเลือกวันเพื่อดูความรุนแรงที่คาดว่าจะเกิดขึ้น"}
-          </p>
+        <div className="border-b border-border px-3 py-2.5">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-sm font-bold text-foreground">ผลการประเมิน</p>
+            {activeResult && (
+              <button
+                onClick={() => router.push(`/projects/${params.id}/results`)}
+                aria-label="ดูรายงานฉบับเต็ม"
+                className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
+              >
+                <Download className="size-3.5" aria-hidden />
+                <span>รายงาน</span>
+              </button>
+            )}
+          </div>
           <div className="flex gap-1.5">
             {DAY_LABELS.map((d, i) => (
               <button
@@ -2187,6 +2347,134 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
             ))}
           </div>
         </div>
+        {/* Reserved results area — always visible, filled in once an assessment runs */}
+        <div className="h-[19.5rem] shrink-0 overflow-hidden border-b border-border bg-accent/30 px-3 py-3">
+          {runBoxId === activeBoxId && runError && (
+            <div className="mb-3 flex gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-[11px] leading-snug text-destructive">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <p>{runError}</p>
+            </div>
+          )}
+          {activeResult ? (
+            <div className="space-y-3">
+              <div>
+                <div className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-foreground">
+                  <MapPin className="size-3.5 text-primary" aria-hidden />
+                  <span>บริเวณที่ทา</span>
+                </div>
+                {activePaintedRegions.length ? (
+                  <div className="flex max-w-full gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    {activePaintedRegions.map((regionName) => (
+                      <span
+                        key={regionName}
+                        className="shrink-0 rounded-full border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary"
+                      >
+                        {regionName}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">ยังไม่มีรอยทาของกล่องสูตรนี้บนโมเดล</p>
+                )}
+              </div>
+
+              <div className="border-t border-border/70 pt-2.5">
+                <div className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-foreground">
+                  <Sparkles className="size-3.5 text-primary" aria-hidden />
+                  <span>อาการที่คาดการณ์</span>
+                </div>
+                {activeSymptomDetails.length ? (
+                  <div className="space-y-1.5">
+                    {activeSymptomDetails.map((detail) => {
+                      const DetailIcon = detail.key === "eye"
+                        ? Eye
+                        : detail.key === "sens"
+                          ? Sparkles
+                          : detail.key === "acute"
+                            ? TriangleAlert
+                            : Droplet;
+                      return (
+                        <div key={detail.key} className="flex items-center gap-2 rounded-lg border border-border/80 bg-background/70 px-2 py-1.5">
+                          <span className="grid size-7 shrink-0 place-items-center rounded-md bg-secondary text-muted-foreground">
+                            <DetailIcon className="size-3.5" aria-hidden />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate text-xs font-semibold text-foreground">{detail.label}</span>
+                              <span className="shrink-0 font-mono text-[11px] font-bold text-primary">
+                                {detail.score} · {bandTH(detail.score)}
+                              </span>
+                            </div>
+                            <p
+                              className="truncate text-[10px] leading-4 text-muted-foreground"
+                              title={detail.symptoms.join(" · ")}
+                            >
+                              {detail.symptoms.join(" · ")}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">ไม่พบอาการเด่นในวันที่เลือก</p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <div className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-foreground">
+                  <MapPin className="size-3.5 text-primary" aria-hidden />
+                  <span>บริเวณที่ทา</span>
+                </div>
+                {activePaintedRegions.length ? (
+                  <div className="flex max-w-full gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    {activePaintedRegions.map((regionName) => (
+                      <span
+                        key={regionName}
+                        className="shrink-0 rounded-full border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary"
+                      >
+                        {regionName}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">ยังไม่มีรอยทาของกล่องสูตรนี้บนโมเดล</p>
+                )}
+              </div>
+
+              <div className="border-t border-border/70 pt-2.5">
+                <div className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-foreground">
+                  <Sparkles className="size-3.5 text-primary" aria-hidden />
+                  <span>อาการที่คาดการณ์</span>
+                </div>
+                <div className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-background/50 px-2.5 py-2">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-md bg-secondary text-muted-foreground">
+                    {runBoxId === activeBoxId && running ? (
+                      <LoaderCircle className="size-4 animate-spin" aria-hidden />
+                    ) : (
+                      <FlaskConical className="size-4" aria-hidden />
+                    )}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-foreground">
+                      {runBoxId === activeBoxId && running
+                        ? "กำลังวิเคราะห์อาการ"
+                        : "ยังไม่มีอาการที่คาดการณ์"}
+                    </p>
+                    <p className="truncate text-[10px] leading-4 text-muted-foreground">
+                      {runBoxId === activeBoxId && running
+                        ? "รอผลการประเมินจากระบบ"
+                        : "กดเริ่มทดสอบเพื่อวิเคราะห์รอยที่ทา"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="min-h-0 flex-1 opacity-90">
           <AiChatPanel
             buildContext={buildChatContext}
@@ -2194,66 +2482,18 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
             onImportFormula={importAssistantFormula}
           />
         </div>
-
-        {/* Reserved results area — always visible, filled in once an assessment runs */}
-        <div className="h-64 shrink-0 overflow-y-auto border-t border-border bg-accent/30 px-4 py-4">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <p className="text-sm font-bold text-foreground">
-              ผลการประเมิน{activeResult && ` · Day ${DAY_LABELS[dayIdx]}`}
-            </p>
-            {activeResult && (
-              <button
-                onClick={() => router.push(`/projects/${params.id}/results`)}
-                className="shrink-0 text-[11px] font-medium text-primary hover:underline"
-              >
-                ดูรายงานฉบับเต็ม →
-              </button>
-            )}
-          </div>
-          {runBoxId === activeBoxId && runError && (
-            <div className="mb-3 flex gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-[11px] leading-snug text-destructive">
-              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-              <p>{runError}</p>
-            </div>
-          )}
-          {runBoxId === activeBoxId && running && !runError && (
-            <p className="mb-3 text-xs text-muted-foreground">กำลังประเมิน…</p>
-          )}
-          {activeResult ? (
-            <div className="space-y-3.5">
-              {RESULT_ENDPOINTS.map((ep) => {
-                const e = activeResult.endpoints[ep.key];
-                const score = Math.round(e?.timecourse?.[dayIdx] ?? e?.peak_score ?? 0);
-                return (
-                  <div key={ep.key}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-foreground">{ep.label}</span>
-                      <span className="font-mono text-sm font-bold text-primary">
-                        {score} <span className="text-xs font-medium text-muted-foreground">- {bandTH(score)}</span>
-                      </span>
-                    </div>
-                    <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-secondary">
-                      <div
-                        className={`h-full rounded-full ${bandColor(score)}`}
-                        style={{ width: `${Math.min(100, score)}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="py-6 text-center text-xs text-muted-foreground">
-              กด Run เพื่อประเมินความเสี่ยง ผลลัพธ์จะแสดงที่นี่
-            </p>
-          )}
-        </div>
       </aside>
       {substanceHover.card}
       <LabelScanModal
         open={scanOpen}
         onClose={() => setScanOpen(false)}
         onImport={(items) => scanTargetId && importOcrItems(scanTargetId, items)}
+      />
+      <CsvImportModal
+        open={csvModalOpen}
+        onClose={() => setCsvModalOpen(false)}
+        onParseFile={(file) => parseCsvFile(csvModalBoxId!, file)}
+        onConfirm={(items) => csvModalBoxId && handleCsvConfirm(csvModalBoxId, items)}
       />
     </div>
   );

@@ -21,12 +21,20 @@ import * as THREE from "three";
 import {
   PaintSymptomModel,
   type PaintApi,
+  type PaintFormulaGroup,
   type PaintHoverInfo,
   type SkinKey,
   mapAssessmentEndpointsToSymptoms,
 } from "./SymptomLabModel";
 
 type PaintLayer = { key: string; label: string; score: number; color: string; band: string };
+export type FormulaPaintGroupInput = {
+  id: string;
+  name: string;
+  color: string;
+  layers: PaintLayer[];
+  waiting?: boolean;
+};
 
 // A painted spot represents one formula-exposure area, not the symptoms that
 // happen to be visible on the currently selected day. Keep every skin mask so
@@ -126,6 +134,15 @@ export function SymptomFaceCanvas({
   onZoomChange,
   waitingForResult = false,
   day = 3,
+  onPaintStateChange,
+  formulaGroups,
+  activeGroupId,
+  clearGroupRequest,
+  clearAllTrigger,
+  onPaintGroupStateChange,
+  onPaintGroupChange,
+  onPaintGroupRegion,
+  onPaintBlocked,
 }: {
   layers?: PaintLayer[];
   armed?: boolean;
@@ -140,6 +157,17 @@ export function SymptomFaceCanvas({
   waitingForResult?: boolean;
   /** Selected backend timecourse day. Changing it never clears paint masks. */
   day?: 1 | 3 | 7;
+  /** Reports whether the user has applied formula to the model. */
+  onPaintStateChange?: (hasPaint: boolean) => void;
+  formulaGroups?: FormulaPaintGroupInput[];
+  activeGroupId?: string | null;
+  clearGroupRequest?: { groupId: string; token: number } | null;
+  clearAllTrigger?: number;
+  onPaintGroupStateChange?: (groupId: string, hasPaint: boolean) => void;
+  /** Reports a successful new stroke so an older assessment is not reused. */
+  onPaintGroupChange?: (groupId: string) => void;
+  onPaintGroupRegion?: (groupId: string, region: string) => void;
+  onPaintBlocked?: (ownerGroupIds: string[]) => void;
   /** Kept for drop-in compatibility; endpoint layers drive the symptoms. */
   brushValue?: number;
 }) {
@@ -148,7 +176,31 @@ export function SymptomFaceCanvas({
   const eye = scoreOf("eye");
   const sens = scoreOf("sens");
   const acute = scoreOf("acute");
-  const assessmentReady = layers.length > 0;
+  const multiGroupMode = Array.isArray(formulaGroups);
+  const mappedGroups = useMemo<PaintFormulaGroup[]>(
+    () => (formulaGroups ?? []).map((group) => {
+      const score = (key: string) => (group.layers.find((layer) => layer.key === key)?.score ?? 0) / 100;
+      const mapped = mapAssessmentEndpointsToSymptoms({
+        skin: score("skin"),
+        eye: score("eye"),
+        sens: score("sens"),
+        acute: score("acute"),
+      });
+      return {
+        id: group.id,
+        name: group.name,
+        color: group.color,
+        sev: mapped.sev,
+        eyeRed: mapped.eyeRed,
+        resultReady: group.layers.length > 0,
+        waiting: group.waiting,
+      };
+    }),
+    [formulaGroups],
+  );
+  const assessmentReady = multiGroupMode
+    ? mappedGroups.some((group) => group.resultReady)
+    : layers.length > 0;
   // Visual mapping is defined only in SymptomLabModel; this assessment wrapper
   // supplies the four endpoint scores without maintaining a second recipe.
   const { sev, eyeRed } = useMemo(
@@ -186,7 +238,7 @@ export function SymptomFaceCanvas({
   const tipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleHover = (info: PaintHoverInfo | null) => {
-    if (!info || !assessmentReady) {
+    if (!info || (!assessmentReady && !multiGroupMode)) {
       hoverPos.current = null;
       if (tipTimer.current) clearTimeout(tipTimer.current);
       tipTimer.current = null;
@@ -200,7 +252,8 @@ export function SymptomFaceCanvas({
     const changed =
       !previous ||
       previous.region !== info.region ||
-      previous.symptoms.join(",") !== info.symptoms.join(",");
+      previous.symptoms.join(",") !== info.symptoms.join(",") ||
+      (previous.groupIds ?? []).join(",") !== (info.groupIds ?? []).join(",");
     if (moved || changed) {
       if (tipTimer.current) clearTimeout(tipTimer.current);
       setTip(null);
@@ -220,6 +273,7 @@ export function SymptomFaceCanvas({
   // A formula arms the white cream brush. Symptoms stay hidden until real
   // assessment layers arrive, then every area already painted is revealed.
   useEffect(() => {
+    if (multiGroupMode) return;
     if (!assessmentReady || waitingForResult) return;
 
     // The GLB and its shader can take longer than the wrapper to mount. A
@@ -254,9 +308,10 @@ export function SymptomFaceCanvas({
         phaseTimer.current = null;
       }
     };
-  }, [assessmentReady, waitingForResult, skin, eye, sens, acute]);
+  }, [assessmentReady, waitingForResult, skin, eye, sens, acute, multiGroupMode]);
 
   useEffect(() => {
+    if (multiGroupMode) return;
     if (!waitingForResult) {
       if (!assessmentReady) setVisualPhase("cream");
       return;
@@ -268,16 +323,40 @@ export function SymptomFaceCanvas({
     apiRef.current?.prepare();
     setVisualPhase("waiting");
     setTip(null);
-  }, [assessmentReady, waitingForResult]);
+  }, [assessmentReady, waitingForResult, multiGroupMode]);
 
   const lastClear = useRef(clearTrigger);
   useEffect(() => {
+    if (multiGroupMode) return;
     if (clearTrigger === lastClear.current) return;
     lastClear.current = clearTrigger;
     apiRef.current?.clear();
     setVisualPhase("cream");
     setTip(null);
-  }, [clearTrigger]);
+  }, [clearTrigger, multiGroupMode]);
+
+  const lastGroupClearToken = useRef(clearGroupRequest?.token);
+  useEffect(() => {
+    if (!multiGroupMode || !clearGroupRequest) return;
+    if (lastGroupClearToken.current === clearGroupRequest.token) return;
+    lastGroupClearToken.current = clearGroupRequest.token;
+    apiRef.current?.clearGroup(clearGroupRequest.groupId);
+    setTip(null);
+  }, [clearGroupRequest, multiGroupMode]);
+
+  const lastClearAll = useRef(clearAllTrigger);
+  useEffect(() => {
+    if (!multiGroupMode || clearAllTrigger === lastClearAll.current) return;
+    lastClearAll.current = clearAllTrigger;
+    apiRef.current?.clearAllGroups();
+    setTip(null);
+  }, [clearAllTrigger, multiGroupMode]);
+
+  const hoveredFormulaGroups = (tip?.groupIds ?? [])
+    .map((groupId) => formulaGroups?.find((group) => group.id === groupId))
+    .filter((group): group is FormulaPaintGroupInput => Boolean(group));
+  const hoveredLayers = hoveredFormulaGroups[0]?.layers ?? layers;
+  const hoveredSymptoms = tip?.symptoms ?? visibleSymptoms;
 
   return (
     <div className="relative h-full w-full">
@@ -310,6 +389,13 @@ export function SymptomFaceCanvas({
             paintEnabled={armed && !waitingForResult}
             eyeRevealControlled
             onOverModel={setZoomOn}
+            onPaintStateChange={onPaintStateChange}
+            paintGroupId={activeGroupId}
+            paintGroups={formulaGroups ? mappedGroups : undefined}
+            onPaintGroupStateChange={onPaintGroupStateChange}
+            onPaintGroupChange={onPaintGroupChange}
+            onPaintGroupRegion={onPaintGroupRegion}
+            onPaintBlocked={onPaintBlocked}
           />
         </Suspense>
         <ZoomController zoomPct={zoomPct} onZoomChange={onZoomChange} />
@@ -327,19 +413,9 @@ export function SymptomFaceCanvas({
           maxDistance={2.5}
         />
       </Canvas>
-      {armed && (
-        <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-teal-300/70 bg-slate-950/70 px-3 py-1 text-[10px] font-semibold tracking-wide text-teal-200 shadow-[0_0_18px_rgba(20,184,166,.3)] backdrop-blur">
-          {visualPhase === "waiting"
-            ? "กำลังประเมิน — คงครีมและตำแหน่งเดิม"
-            : visualPhase === "revealing"
-              ? `กำลังแสดงผล Day ${day}`
-              : visualPhase === "revealed"
-                ? `Grid Scan · Day ${day} — ผลตามตำแหน่งที่ทา`
-                : "ทาครีมบนโมเดล แล้วกดเริ่มทดสอบ"}
-        </div>
-      )}
 
-      {tip && assessmentReady && !waitingForResult && (
+
+      {tip && (assessmentReady || multiGroupMode) && !waitingForResult && (
         <div
           className="pointer-events-none absolute z-20 w-56 rounded-xl border border-teal-200/80 bg-white/95 p-3 text-slate-800 shadow-xl backdrop-blur"
           style={{
@@ -347,18 +423,28 @@ export function SymptomFaceCanvas({
             top: `min(calc(100% - 11rem), ${tip.y + 14}px)`,
           }}
         >
-          <div className="truncate text-xs font-semibold">🧴 {productName}</div>
+          <div className="space-y-1">
+            {(hoveredFormulaGroups.length
+              ? hoveredFormulaGroups
+              : [{ id: "legacy", name: productName, color: "#009FA5", layers }]
+            ).map((group) => (
+              <div key={group.id} className="flex min-w-0 items-center gap-2 text-xs font-semibold">
+                <span className="size-2.5 shrink-0 rounded-full" style={{ background: group.color }} />
+                <span className="truncate">{group.name}</span>
+              </div>
+            ))}
+          </div>
           <div className="mt-0.5 flex items-center gap-1 text-[11px] text-teal-700">
             <span>ตำแหน่ง:</span>
             <span className="font-semibold">{tip.region}</span>
           </div>
           <div className="mt-1 text-[10px] text-slate-500">
-            {visibleSymptoms.length
-              ? `อาการ Day ${day}: ${visibleSymptoms.map((key) => SYMPTOM_LABEL[key]).join(", ")}`
+            {hoveredSymptoms.length
+              ? `อาการ Day ${day}: ${hoveredSymptoms.map((key) => SYMPTOM_LABEL[key]).join(", ")}`
               : "ยังไม่แสดงอาการในช่วงเวลานี้"}
           </div>
           <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">
-            {layers
+            {hoveredLayers
               .filter((layer) => regionEndpoints(tip.region).includes(layer.key))
               .map((layer) => {
                 const score = Math.min(
@@ -379,7 +465,7 @@ export function SymptomFaceCanvas({
                   </div>
                 );
               })}
-            {!layers.some((layer) => regionEndpoints(tip.region).includes(layer.key)) && (
+            {!hoveredLayers.some((layer) => regionEndpoints(tip.region).includes(layer.key)) && (
               <div className="text-[11px] text-slate-400">ยังไม่มีผลประเมินสำหรับบริเวณนี้</div>
             )}
           </div>
