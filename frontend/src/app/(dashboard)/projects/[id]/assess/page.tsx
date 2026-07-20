@@ -17,6 +17,7 @@ import {
   ChevronDown,
   Download,
   Eye,
+  FileUp,
   FlaskConical,
   LoaderCircle,
   MapPin,
@@ -63,8 +64,9 @@ import {
 import AiChatPanel from "@/components/AiChatPanel";
 import CanvasToolbar from "@/components/CanvasToolbar";
 import LabelScanModal from "@/components/LabelScanModal";
-import { CHEMICAL_GROUPS, chemById } from "@/lib/chemicals";
+import { CHEMICAL_GROUPS, CHEMICALS, chemById } from "@/lib/chemicals";
 import { PRODUCT_TEMPLATES, isWaterItem, withWaterBase } from "@/lib/catalog";
+import { normalizeFormulaIdentity, parseFormulaCsv } from "@/lib/formula-csv";
 import { useSubstanceHoverCard } from "@/components/SubstanceInfoCard";
 import { extractFormula, type AssistantAction } from "@/lib/assistant";
 import type {
@@ -106,7 +108,7 @@ function ModelLoader() {
 // 3D head, paint mode (client-only WebGL): drag on the skin to apply the
 // armed formula box's strength as erythema.
 const FacePaint = dynamic(
-  () => import("@/components/FaceIrritationModel").then((m) => m.FacePaintCanvas),
+  () => import("@/components/SymptomFaceCanvas").then((m) => m.SymptomFaceCanvas),
   {
     ssr: false,
     loading: () => (
@@ -257,6 +259,11 @@ const TABS = [
 type TabKey = (typeof TABS)[number]["key"];
 
 const DAY_LABELS = [1, 3, 7] as const;
+const DAY_DESCRIPTIONS = [
+  "Day 1 · เริ่มแสดงอาการจากการสัมผัส",
+  "Day 3 · การระคายเคืองผิวและตามักอยู่ในช่วงสูงสุด",
+  "Day 7 · การระคายเคืองอาจลดลง แต่การแพ้อาจชัดขึ้น",
+] as const;
 
 // 4 QSAR endpoints (matches scientific/pipeline.py / backend's real keys).
 const RESULT_ENDPOINTS = [
@@ -521,6 +528,15 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
           : restoredBoxes[0]?.id ?? null,
       );
       setResultByBox(restoredResults);
+      if (workspace.pendingAssessment) {
+        setJobId(workspace.pendingAssessment.jobId);
+        setRunBoxId(workspace.pendingAssessment.boxId);
+        setRunning(true);
+      } else {
+        setJobId(null);
+        setRunBoxId(null);
+        setRunning(false);
+      }
       setDayIdx([0, 1, 2].includes(workspace.dayIdx) ? workspace.dayIdx : 1);
       setTab(TABS.some((item) => item.key === workspace.activeTab) ? workspace.activeTab : "experiment");
       setCollapsedBoxIds(
@@ -540,6 +556,9 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
       ]);
       setActiveBoxId("box-1");
       setResultByBox({});
+      setJobId(null);
+      setRunBoxId(null);
+      setRunning(false);
       setDayIdx(1);
       setTab("experiment");
       setCollapsedBoxIds(new Set());
@@ -557,11 +576,12 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
       boxes,
       activeBoxId,
       resultByBox,
+      pendingAssessment: jobId && runBoxId ? { jobId, boxId: runBoxId } : null,
       dayIdx,
       activeTab: tab,
       collapsedBoxIds: [...collapsedBoxIds],
     });
-  }, [activeBoxId, boxes, collapsedBoxIds, dayIdx, loadedWorkspaceId, params.id, resultByBox, tab]);
+  }, [activeBoxId, boxes, collapsedBoxIds, dayIdx, jobId, loadedWorkspaceId, params.id, resultByBox, runBoxId, tab]);
 
   useEffect(() => {
     const enterTimers = enterTimersRef.current;
@@ -999,6 +1019,174 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
         return added.length ? { ...b, items: [...b.items, ...added] } : b;
       }),
     );
+  };
+
+  // ─── CSV: parse locally, validate structures with the backend, then append
+  // only to the formula box whose CSV action the user selected. ─────────────
+  const [csvBusyId, setCsvBusyId] = useState<string | null>(null);
+  const [csvStatus, setCsvStatus] = useState<{
+    boxId: string;
+    ok: boolean;
+    text: string;
+  } | null>(null);
+
+  const importCsvFile = async (boxId: string, file: File) => {
+    setActiveBoxId(boxId);
+    setCsvBusyId(boxId);
+    setCsvStatus(null);
+
+    try {
+      if (!file.name.toLocaleLowerCase().endsWith(".csv")) {
+        throw new Error("กรุณาเลือกไฟล์นามสกุล .csv");
+      }
+
+      const targetBox = boxes.find((box) => box.id === boxId);
+      if (!targetBox) throw new Error("ไม่พบกล่องสูตรที่เลือก");
+
+      const parsed = parseFormulaCsv(await file.text());
+      const catalogByName = new Map(
+        CHEMICALS.map((chemical) => [normalizeFormulaIdentity(chemical.name), chemical]),
+      );
+      const prepared = parsed.items.map((item) => {
+        const catalog = item.name
+          ? catalogByName.get(normalizeFormulaIdentity(item.name))
+          : undefined;
+        const smiles = item.smiles || catalog?.smiles || "";
+        if (!smiles) {
+          throw new Error(`แถว ${item.line}: ไม่พบ SMILES และชื่อสารไม่อยู่ในคลัง`);
+        }
+        return { ...item, catalog, smiles };
+      });
+
+      // Validate each unique structure once. Existing rows are included so a
+      // different-but-equivalent SMILES cannot bypass duplicate detection.
+      const smilesToValidate = new Set<string>([
+        ...prepared.flatMap((item) => [item.smiles, item.catalog?.smiles ?? ""]),
+        ...targetBox.items.map((item) => item.chemicalId),
+      ].filter(Boolean));
+      const validationPairs = await Promise.all(
+        [...smilesToValidate].map(async (smiles) => {
+          let result;
+          try {
+            result = await api.validateSmiles(smiles);
+          } catch (error) {
+            throw new Error(
+              `ตรวจสอบ SMILES กับ Backend ไม่สำเร็จ: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+          if (!result.valid) {
+            const source = prepared.find(
+              (item) => item.smiles === smiles || item.catalog?.smiles === smiles,
+            );
+            throw new Error(
+              `${source ? `แถว ${source.line}: ` : ""}SMILES ไม่ถูกต้อง: ${smiles}`,
+            );
+          }
+          return [smiles, result.canonical || smiles] as const;
+        }),
+      );
+      const canonicalBySmiles = new Map(validationPairs);
+
+      const imported = prepared
+        .map((item) => {
+          const canonical = canonicalBySmiles.get(item.smiles) || item.smiles;
+          if (item.catalog) {
+            const catalogCanonical =
+              canonicalBySmiles.get(item.catalog.smiles) || item.catalog.smiles;
+            if (canonical !== catalogCanonical) {
+              throw new Error(`แถว ${item.line}: name “${item.name}” ไม่ตรงกับ SMILES`);
+            }
+          }
+          return {
+            line: item.line,
+            name: item.catalog?.name || item.name || canonical,
+            // Keep the catalog's original key when available so category,
+            // role and color metadata continue to resolve in the new UI.
+            chemicalId: item.catalog?.smiles || canonical,
+            canonicalId: canonical,
+            concentration: item.concentration,
+          };
+        })
+        .filter((item) => !isWaterItem({ name: item.name, smiles: item.chemicalId }));
+
+      if (!imported.length) throw new Error("CSV ไม่มีสารออกฤทธิ์ที่นำเข้าได้");
+
+      const seenCanonical = new Map<string, number>();
+      imported.forEach((item) => {
+        const previousLine = seenCanonical.get(item.canonicalId);
+        if (previousLine) {
+          throw new Error(`แถว ${item.line}: โครงสร้างซ้ำกับแถว ${previousLine}`);
+        }
+        seenCanonical.set(item.canonicalId, item.line);
+      });
+
+      const existingCanonical = new Set(
+        targetBox.items.map(
+          (item) => canonicalBySmiles.get(item.chemicalId) || item.chemicalId,
+        ),
+      );
+      const existingNames = new Set(
+        targetBox.items.map((item) => normalizeFormulaIdentity(itemChemical(item).name)),
+      );
+      const duplicate = imported.find(
+        (item) =>
+          existingCanonical.has(item.canonicalId) ||
+          existingNames.has(normalizeFormulaIdentity(item.name)),
+      );
+      if (duplicate) {
+        throw new Error(`แถว ${duplicate.line}: “${duplicate.name}” มีอยู่ในกล่องสูตรแล้ว`);
+      }
+
+      const existingTotal = targetBox.items.reduce(
+        (sum, item) => sum + item.concentration,
+        0,
+      );
+      const importedTotal = imported.reduce(
+        (sum, item) => sum + item.concentration,
+        0,
+      );
+      const combinedTotal = existingTotal + importedTotal;
+      if (combinedTotal > 100.0001) {
+        throw new Error(`สัดส่วนรวมหลังนำเข้าเท่ากับ ${combinedTotal.toFixed(2)}% ซึ่งเกิน 100%`);
+      }
+
+      setBoxes((previous) =>
+        previous.map((box) =>
+          box.id === boxId
+            ? {
+              ...box,
+              items: [
+                ...box.items,
+                ...imported.map((item) => ({
+                  chemicalId: item.chemicalId,
+                  concentration: item.concentration,
+                  ...(chemById(item.chemicalId) ? {} : { name: item.name }),
+                })),
+              ],
+            }
+            : box,
+        ),
+      );
+      setResultByBox((previous) => {
+        const next = { ...previous };
+        delete next[boxId];
+        return next;
+      });
+      setClearTrigger((trigger) => trigger + 1);
+      setCsvStatus({
+        boxId,
+        ok: true,
+        text: `นำเข้า ${imported.length} สารจาก ${file.name} แล้ว`,
+      });
+    } catch (error) {
+      setCsvStatus({
+        boxId,
+        ok: false,
+        text: error instanceof Error ? error.message : "นำเข้า CSV ไม่สำเร็จ",
+      });
+    } finally {
+      setCsvBusyId(null);
+    }
   };
 
   // ── AI: nudge each substance's % toward realistic, safer cosmetic levels ──
@@ -1591,18 +1779,47 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                       เพิ่มสาร
                     </button>
 
-                    {/* OCR and AI in a subtle 2-column row */}
-                    <div className="mt-1.5 flex gap-1.5">
+                    {/* Import and AI actions stay scoped to this formula box. */}
+                    <div
+                      className={`mt-1.5 grid gap-1.5 ${box.items.length > 0 ? "grid-cols-3" : "grid-cols-2"}`}
+                    >
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           openScanFor(box.id);
                         }}
-                        className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-border/60 bg-secondary/30 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+                        className="flex min-w-0 items-center justify-center gap-1 rounded-lg border border-border/60 bg-secondary/30 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
                       >
                         <Camera className="size-3" aria-hidden="true" />
                         สแกนฉลาก
                       </button>
+                      <label
+                        title="CSV: name, smiles, concentration"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setActiveBoxId(box.id);
+                        }}
+                        className={`flex min-w-0 cursor-pointer items-center justify-center gap-1 rounded-lg border border-border/60 bg-secondary/30 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground ${csvBusyId === box.id ? "pointer-events-none opacity-50" : ""}`}
+                      >
+                        {csvBusyId === box.id ? (
+                          <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
+                        ) : (
+                          <FileUp className="size-3" aria-hidden="true" />
+                        )}
+                        <span>{csvBusyId === box.id ? "กำลังอ่าน" : "CSV"}</span>
+                        <input
+                          type="file"
+                          accept=".csv,text/csv"
+                          disabled={csvBusyId === box.id}
+                          className="sr-only"
+                          aria-label={`นำเข้า CSV ไปยัง ${box.name}`}
+                          onChange={(event) => {
+                            const file = event.currentTarget.files?.[0];
+                            event.currentTarget.value = "";
+                            if (file) void importCsvFile(box.id, file);
+                          }}
+                        />
+                      </label>
                       {box.items.length > 0 && (
                         <button
                           onClick={(e) => {
@@ -1626,6 +1843,28 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                         </button>
                       )}
                     </div>
+                    <div className="mt-1 flex items-center justify-between gap-2 text-[9px] text-muted-foreground/70">
+                      <span className="truncate font-mono">name, smiles, concentration</span>
+                      <a
+                        href="/formula-example.csv"
+                        download
+                        onClick={(event) => event.stopPropagation()}
+                        className="shrink-0 font-medium text-primary hover:underline"
+                      >
+                        ไฟล์ตัวอย่าง
+                      </a>
+                    </div>
+                    {csvStatus && csvStatus.boxId === box.id && (
+                      <p
+                        role="status"
+                        className={`mt-1 rounded-md border px-2 py-1.5 text-[10px] leading-snug ${csvStatus.ok
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-destructive/25 bg-destructive/5 text-destructive"
+                          }`}
+                      >
+                        {csvStatus.text}
+                      </p>
+                    )}
                     {optMsg && optMsg.boxId === box.id && (
                       <p className={`mt-1 text-[10px] leading-snug ${optMsg.ok ? "text-primary" : "text-destructive"}`}>
                         {optMsg.text}
@@ -1740,11 +1979,14 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
                 layers={paintLayers}
                 brushValue={activeBox ? boxIntensity(activeBox) : 0}
                 armed={!!activeBox && activeBox.items.length > 0}
+                productName={activeBox?.name ?? UNTITLED_FORMULA_NAME}
                 background="#F7F5F4"
                 zoomPct={zoomPct}
                 brushSizePct={brushSizePct}
                 clearTrigger={clearTrigger}
                 onZoomChange={setZoomPct}
+                waitingForResult={running}
+                day={DAY_LABELS[dayIdx]}
               />
 
               {/* Bottom-centred floating toolbar */}
@@ -1927,7 +2169,7 @@ export default function ExperimentPage({ params }: { params: { id: string } }) {
           <p className="text-xs font-medium text-muted-foreground">การจำลองตามเวลา</p>
           <p className="mb-2 text-[10px] leading-snug text-muted-foreground/70">
             {activeResult
-              ? "เลือกวันเพื่อโหลดความรุนแรงของวันนั้นเข้าพู่กัน แล้วคลิก/ลากบนโมเดลเพื่อดูผล"
+              ? `${DAY_DESCRIPTIONS[dayIdx]} · รอยที่ทาและมุมกล้องจะคงเดิม`
               : "กด “เริ่มทดสอบ” ก่อน แล้วค่อยเลือกวันเพื่อดูความรุนแรงที่คาดว่าจะเกิดขึ้น"}
           </p>
           <div className="flex gap-1.5">

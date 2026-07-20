@@ -41,6 +41,10 @@ data/raw/*
 data/processed/*
 !data/processed/.gitkeep
 *.pkl
+!scientific/models/skin_model.pkl
+!scientific/models/eye_model.pkl
+!scientific/models/sens_model.pkl
+!scientific/models/acute_model.pkl
 *.joblib
 *.h5
 models/*.bin

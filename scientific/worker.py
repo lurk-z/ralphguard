@@ -159,9 +159,11 @@ def main():
 
     predictor = Predictor(MODELS_DIR)
     if not predictor.is_ready():
-        print(
-            f"⚠️  predictor incomplete — loaded={predictor.loaded_endpoints}. "
-            "Worker will run, but predictions for missing endpoints will fail."
+        required = {"skin", "eye", "sens", "acute"}
+        missing = sorted(required.difference(predictor.loaded_endpoints))
+        raise RuntimeError(
+            "QSAR models are incomplete; refusing to produce misleading zero-risk results. "
+            f"loaded={sorted(predictor.loaded_endpoints)}, missing={missing}, models_dir={MODELS_DIR}"
         )
 
     engine = make_engine()

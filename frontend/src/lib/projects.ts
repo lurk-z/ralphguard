@@ -34,6 +34,11 @@ export type ProjectWorkspace = {
   boxes: ProjectWorkspaceFormulaBox[];
   activeBoxId: string | null;
   resultByBox: Record<string, AssessmentResultPayload>;
+  /** Resume polling if the page reloads before the backend finishes. */
+  pendingAssessment?: {
+    jobId: string;
+    boxId: string;
+  } | null;
   dayIdx: 0 | 1 | 2;
   activeTab: "experiment" | "nodemods" | "trust";
   collapsedBoxIds?: string[];
@@ -69,12 +74,14 @@ function read(): LocalProject[] {
   }
 }
 
-function write(projects: LocalProject[]) {
-  if (typeof window === "undefined") return;
+function write(projects: LocalProject[]): boolean {
+  if (typeof window === "undefined") return false;
   try {
     window.localStorage.setItem(KEY, JSON.stringify(projects));
+    return true;
   } catch {
     // Storage full or blocked — the session keeps working, it just won't persist.
+    return false;
   }
 }
 
@@ -126,28 +133,139 @@ export function updateProject(
   write(read().map((p) => (p.id === id ? { ...p, ...updates } : p)));
 }
 
-/** Return a supported workspace snapshot, ignoring malformed or future data. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isAssessmentResult(value: unknown): value is AssessmentResultPayload {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.region === "string" &&
+    isRecord(value.endpoints) &&
+    Array.isArray(value.substances) &&
+    Array.isArray(value.errors) &&
+    typeof value.disclaimer_th === "string"
+  );
+}
+
+/** Sanitize browser data before it becomes live React state. */
+function normalizeWorkspace(value: unknown): ProjectWorkspace | undefined {
+  if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.boxes)) return undefined;
+
+  const seenIds = new Set<string>();
+  const boxes: ProjectWorkspaceFormulaBox[] = [];
+  for (const rawBox of value.boxes) {
+    if (!isRecord(rawBox)) continue;
+    const id = typeof rawBox.id === "string" ? rawBox.id.trim() : "";
+    if (!id || seenIds.has(id)) continue;
+    seenIds.add(id);
+
+    const items: ProjectWorkspaceFormulaItem[] = [];
+    if (Array.isArray(rawBox.items)) {
+      for (const rawItem of rawBox.items) {
+        if (!isRecord(rawItem)) continue;
+        const chemicalId =
+          typeof rawItem.chemicalId === "string" ? rawItem.chemicalId.trim() : "";
+        const concentration = Number(rawItem.concentration);
+        if (!chemicalId || !Number.isFinite(concentration)) continue;
+        items.push({
+          chemicalId,
+          concentration: Math.min(100, Math.max(0, concentration)),
+          ...(typeof rawItem.name === "string" && rawItem.name.trim()
+            ? { name: rawItem.name.trim() }
+            : {}),
+        });
+      }
+    }
+
+    const region: Region =
+      rawBox.region === "eye" || rawBox.region === "hand" || rawBox.region === "forearm"
+        ? rawBox.region
+        : "face";
+    boxes.push({
+      id,
+      name: typeof rawBox.name === "string" ? rawBox.name : "",
+      items,
+      ...(typeof rawBox.color === "string" ? { color: rawBox.color } : {}),
+      ...(typeof rawBox.icon === "string" ? { icon: rawBox.icon } : {}),
+      region,
+    });
+  }
+
+  const resultByBox: Record<string, AssessmentResultPayload> = {};
+  if (isRecord(value.resultByBox)) {
+    for (const [boxId, result] of Object.entries(value.resultByBox)) {
+      if (seenIds.has(boxId) && isAssessmentResult(result)) resultByBox[boxId] = result;
+    }
+  }
+
+  let pendingAssessment: ProjectWorkspace["pendingAssessment"] = null;
+  if (isRecord(value.pendingAssessment)) {
+    const jobId =
+      typeof value.pendingAssessment.jobId === "string"
+        ? value.pendingAssessment.jobId.trim()
+        : "";
+    const boxId =
+      typeof value.pendingAssessment.boxId === "string"
+        ? value.pendingAssessment.boxId.trim()
+        : "";
+    if (jobId && seenIds.has(boxId)) pendingAssessment = { jobId, boxId };
+  }
+
+  const activeBoxId =
+    typeof value.activeBoxId === "string" && seenIds.has(value.activeBoxId)
+      ? value.activeBoxId
+      : boxes[0]?.id ?? null;
+  const dayIdx: 0 | 1 | 2 = value.dayIdx === 0 || value.dayIdx === 2 ? value.dayIdx : 1;
+  const activeTab: ProjectWorkspace["activeTab"] =
+    value.activeTab === "nodemods" || value.activeTab === "trust"
+      ? value.activeTab
+      : "experiment";
+  const collapsedBoxIds = Array.isArray(value.collapsedBoxIds)
+    ? value.collapsedBoxIds.filter(
+        (boxId): boxId is string => typeof boxId === "string" && seenIds.has(boxId),
+      )
+    : [];
+
+  return {
+    version: 1,
+    boxes,
+    activeBoxId,
+    resultByBox,
+    pendingAssessment,
+    dayIdx,
+    activeTab,
+    collapsedBoxIds,
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+  };
+}
+
+/** Return a supported, sanitized workspace snapshot. */
 export function getProjectWorkspace(id: string): ProjectWorkspace | undefined {
-  const workspace = getProject(id)?.workspace;
-  if (workspace?.version !== 1 || !Array.isArray(workspace.boxes)) return undefined;
-  return workspace;
+  return normalizeWorkspace(getProject(id)?.workspace);
 }
 
 /**
  * Persist meaningful experiment state inside its owning local project.
  * Unknown project ids are ignored so a stale browser tab cannot recreate one.
  */
-export function saveProjectWorkspace(id: string, draft: ProjectWorkspaceDraft) {
-  write(
-    read().map((project) =>
+export function saveProjectWorkspace(id: string, draft: ProjectWorkspaceDraft): boolean {
+  const projects = read();
+  if (!projects.some((project) => project.id === id)) return false;
+
+  const workspace = normalizeWorkspace({
+    ...draft,
+    version: 1,
+    updatedAt: new Date().toISOString(),
+  });
+  if (!workspace) return false;
+
+  return write(
+    projects.map((project) =>
       project.id === id
         ? {
             ...project,
-            workspace: {
-              ...draft,
-              version: 1,
-              updatedAt: new Date().toISOString(),
-            },
+            workspace,
           }
         : project,
     ),

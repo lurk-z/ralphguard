@@ -61,11 +61,12 @@ export default function CanvasToolbar({
                 <button
                   id="canvas-toolbar-brush-trigger"
                   aria-label="ปรับขนาดพู่กัน"
+                  disabled={running}
                   className={[
                     "grid size-9 place-items-center rounded-xl",
                     "text-muted-foreground hover:bg-secondary hover:text-foreground",
                     "transition-colors duration-150",
-                    "active:scale-90",
+                    "active:scale-90 disabled:pointer-events-none disabled:opacity-45",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   ].join(" ")}
                 >
@@ -120,10 +121,11 @@ export default function CanvasToolbar({
               id="canvas-toolbar-clear"
               aria-label="ล้างรอย"
               onClick={onClear}
+              disabled={running}
               className={[
                 "flex h-9 items-center gap-1.5 rounded-xl px-3",
                 "text-muted-foreground hover:bg-secondary hover:text-foreground text-sm font-medium",
-                "transition-colors duration-150 active:scale-95",
+                "transition-colors duration-150 active:scale-95 disabled:pointer-events-none disabled:opacity-45",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
               ].join(" ")}
             >

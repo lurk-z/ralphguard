@@ -3,7 +3,8 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from rdkit import Chem
 
 
 Endpoint = Literal["skin", "eye", "sens", "acute"]
@@ -23,11 +24,29 @@ class FormulaItem(BaseModel):
     name: Optional[str] = Field(None, max_length=300)
     concentration: float = Field(..., ge=0, le=100, description="Percentage 0-100")
 
+    @field_validator("smiles")
+    @classmethod
+    def smiles_must_be_valid(cls, value: str) -> str:
+        value = value.strip()
+        if Chem.MolFromSmiles(value) is None:
+            raise ValueError("invalid SMILES")
+        return value
+
 
 class CreateAssessmentRequest(BaseModel):
     formula: List[FormulaItem] = Field(..., min_length=1, max_length=20)
     region: Region
     project_id: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_formula_total(self):
+        positive = [item for item in self.formula if item.concentration > 0]
+        if not positive:
+            raise ValueError("formula must contain at least one positive concentration")
+        total = sum(item.concentration for item in self.formula)
+        if total > 100.0001:
+            raise ValueError(f"formula concentration total exceeds 100% ({total:.2f}%)")
+        return self
 
 
 class CreateAssessmentResponse(BaseModel):
