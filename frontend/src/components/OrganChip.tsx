@@ -7,6 +7,7 @@
  * teaching/визualization layer on top of the existing risk model.
  */
 import { useState } from "react";
+import { SemanticIcon, type SemanticIconName } from "@/components/SemanticIcon";
 
 type Layer = { key: string; label: string; score: number; color: string; band: string };
 
@@ -19,9 +20,9 @@ const BAND: Record<string, { c: string; t: string }> = {
 };
 
 const ORGANS = [
-  { key: "skin", ep: "skin", icon: "🧴", name: "ผิวหนัง", en: "Skin epidermis", tissue: "Keratinocyte" },
-  { key: "eye", ep: "eye", icon: "👁️", name: "กระจกตา", en: "Cornea", tissue: "Corneal epithelium" },
-  { key: "liver", ep: "acute", icon: "🫁", name: "ตับ", en: "Liver", tissue: "Hepatocyte" },
+  { key: "skin", ep: "skin", icon: "spray", name: "ผิวหนัง", en: "Skin epidermis", tissue: "Keratinocyte" },
+  { key: "eye", ep: "eye", icon: "eye", name: "กระจกตา", en: "Cornea", tissue: "Corneal epithelium" },
+  { key: "liver", ep: "acute", icon: "activity", name: "ตับ", en: "Liver", tissue: "Hepatocyte" },
 ] as const;
 
 const CELLS = 28; // 7 × 4 tissue chamber
@@ -67,7 +68,7 @@ function OrganCard({
   return (
     <div className="flex-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-card">
       <div className="mb-3 flex items-center gap-2">
-        <span className="text-lg">{organ.icon}</span>
+        <SemanticIcon name={organ.icon as SemanticIconName} className="size-5" />
         <div className="flex-1">
           <div className="text-sm font-semibold text-slate-800">{organ.name}</div>
           <div className="text-[10px] text-slate-400">{organ.en} · {organ.tissue}</div>
@@ -156,7 +157,7 @@ export default function OrganChip({
 
       <div className="mx-auto max-w-5xl">
         <div className="mb-1 flex flex-wrap items-center gap-2">
-          <h2 className="font-display text-lg font-bold text-slate-800">🧫 Organ-on-a-Chip <span className="font-normal text-slate-400">(จำลอง in-silico)</span></h2>
+          <h2 className="flex items-center gap-1.5 font-display text-lg font-bold text-slate-800"><SemanticIcon name="flask" className="size-5" /> Organ-on-a-Chip <span className="font-normal text-slate-400">(จำลอง in-silico)</span></h2>
           <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
             แบบจำลองคอมพิวเตอร์ · ไม่ใช่อุปกรณ์ OoC จริง
           </span>
@@ -174,7 +175,7 @@ export default function OrganChip({
             className="grid size-8 place-items-center rounded-lg bg-brand text-white hover:bg-brand-dark"
             title={playing ? "หยุดการไหล" : "เริ่มการไหล"}
           >
-            {playing ? "⏸" : "▶"}
+            <SemanticIcon name={playing ? "pause" : "play"} className="size-4" />
           </button>
           <div className="flex flex-1 items-center gap-3">
             <span className="whitespace-nowrap text-xs font-medium text-slate-600">ระยะเวลาสัมผัส</span>
@@ -190,7 +191,7 @@ export default function OrganChip({
           </div>
           {!ready && (
             <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] text-slate-500">
-              ยังไม่ได้ประเมิน — กด ▶ Run เพื่อป้อนค่าจริง (ตอนนี้แสดงค่า 0)
+              ยังไม่ได้ประเมิน — กด Run เพื่อป้อนค่าจริง (ตอนนี้แสดงค่า 0)
             </span>
           )}
         </div>

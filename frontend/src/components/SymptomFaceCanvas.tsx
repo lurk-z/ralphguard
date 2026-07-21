@@ -18,6 +18,7 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { SemanticIcon } from "@/components/SemanticIcon";
 import type { PaintMaskSnapshot } from "@/lib/project-workspace";
 import {
   PaintSymptomModel,
@@ -65,6 +66,7 @@ const regionSensitivity = (region: string) => {
 };
 
 export function SymptomFaceCanvas({
+  paintOwnerKey,
   layers = [],
   armed = true,
   background = "#F4F1EE",
@@ -75,6 +77,7 @@ export function SymptomFaceCanvas({
   occupiedPaint = [],
   onPaintBlocked,
 }: {
+  paintOwnerKey: string;
   layers?: PaintLayer[];
   armed?: boolean;
   background?: string;
@@ -179,6 +182,7 @@ export function SymptomFaceCanvas({
         <directionalLight position={[0, 2, -5]} intensity={0.6} color="#ffffff" />
         <Suspense fallback={null}>
           <PaintSymptomModel
+            paintOwnerKey={paintOwnerKey}
             activeSymptom={dominant}
             paintSymptoms={ASSESSMENT_PAINT_SYMPTOMS}
             sev={sev}
@@ -205,7 +209,7 @@ export function SymptomFaceCanvas({
         />
       </Canvas>
       {armed && (
-        <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-teal-300/70 bg-slate-950/70 px-3 py-1 text-[10px] font-semibold tracking-wide text-teal-200 shadow-[0_0_18px_rgba(20,184,166,.3)] backdrop-blur">
+        <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-semibold tracking-wide text-slate-700">
           ▦ ลากบนผิวเพื่อวาง Grid Scan
         </div>
       )}
@@ -218,7 +222,7 @@ export function SymptomFaceCanvas({
             top: `min(calc(100% - 11rem), ${tip.y + 14}px)`,
           }}
         >
-          <div className="truncate text-xs font-semibold">🧴 {productName}</div>
+          <div className="flex items-center gap-1 truncate text-xs font-semibold"><SemanticIcon name="spray" className="size-3.5 shrink-0" /> {productName}</div>
           <div className="mt-0.5 flex items-center gap-1 text-[11px] text-teal-700">
             <span>ตำแหน่ง:</span>
             <span className="font-semibold">{tip.region}</span>

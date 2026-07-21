@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { SemanticIcon } from "@/components/SemanticIcon";
 
 export type ScannedItem = {
   name: string;
@@ -171,10 +172,10 @@ export default function LabelScanModal({
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
           <div>
-            <div className="text-sm font-semibold text-slate-800">📷 อ่านรายการส่วนผสมจากฉลาก</div>
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800"><SemanticIcon name="camera" className="size-4" /> อ่านรายการส่วนผสมจากฉลาก</div>
             <div className="mt-0.5 text-[10px] text-slate-400">OCR → ตรวจชื่อสาร → ยืนยันความเข้มข้นก่อนประเมิน</div>
           </div>
-          <button onClick={close} className="grid size-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-100">✕</button>
+          <button onClick={close} aria-label="ปิด" className="grid size-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-100"><SemanticIcon name="x" className="size-4" /></button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
@@ -183,7 +184,7 @@ export default function LabelScanModal({
               onClick={() => fileRef.current?.click()}
               className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 py-14 text-slate-500 transition hover:border-brand hover:bg-teal-50/50"
             >
-              <span className="text-4xl">🖼️</span>
+              <SemanticIcon name="image" className="size-10" />
               <span className="text-sm font-semibold text-slate-700">เลือกรูปฉลาก Ingredients</span>
               <span className="text-xs text-slate-400">JPG, PNG, WebP หรือ TIFF · ไม่เกิน 10 MB</span>
             </button>

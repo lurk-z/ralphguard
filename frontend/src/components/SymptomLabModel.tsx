@@ -38,6 +38,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, useAnimations, useGLTF } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { SemanticIcon } from "@/components/SemanticIcon";
 import type { PaintMaskSnapshot } from "@/lib/project-workspace";
 
 // The four paintable skin symptoms (eye redness is a separate, non-painted category).
@@ -237,6 +238,7 @@ function useFaceCameraFit(groupRef: React.RefObject<THREE.Group>) {
 }
 
 export function PaintSymptomModel({
+  paintOwnerKey = "standalone",
   activeSymptom,
   sev,
   brushSizePct,
@@ -251,6 +253,7 @@ export function PaintSymptomModel({
   occupiedPaint = [],
   onPaintBlocked,
 }: {
+  paintOwnerKey?: string;
   activeSymptom: SkinKey;
   sev: Record<SkinKey, number>; // 0..1 severity PER symptom (each kept independently)
   brushSizePct: number;
@@ -428,9 +431,8 @@ export function PaintSymptomModel({
     onPaintChangeRef.current?.(snapshotMasks());
   };
 
-  // A formula switch remounts the assessment renderer with its own snapshot.
-  // Restore the saved grayscale masks without emitting a change event, otherwise
-  // hydration would rewrite localStorage before the images finish loading.
+  // Switch the active formula's masks inside the existing renderer. Keeping the
+  // Canvas and scene mounted preserves the camera, controls, and loaded GLB.
   useEffect(() => {
     let cancelled = false;
     const clearMasks = () => {
@@ -475,13 +477,13 @@ export function PaintSymptomModel({
     return () => {
       cancelled = true;
     };
-    // initialPaint belongs to this mounted formula and never changes in place.
+    // A new owner key selects a different formula snapshot. Paint updates for the
+    // current owner do not reload these masks and therefore cannot interrupt a stroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [masks]);
+  }, [paintOwnerKey, masks]);
 
-  // Formula switches remount this component, so occupiedPaint is an immutable
-  // snapshot for the lifetime of the renderer. Merge every symptom layer from
-  // every other formula into one grayscale collision/display mask.
+  // Rebuild the collision/display union when the selected formula changes, while
+  // reusing the same Three.js texture and scene.
   useEffect(() => {
     let cancelled = false;
     occupiedReady.current = occupiedPaint.length === 0;
@@ -528,9 +530,8 @@ export function PaintSymptomModel({
     return () => {
       cancelled = true;
     };
-    // occupiedPaint belongs to this mounted formula and never changes in place.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [occupiedMask]);
+  }, [paintOwnerKey, occupiedMask]);
 
   // Seamless tiling vesicle-relief map (baked from the Blender dome pattern).
   // Sampled triplanar in object space inside the papule branch.
@@ -1408,7 +1409,7 @@ export default function SymptomLabModel() {
             onClick={() => apiRef.current?.run()}
             className="flex-1 rounded-lg bg-brand py-2 text-sm font-semibold text-white transition hover:bg-brand/90"
           >
-            ▶ Run
+            <span className="inline-flex items-center justify-center gap-1"><SemanticIcon name="play" className="size-4" /> Run</span>
           </button>
           <button
             onClick={() => apiRef.current?.clear()}

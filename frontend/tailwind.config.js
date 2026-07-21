@@ -81,10 +81,10 @@ module.exports = {
   				'system-ui',
   				'sans-serif'
   			],
-  			display: [
-  				'var(--font-display)',
-  				'system-ui',
-  				'sans-serif'
+			display: [
+				'var(--font-sans)',
+				'system-ui',
+				'sans-serif'
   			],
   			mono: [
   				'var(--font-mono)',

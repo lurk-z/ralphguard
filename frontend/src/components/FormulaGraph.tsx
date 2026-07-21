@@ -39,6 +39,7 @@ import {
   type FormulaGraphNodeSnapshot,
   type FormulaGraphSnapshot,
 } from "../lib/project-workspace";
+import { SemanticIcon } from "@/components/SemanticIcon";
 
 const ENDPOINTS = ["skin", "eye", "sens", "acute"] as const;
 const ENDPOINT_LABEL_TH: Record<string, string> = {
@@ -131,7 +132,7 @@ function SubstanceNode({
       {showInfo && (data.smiles?.trim() || data.name) && (
         <div className="nodrag nowheel absolute left-full top-0 z-30 ml-3 w-60 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-soft">
           <div className="flex items-center gap-1.5">
-            <span className="text-brand">◇</span>
+            <SemanticIcon name="circle" className="size-2.5 text-brand" />
             <span className="flex-1 truncate text-xs font-semibold text-slate-800">{data.name || "สารไม่ระบุชื่อ"}</span>
             {mw != null && <span className="font-mono text-[9px] text-slate-400">MW {mw}</span>}
           </div>
@@ -144,7 +145,7 @@ function SubstanceNode({
             <>
               <div className="mt-1.5 text-[11px] leading-snug text-slate-700">{info.role}</div>
               <div className="mt-1 flex gap-1 text-[10px] leading-snug text-amber-700">
-                <span>⚠️</span>
+                <SemanticIcon name="alert" className="size-3 shrink-0" />
                 <span>{info.note}</span>
               </div>
             </>
@@ -164,12 +165,13 @@ function SubstanceNode({
         }}
         onClick={(event) => event.stopPropagation()}
         title="ลบ node"
+        aria-label="ลบ node"
         className="nodrag nopan absolute -right-2 -top-2 z-10 grid size-5 place-items-center rounded-full border border-slate-200 bg-white text-sm leading-none text-slate-400 shadow-card transition hover:border-rose-300 hover:bg-rose-500 hover:text-white"
       >
-        ×
+        <SemanticIcon name="x" className="size-3" />
       </button>
       <div className="flex items-center justify-between rounded-t-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-800">
-        <span>🧪 สาร</span>
+        <span className="flex items-center gap-1"><SemanticIcon name="flask" className="size-3.5" /> สาร</span>
         <span className="font-mono text-[10px] text-slate-800/45">#{id}</span>
       </div>
       <div className="nodrag nowheel space-y-1.5 p-3">
@@ -208,9 +210,9 @@ function SubstanceNode({
           <span className="text-xs text-slate-800/55">%</span>
         </div>
         {valid === true && (
-          <div className="text-[10px] text-emerald-600">✓ ถูกต้อง{mw != null ? ` · MW ${mw}` : ""}</div>
+          <div className="flex items-center gap-1 text-[10px] text-emerald-600"><SemanticIcon name="check" className="size-3" /> ถูกต้อง{mw != null ? ` · MW ${mw}` : ""}</div>
         )}
-        {valid === false && <div className="text-[10px] text-rose-500">✗ SMILES ไม่ถูกต้อง</div>}
+        {valid === false && <div className="flex items-center gap-1 text-[10px] text-rose-500"><SemanticIcon name="x-circle" className="size-3" /> SMILES ไม่ถูกต้อง</div>}
       </div>
       <Handle
         type="source"
@@ -309,8 +311,8 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
         position={Position.Left}
         className="!h-3 !w-3 !border-2 !border-white !bg-brand"
       />
-      <div className="rounded-t-lg bg-brand/10 px-3 py-1.5 text-xs font-semibold text-brand-dark">
-        🎯 ผลการประเมิน
+      <div className="flex items-center gap-1 rounded-t-lg bg-brand/10 px-3 py-1.5 text-xs font-semibold text-brand-dark">
+        <SemanticIcon name="target" className="size-3.5" /> ผลการประเมิน
       </div>
       <div className="nodrag nowheel space-y-2 p-3">
         <label className="flex items-center justify-between gap-2 text-[11px] text-slate-800/65">
@@ -331,7 +333,7 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
           disabled={busy}
           className="w-full rounded-lg bg-brand py-2 text-xs font-semibold text-white transition hover:bg-brand-dark disabled:opacity-50"
         >
-          {busy ? "กำลังประเมิน…" : "▶ ประเมิน"}
+          {busy ? "กำลังประเมิน…" : <span className="inline-flex items-center gap-1"><SemanticIcon name="play" className="size-3" /> ประเมิน</span>}
         </button>
 
         {data.status === "failed" && (
@@ -399,15 +401,16 @@ function ModifierNode({
         }}
         onClick={(event) => event.stopPropagation()}
         title="ลบ node"
+        aria-label="ลบ node"
         className="nodrag nopan absolute -right-2 -top-2 z-10 grid size-5 place-items-center rounded-full border border-slate-200 bg-white text-sm leading-none text-slate-400 shadow-card hover:border-rose-300 hover:bg-rose-500 hover:text-white"
       >
-        ×
+        <SemanticIcon name="x" className="size-3" />
       </button>
       <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-white !bg-amber-400" />
-      <div className="rounded-t-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800">🧩 สารเสริมสูตร</div>
+      <div className="flex items-center gap-1 rounded-t-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800"><SemanticIcon name="puzzle" className="size-3.5" /> สารเสริมสูตร</div>
       <div className="nodrag nowheel space-y-1.5 p-3 text-xs">
         <div className="flex items-center gap-1">
-          <span className="text-amber-600">◈</span>
+          <SemanticIcon name="circle" className="size-2.5 text-amber-600" />
           <input
             className="min-w-0 flex-1 rounded border border-amber-200 bg-white px-2 py-1 text-slate-800"
             value={data.name}
@@ -698,7 +701,7 @@ function GraphInner({
             }`}
           >
             + เพิ่ม node สาร
-            <span className={`text-[9px] transition ${pickerOpen ? "rotate-180" : ""}`}>▾</span>
+            <SemanticIcon name="chevron-down" className={`size-3 transition ${pickerOpen ? "rotate-180" : ""}`} />
           </button>
 
           {pickerOpen && (
@@ -707,9 +710,10 @@ function GraphInner({
                 <span className="text-[11px] font-semibold text-slate-500">เลือกสารจากหมวดหมู่</span>
                 <button
                   onClick={() => setPickerOpen(false)}
+                  aria-label="ปิดรายการสาร"
                   className="text-slate-400 hover:text-slate-700"
                 >
-                  ×
+                  <SemanticIcon name="x" className="size-3.5" />
                 </button>
               </div>
 
@@ -718,7 +722,7 @@ function GraphInner({
                 onClick={() => addSubstance()}
                 className="mb-1.5 w-full rounded-lg border border-dashed border-slate-300 px-2 py-1.5 text-left text-xs text-slate-500 hover:border-brand hover:text-brand"
               >
-                ✎ สารเปล่า (กรอกเอง)
+                <span className="inline-flex items-center gap-1"><SemanticIcon name="pencil" className="size-3" /> สารเปล่า (กรอกเอง)</span>
               </button>
 
               {SUBSTANCE_LIBRARY.map((group) => {
@@ -729,10 +733,10 @@ function GraphInner({
                       onClick={() => toggleCat(group.category)}
                       className="flex w-full items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-200"
                     >
-                      <span>{group.icon}</span>
+                      <SemanticIcon name={group.icon} className="size-3.5" />
                       <span className="flex-1">{group.category}</span>
                       <span className="text-[9px] text-slate-400">{group.items.length}</span>
-                      <span className={`text-[9px] transition ${open ? "" : "-rotate-90"}`}>▾</span>
+                      <SemanticIcon name="chevron-down" className={`size-3 transition ${open ? "" : "-rotate-90"}`} />
                     </button>
                     {open && (
                       <div className="mt-0.5 space-y-0.5 pl-1">
@@ -743,7 +747,7 @@ function GraphInner({
                             title={it.smiles}
                             className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-slate-700 hover:bg-teal-50"
                           >
-                            <span className="text-brand">◇</span>
+                            <SemanticIcon name="circle" className="size-2.5 text-brand" />
                             <span className="flex-1 truncate">{it.name}</span>
                             <span className="font-mono text-[10px] text-slate-400">{it.conc}%</span>
                           </button>
@@ -763,7 +767,7 @@ function GraphInner({
                 onClick={addResult}
                 className="flex w-full items-center gap-2 rounded-md border border-brand/40 bg-teal-50 px-2 py-2 text-xs font-medium text-brand-dark transition hover:bg-brand hover:text-white"
               >
-                🎯 เพิ่ม node ผลการประเมิน
+                <SemanticIcon name="target" className="size-3.5" /> เพิ่ม node ผลการประเมิน
               </button>
               <p className="mt-1.5 px-1 text-[10px] leading-snug text-slate-400">
                 ต่อสารแต่ละกลุ่มไปคนละ node ผล เพื่อเทียบหลายสูตรพร้อมกัน
@@ -782,9 +786,9 @@ function GraphInner({
           title="เพิ่มสารเสริมสูตรจากคลังสารจริง"
           className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-800 shadow-card"
         >
-          <option value="">🧩 + สารเสริมสูตร…</option>
+          <option value="">+ สารเสริมสูตร…</option>
           {SUBSTANCE_LIBRARY.map((g) => (
-            <optgroup key={g.category} label={`${g.icon} ${g.category}`}>
+            <optgroup key={g.category} label={g.category}>
               {g.items.map((it) => (
                 <option key={it.smiles} value={it.smiles}>{it.name}</option>
               ))}
@@ -798,7 +802,7 @@ function GraphInner({
             title="บันทึก node graph ปัจจุบันเป็นสูตรใหม่ในลิสต์ (น้ำเติมให้ครบ 100% อัตโนมัติ)"
             className="flex items-center gap-1 rounded-lg border border-brand bg-white px-3 py-1.5 text-xs font-medium text-brand shadow-card transition hover:bg-brand hover:text-white"
           >
-            💾 บันทึกเป็นสูตร
+            <SemanticIcon name="save" className="size-3.5" /> บันทึกเป็นสูตร
           </button>
         )}
 
@@ -834,7 +838,7 @@ function GraphInner({
           }}
           className="z-50 rounded-md bg-rose-500 px-2.5 py-1 text-[11px] font-semibold text-white shadow-lg hover:bg-rose-600"
         >
-          ✕ ลบเส้นเชื่อม
+          <SemanticIcon name="link-off" className="size-3.5" /> ลบเส้นเชื่อม
         </button>
       )}
     </div>

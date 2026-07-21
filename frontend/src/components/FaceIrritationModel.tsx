@@ -18,6 +18,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Bounds, OrbitControls, useAnimations, useGLTF } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { SemanticIcon } from "@/components/SemanticIcon";
 
 export type SkinZone = "all" | "forehead" | "cheek";
 const ZONE_ID: Record<SkinZone, number> = { all: 0, forehead: 1, cheek: 2 };
@@ -904,8 +905,8 @@ export function FacePaintCanvas({
 
       {/* Hint + clear */}
       {armed && !painted && layers.length > 0 && (
-        <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-brand/40 bg-white/85 px-4 py-1.5 text-xs font-medium text-brand-dark shadow-card backdrop-blur">
-          🖌️ คลิกบนส่วนของโมเดล — ผิวจะแสดง ระคายผิว/แพ้/พิษ · ตาจะแสดงระคายตา
+        <div className="pointer-events-none absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-brand/40 bg-white/85 px-4 py-1.5 text-xs font-medium text-brand-dark shadow-card backdrop-blur">
+          <SemanticIcon name="brush" className="size-3.5" /> คลิกบนส่วนของโมเดล — ผิวจะแสดง ระคายผิว/แพ้/พิษ · ตาจะแสดงระคายตา
         </div>
       )}
       <button
@@ -924,9 +925,9 @@ export function FacePaintCanvas({
           className="pointer-events-none absolute z-20 w-52 rounded-lg border border-slate-200 bg-white/95 p-2.5 text-slate-800 shadow-lg backdrop-blur"
           style={{ left: tip.x + 14, top: tip.y + 14 }}
         >
-          <div className="truncate text-xs font-semibold">🧴 {productName}</div>
+          <div className="flex items-center gap-1 truncate text-xs font-semibold"><SemanticIcon name="spray" className="size-3.5 shrink-0" /> {productName}</div>
           <div className="mb-1.5 flex items-center gap-1 text-[11px] text-brand-dark">
-            <span>📍 ตำแหน่ง:</span>
+            <SemanticIcon name="map" className="size-3 shrink-0" /><span>ตำแหน่ง:</span>
             <span className="font-semibold">{tip.region || "—"}</span>
           </div>
           <div className="space-y-1">

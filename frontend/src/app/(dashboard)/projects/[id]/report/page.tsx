@@ -5,6 +5,7 @@
 // A report is rendered only from a completed backend assessment. Missing or
 // unavailable data is surfaced honestly instead of being replaced by a demo.
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Download } from "lucide-react";
 
@@ -153,7 +154,14 @@ export default function ReportPage({ params }: { params: { id: string } }) {
             {/* Header */}
             <header className="flex items-start justify-between border-b-2 border-primary/70 pb-5">
               <div className="flex items-center gap-3">
-                <span aria-hidden className="grid size-11 place-items-center rounded-xl border border-dashed border-border bg-muted/60" />
+                <Image
+                  src="/icons/logo.png"
+                  alt="RalphGuard"
+                  width={44}
+                  height={44}
+                  priority
+                  className="size-11 shrink-0 rounded-xl object-contain"
+                />
                 <div>
                   <div className="font-display text-xl font-bold text-foreground">RalphGuard</div>
                   <div className="text-[11px] text-muted-foreground">In-silico Chemical Risk Screening</div>

@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
+import { SemanticIcon } from "@/components/SemanticIcon";
 
 type Layer = {
   key: string;
@@ -214,7 +215,7 @@ export default function VoiceAssistant({
     setThinking(false);
     if (!a) {
       // Gemini only — no rule-based fallback. Surface the real error to debug.
-      setMessages((m) => [...m, { role: "ai", text: `⚠️ เชื่อมต่อ AI ไม่ได้ ${err}`.slice(0, 400) }]);
+      setMessages((m) => [...m, { role: "ai", text: `เชื่อมต่อ AI ไม่ได้ ${err}`.slice(0, 400) }]);
       return;
     }
     const { clean: c1, formula } = parseFormula(a);
@@ -341,8 +342,9 @@ export default function VoiceAssistant({
           }}
           className="text-slate-400 hover:text-brand"
           title={voiceOn ? "ปิดเสียง" : "เปิดเสียง"}
+          aria-label={voiceOn ? "ปิดเสียง" : "เปิดเสียง"}
         >
-          {voiceOn ? "🔊" : "🔇"}
+          <SemanticIcon name={voiceOn ? "volume" : "volume-off"} className="size-3.5" />
         </button>
       </div>
 
@@ -350,7 +352,7 @@ export default function VoiceAssistant({
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-2 text-center">
-            <span className="grid size-11 place-items-center rounded-xl bg-slate-100 text-lg text-slate-500">💬</span>
+            <span className="grid size-11 place-items-center rounded-xl bg-slate-100 text-lg text-slate-500"><SemanticIcon name="message" className="size-5" /></span>
             <div className="text-sm font-semibold text-slate-700">ฉันคือ AI ผู้ช่วยคุณ</div>
             <div className="text-xs text-slate-400">วันนี้จะให้ช่วยอะไรดี?</div>
             <div className="mt-2 flex flex-wrap justify-center gap-1">
@@ -377,7 +379,7 @@ export default function VoiceAssistant({
                   <div>{m.text}</div>
                   {m.role === "ai" && m.acted ? (
                     <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-semibold text-brand-dark">
-                      ⚡ ทำให้แล้ว {m.acted} รายการ
+                      <SemanticIcon name="zap" className="size-3" /> ทำให้แล้ว {m.acted} รายการ
                     </div>
                   ) : null}
                   {m.role === "ai" && m.actions && m.actions.length > 0 && (
@@ -411,13 +413,13 @@ export default function VoiceAssistant({
                   )}
                   {m.role === "ai" && m.formula && m.formula.length > 0 && (
                     <div className="mt-1.5 rounded-lg border border-slate-200 bg-white p-2">
-                      <div className="mb-1 text-[10px] font-semibold text-slate-500">
-                        🧪 สูตรที่แนะนำ ({m.formula.length} สาร)
+                      <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold text-slate-500">
+                        <SemanticIcon name="flask" className="size-3" /> สูตรที่แนะนำ ({m.formula.length} สาร)
                       </div>
                       <div className="space-y-1">
                         {m.formula.map((f, j) => (
                           <div key={j} className="flex items-center gap-1 text-[11px] text-slate-700">
-                            <span className="text-brand">◇</span>
+                            <SemanticIcon name="circle" className="size-2.5 text-brand" />
                             <span className="flex-1 truncate font-medium">{f.name}</span>
                             <span className="font-mono tabular-nums text-slate-500">{f.concentration}%</span>
                           </div>
@@ -427,7 +429,7 @@ export default function VoiceAssistant({
                         onClick={() => onImportFormula?.(m.formula!)}
                         className="mt-1.5 w-full rounded-md bg-brand px-2 py-1.5 text-[10px] font-semibold text-white transition hover:bg-brand-dark"
                       >
-                        ⬇ Add to workspace
+                        <span className="inline-flex items-center justify-center gap-1"><SemanticIcon name="download" className="size-3" /> Add to workspace</span>
                       </button>
                     </div>
                   )}
@@ -454,11 +456,12 @@ export default function VoiceAssistant({
         <button
           onClick={toggleListen}
           title="พูดเพื่อถาม"
+          aria-label="พูดเพื่อถาม"
           className={`grid size-7 shrink-0 place-items-center rounded-full text-sm transition ${
             listening ? "animate-pulse bg-teal-50 text-brand" : "text-slate-400 hover:text-brand"
           }`}
         >
-          🎤
+          <SemanticIcon name="mic" className="size-4" />
         </button>
         <input
           value={input}
@@ -471,9 +474,10 @@ export default function VoiceAssistant({
           onClick={() => ask(input)}
           disabled={thinking}
           title="ส่ง"
+          aria-label="ส่ง"
           className="grid size-7 shrink-0 place-items-center rounded-full bg-brand text-sm text-white transition hover:bg-brand-dark disabled:opacity-50"
         >
-          ↑
+          <SemanticIcon name="arrow-up" className="size-4" />
         </button>
       </div>
     </div>

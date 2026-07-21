@@ -1,12 +1,13 @@
 import Link from "next/link";
 import SiteNav from "../../components/SiteNav";
 import SiteFooter from "../../components/SiteFooter";
+import { SemanticIcon } from "@/components/SemanticIcon";
 
 const STEPS = [
   {
     n: 1,
     t: "กรอกสาร / สูตรผลิตภัณฑ์",
-    d: "พิมพ์ชื่อสาร + SMILES และ % ความเข้มข้น ในหน้า “ประเมิน” สามารถกด 🎲 สุ่มสารจากคลัง หรือเพิ่มหลายสารเพื่อจำลองสูตรผสมได้ ระบบจะตรวจ SMILES ด้วย RDKit ทันที (✓ canonical + MW)",
+    d: "พิมพ์ชื่อสาร + SMILES และ % ความเข้มข้น ในหน้า “ประเมิน” สามารถกดสุ่มสารจากคลัง หรือเพิ่มหลายสารเพื่อจำลองสูตรผสมได้ ระบบจะตรวจ SMILES ด้วย RDKit ทันที (canonical + MW)",
   },
   {
     n: 2,
@@ -57,9 +58,10 @@ export default function HowToPage() {
           ))}
         </ol>
 
-        <div className="mt-8 rounded-2xl border border-brand/30 bg-brand-soft/60 p-5 text-sm text-ink2/80">
-          💡 <strong>เคล็ดลับ:</strong> ถ้า Confidence ขึ้น “Low” หรือ AD บอก out-of-domain
-          แปลว่าสารอยู่นอกขอบเขตข้อมูลที่โมเดลเรียนรู้ — ผลทำนายมีความไม่แน่นอนสูง ควรตีความอย่างระมัดระวัง
+        <div className="mt-8 flex gap-2 rounded-2xl border border-brand/30 bg-brand-soft/60 p-5 text-sm text-ink2/80">
+          <SemanticIcon name="lightbulb" className="mt-0.5 size-4 shrink-0" />
+          <span><strong>เคล็ดลับ:</strong> ถ้า Confidence ขึ้น “Low” หรือ AD บอก out-of-domain
+          แปลว่าสารอยู่นอกขอบเขตข้อมูลที่โมเดลเรียนรู้ — ผลทำนายมีความไม่แน่นอนสูง ควรตีความอย่างระมัดระวัง</span>
         </div>
 
         <div className="mt-8 text-center">

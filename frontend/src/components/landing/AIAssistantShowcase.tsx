@@ -1,4 +1,5 @@
 import { ArrowUp, Bot, Check, FlaskConical, Mic, ShieldCheck, Volume2 } from 'lucide-react'
+import { SemanticIcon } from '@/components/SemanticIcon'
 
 function Composer() {
   return (
@@ -123,7 +124,7 @@ export default function AIAssistantShowcase() {
               ].map(([name, smiles, amount], index) => (
                 <div key={name} className={`rounded-lg border p-1 sm:rounded-xl sm:p-2 ${index === 0 ? 'border-sky-200 bg-sky-50' : 'border-slate-200 bg-slate-50'}`}>
                   <div className="flex items-center gap-1 text-[8px] sm:gap-1.5 sm:text-[9px]">
-                    <span className="text-brand">◇</span>
+                    <SemanticIcon name="circle" className="size-2.5 text-brand" />
                     <span className="min-w-0 flex-1 truncate font-semibold">{name}</span>
                     <span className="font-mono tabular-nums text-slate-600">{amount}</span>
                   </div>

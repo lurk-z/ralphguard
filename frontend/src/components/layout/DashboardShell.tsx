@@ -4,8 +4,9 @@
 // Wraps all standard app pages: project list, results, and report.
 // The /assess workspace has its own full-bleed chrome and does NOT use this.
 import { Fragment } from "react";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { Folder, House } from "lucide-react";
+import { Folder } from "lucide-react";
 
 import {
   Sidebar,
@@ -28,7 +29,6 @@ import {
 } from "@/components/ui/breadcrumb";
 
 const NAV = [
-  { label: "หน้าแรก", icon: House, href: "/" },
   { label: "โปรเจกต์", icon: Folder, href: "/projects" },
 ];
 
@@ -61,15 +61,17 @@ export default function DashboardShell({
               <SidebarMenuItem>
                 <SidebarMenuButton
                   size="lg"
-                  onClick={() => router.push("/")}
+                  onClick={() => router.push("/projects")}
                   className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
                 >
-                  <span
-                    aria-hidden
-                    className="grid size-8 shrink-0 place-items-center rounded-xl bg-primary text-sm font-bold text-primary-foreground shadow-sm"
-                  >
-                    R
-                  </span>
+                  <Image
+                    src="/icons/logo.png"
+                    alt="RalphGuard"
+                    width={32}
+                    height={32}
+                    priority
+                    className="size-8 shrink-0 rounded-xl object-contain shadow-sm"
+                  />
                   <span className="leading-tight">
                     <span className="block font-display text-sm font-bold text-sidebar-foreground">
                       RalphGuard

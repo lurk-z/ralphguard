@@ -47,6 +47,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import BrandedProgressLoader from "@/components/BrandedProgressLoader";
 import DashboardShell from "@/components/layout/DashboardShell";
 import { api, apiErrorMessage, type ProjectOut } from "@/lib/api";
 import { deleteProjectWorkspace } from "@/lib/project-workspace";
@@ -81,6 +82,7 @@ export default function ProjectListPage() {
   const [editDescription, setEditDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [openingProject, setOpeningProject] = useState<ProjectOut | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const editControllerRef = useRef<AbortController | null>(null);
   const deleteControllerRef = useRef<AbortController | null>(null);
@@ -200,8 +202,17 @@ export default function ProjectListPage() {
     }
   };
 
+  const openProject = (project: ProjectOut) => {
+    if (openingProject) return;
+    setOpeningProject(project);
+    router.push(`/projects/${project.id}/assess`);
+  };
+
   return (
     <DashboardShell breadcrumbs={[{ label: "โปรเจกต์" }]}>
+      {openingProject && (
+        <BrandedProgressLoader />
+      )}
       <div className="px-6 py-7 lg:px-8 lg:py-9">
         <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -269,11 +280,11 @@ export default function ProjectListPage() {
                 key={p.id}
                 role="button"
                 tabIndex={0}
-                onClick={() => router.push(`/projects/${p.id}/assess`)}
+                onClick={() => openProject(p)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    router.push(`/projects/${p.id}/assess`);
+                    openProject(p);
                   }
                 }}
                 className="group cursor-pointer overflow-hidden border-border shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

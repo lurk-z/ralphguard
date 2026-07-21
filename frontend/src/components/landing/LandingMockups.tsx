@@ -3,6 +3,7 @@
  * representations of the app's screens (no screenshots needed). Dark theme,
  * brand accents. Purely presentational.
  */
+import { SemanticIcon } from "@/components/SemanticIcon";
 
 const cardCls =
   'w-full max-w-md rounded-2xl border border-white/10 bg-panel/80 p-5 shadow-2xl shadow-black/40 backdrop-blur'
@@ -46,7 +47,7 @@ export function InputMockup() {
       </div>
 
       <div className="mt-4 flex items-center gap-2 rounded-lg border border-dashed border-white/15 bg-white/5 px-3 py-2 text-xs text-white/60">
-        <span>📄</span> formula.csv · 4 สาร พร้อมสัดส่วน %
+        <SemanticIcon name="file-spreadsheet" className="size-3.5" /> formula.csv · 4 สาร พร้อมสัดส่วน %
       </div>
 
       <div className="mt-3 overflow-hidden rounded-lg border border-white/10">
@@ -57,7 +58,7 @@ export function InputMockup() {
               i % 2 ? 'bg-white/[0.03]' : ''
             }`}
           >
-            <span className="text-brand">◇</span>
+            <SemanticIcon name="circle" className="size-2.5 text-brand" />
             <span className="flex-1 truncate text-white/85">{name}</span>
             <span className="hidden font-mono text-[10px] text-white/35 sm:inline">{smi}</span>
             <span className="w-10 text-right font-mono tabular-nums text-white/70">{pct}%</span>
@@ -78,14 +79,14 @@ export function InputTrioMockup() {
       <div className={mini}>
         <div className="mb-2 text-xs font-semibold text-white">ค้นหาด้วยชื่อสาร</div>
         <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/90">
-          <span className="text-white/40">🔍</span> Niacinamide
+          <SemanticIcon name="scan" className="size-3.5 text-white/40" /> Niacinamide
         </div>
         <div className="mt-2 space-y-1 text-xs">
           <div className="flex items-center gap-2 rounded-md bg-white/[0.05] px-2 py-1 text-white/75">
-            <span className="text-brand">◇</span> Niacinamide
+            <SemanticIcon name="circle" className="size-2.5 text-brand" /> Niacinamide
           </div>
           <div className="flex items-center gap-2 rounded-md px-2 py-1 text-white/45">
-            <span className="text-brand">◇</span> Niacin (Vit B3)
+            <SemanticIcon name="circle" className="size-2.5 text-brand" /> Niacin (Vit B3)
           </div>
         </div>
       </div>
@@ -96,7 +97,7 @@ export function InputTrioMockup() {
         <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 font-mono text-xs text-brand">
           O=C(N)c1cccnc1
         </div>
-        <div className="mt-2 flex items-center gap-1 text-[11px] text-emerald-400">✓ โครงสร้างถูกต้อง · MW 122.13</div>
+        <div className="mt-2 flex items-center gap-1 text-[11px] text-emerald-400"><SemanticIcon name="check" className="size-3" /> โครงสร้างถูกต้อง · MW 122.13</div>
         <svg viewBox="0 0 120 56" className="mt-2 h-12 w-full">
           <g fill="none" stroke="#2DD4BF" strokeWidth="2" strokeLinecap="round">
             <polygon points="40,8 60,18 60,38 40,48 20,38 20,18" />
@@ -111,7 +112,7 @@ export function InputTrioMockup() {
       <div className={mini}>
         <div className="mb-2 text-xs font-semibold text-white">อัปโหลดไฟล์ CSV</div>
         <div className="flex items-center gap-2 rounded-lg border border-dashed border-white/15 bg-white/5 px-3 py-2 text-xs text-white/60">
-          📄 formula.csv
+          <SemanticIcon name="file-spreadsheet" className="size-3.5" /> formula.csv
         </div>
         <div className="mt-2 overflow-hidden rounded-lg border border-white/10 text-xs">
           {([['Water (Aqua)', 90], ['Glycolic Acid', 5], ['Niacinamide', 4]] as const).map(([n, p], i) => (
@@ -142,7 +143,7 @@ export function DescriptorMockup() {
     <div className={cardCls}>
       <div className="mb-3 flex items-center justify-between">
         <span className="text-sm font-semibold text-white">โครงสร้าง & Descriptors</span>
-        <Chip>✓ ผ่านการตรวจสอบ</Chip>
+        <Chip><SemanticIcon name="check" className="size-3" /> ผ่านการตรวจสอบ</Chip>
       </div>
 
       <div className="flex items-center gap-4">

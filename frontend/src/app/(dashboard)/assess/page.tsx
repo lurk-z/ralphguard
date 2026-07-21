@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Eraser, FileUp, House, Search } from "lucide-react";
 import { toast } from "sonner";
+import { SemanticIcon, type SemanticIconName } from "@/components/SemanticIcon";
 
 import {
   AssessmentRecord,
@@ -87,11 +88,11 @@ const FormulaGraph = dynamic(() => import("@/components/FormulaGraph"), {
 
 type Mode = WorkspaceMode;
 
-const REGIONS: { value: Region; label: string; icon: string }[] = [
-  { value: "forearm", label: "ท่อนแขน", icon: "💪" },
-  { value: "hand", label: "มือ", icon: "🤚" },
-  { value: "face", label: "ใบหน้า", icon: "🙂" },
-  { value: "eye", label: "ดวงตา", icon: "👁️" },
+const REGIONS: { value: Region; label: string; icon: SemanticIconName }[] = [
+  { value: "forearm", label: "ท่อนแขน", icon: "muscle" },
+  { value: "hand", label: "มือ", icon: "hand" },
+  { value: "face", label: "ใบหน้า", icon: "scan" },
+  { value: "eye", label: "ดวงตา", icon: "eye" },
 ];
 const ENDPOINTS = ["skin", "eye", "sens", "acute"] as const;
 const ENDPOINT_LABEL_TH: Record<string, string> = {
@@ -1148,7 +1149,7 @@ export default function StudioPage() {
     } catch (cause: unknown) {
       if (!isAbortError(cause) && optimizationControllerRef.current === controller) {
         logRequestFailure("optimize formula", cause);
-        setOptMsg("✗ ปรับไม่สำเร็จ: " + (cause instanceof Error ? cause.message : String(cause)));
+        setOptMsg("ปรับไม่สำเร็จ: " + (cause instanceof Error ? cause.message : String(cause)));
       }
     } finally {
       if (optimizationControllerRef.current === controller) {
@@ -1203,7 +1204,7 @@ export default function StudioPage() {
         top.sc >= 50 ? " — ควรทบทวน/ลดความเข้มข้นของสารหลักก่อนพัฒนาต่อ" : " — อยู่ในเกณฑ์ที่จัดการได้"
       }</div>`;
     } else {
-      resultBlock = `<p class="muted">ยังไม่ได้กด ▶ Run ประเมิน — รายงานนี้แสดงเฉพาะข้อมูลสูตร</p>`;
+      resultBlock = `<p class="muted">ยังไม่ได้กด Run ประเมิน — รายงานนี้แสดงเฉพาะข้อมูลสูตร</p>`;
     }
 
     const html = `<!doctype html><html lang="th"><head><meta charset="utf-8">
@@ -1214,7 +1215,7 @@ export default function StudioPage() {
   body { margin:0; font-family:'LINE Seed Sans TH','Sarabun','Segoe UI',system-ui,sans-serif; color:#0F1C1E; font-size:12px; line-height:1.5; }
   .head { display:flex; align-items:center; justify-content:space-between; border-bottom:3px solid #0D9488; padding-bottom:10px; }
   .brand { display:flex; align-items:center; gap:8px; }
-  .logo { width:30px; height:30px; border-radius:7px; background:#0D9488; color:#fff; font-weight:800; display:flex; align-items:center; justify-content:center; font-size:16px; }
+  .logo { width:30px; height:30px; border-radius:7px; display:block; object-fit:contain; }
   .brand b { font-size:18px; }
   .brand span { display:block; font-size:10px; color:#5b7075; }
   .date { font-size:10px; color:#5b7075; text-align:right; }
@@ -1234,7 +1235,7 @@ export default function StudioPage() {
   .foot { margin-top:26px; border-top:1px solid #e2e8ea; padding-top:8px; font-size:9.5px; color:#8a9a9e; line-height:1.5; }
 </style></head><body>
   <div class="head">
-    <div class="brand"><div class="logo">R</div><div><b>RalphGuard</b><span>รายงานการประเมินความเสี่ยงสารเคมี (In-silico QSAR)</span></div></div>
+    <div class="brand"><img class="logo" src="/icons/logo.png" alt="RalphGuard"><div><b>RalphGuard</b><span>รายงานการประเมินความเสี่ยงสารเคมี (In-silico QSAR)</span></div></div>
     <div class="date">ออกรายงาน<br>${esc(dateStr)}</div>
   </div>
 
@@ -1277,13 +1278,24 @@ export default function StudioPage() {
         setTimeout(() => iframe.remove(), 1500);
       }
     };
-    setTimeout(go, 350);
+    const logo = doc.querySelector<HTMLImageElement>(".logo");
+    if (logo && !logo.complete) {
+      const fallback = window.setTimeout(go, 1000);
+      const printWhenReady = () => {
+        window.clearTimeout(fallback);
+        window.setTimeout(go, 50);
+      };
+      logo.addEventListener("load", printWhenReady, { once: true });
+      logo.addEventListener("error", printWhenReady, { once: true });
+    } else {
+      setTimeout(go, 100);
+    }
   };
 
   return (
-    <div className="app-light flex h-screen flex-col overflow-hidden bg-background text-foreground">
+    <div className="app-light isolate flex h-screen flex-col overflow-hidden bg-background text-foreground">
       {/* Temporary assess UI preview — same RalphGuard theme, clearer workflow. */}
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-4 shadow-sm">
+      <header className="relative z-40 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-4 shadow-sm">
         {/* logo */}
         <div className="mr-1 flex items-center gap-2 pr-2">
           <img
@@ -1295,13 +1307,10 @@ export default function StudioPage() {
             <span className="block font-display text-sm font-bold">Ralph<span className="text-brand">Guard</span></span>
             <span className="block text-[9px] font-medium uppercase tracking-[0.14em] text-slate-400">Assessment Studio</span>
           </div>
-          <span className="hidden rounded-full border border-primary/20 bg-accent px-2 py-0.5 text-[9px] font-semibold text-accent-foreground lg:inline">
-            UI Preview
-          </span>
         </div>
 
         <a
-          href="/"
+          href="/projects"
           className="flex h-9 items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition hover:border-primary/35 hover:bg-accent hover:text-accent-foreground"
           title="กลับหน้าแรก"
           aria-label="กลับหน้าแรก"
@@ -1314,10 +1323,10 @@ export default function StudioPage() {
         <div className="flex items-center rounded-xl bg-muted p-1">
           {(
             [
-              ["assess", "ประเมิน", "🧪"],
-              ["nodes", "Nodes", "🧩"],
-              ["trust", "ความน่าเชื่อถือ", "🛡️"],
-            ] as [Mode, string, string][]
+              ["assess", "ประเมิน", "flask"],
+              ["nodes", "Nodes", "puzzle"],
+              ["trust", "ความน่าเชื่อถือ", "shield"],
+            ] as [Mode, string, SemanticIconName][]
           ).map(([m, label, icon]) => {
             const active = mode === m;
             return (
@@ -1330,7 +1339,7 @@ export default function StudioPage() {
                     : "text-slate-500 hover:text-slate-800"
                 }`}
               >
-                <span className="text-sm leading-none">{icon}</span>
+                <SemanticIcon name={icon} className="size-3.5" />
                 <span className="hidden truncate sm:inline">{label}</span>
               </button>
             );
@@ -1356,13 +1365,13 @@ export default function StudioPage() {
       </header>
 
       {/* ── Body ── */}
-      <div className="flex min-h-0 flex-1">
+      <div className="relative z-0 flex min-h-0 flex-1">
         {/* Icon rail */}
         <nav className="hidden w-12 shrink-0 flex-col items-center gap-1 border-r border-slate-200 bg-white py-3">
           {[
-            { m: "assess" as Mode, icon: "🗂️", title: "ไฟล์" },
-            { m: "nodes" as Mode, icon: "🧩", title: "Nodes" },
-            { m: "trust" as Mode, icon: "🛡️", title: "ความน่าเชื่อถือ" },
+            { m: "assess" as Mode, icon: "file" as SemanticIconName, title: "ไฟล์" },
+            { m: "nodes" as Mode, icon: "puzzle" as SemanticIconName, title: "Nodes" },
+            { m: "trust" as Mode, icon: "shield" as SemanticIconName, title: "ความน่าเชื่อถือ" },
           ].map((it) => (
             <button
               key={it.m}
@@ -1372,7 +1381,7 @@ export default function StudioPage() {
                 mode === it.m ? "bg-teal-50 text-brand" : "text-slate-800/45 hover:bg-slate-100"
               }`}
             >
-              {it.icon}
+              <SemanticIcon name={it.icon} className="size-4" />
             </button>
           ))}
           <button
@@ -1382,9 +1391,9 @@ export default function StudioPage() {
               showTemplates ? "bg-teal-50 text-brand" : "text-slate-800/45 hover:bg-slate-100"
             }`}
           >
-            🧴
+            <SemanticIcon name="spray" className="size-4" />
           </button>
-          <a href="/" title="หน้าแรก" className="mt-auto grid size-9 place-items-center rounded-lg text-slate-800/40 hover:bg-slate-100">🏠</a>
+          <a href="/projects" title="หน้าแรก" aria-label="หน้าแรก" className="mt-auto grid size-9 place-items-center rounded-lg text-slate-800/40 hover:bg-slate-100"><SemanticIcon name="home" className="size-4" /></a>
         </nav>
 
         {/* Left panel — Pages + Layers */}
@@ -1411,7 +1420,7 @@ export default function StudioPage() {
                       : "border-slate-200 bg-white text-slate-800 hover:border-brand/50"
                   }`}
                 >
-                  <span>🧪</span>
+                  <SemanticIcon name="flask" className="size-4 shrink-0" />
                   {editingFormulaId === f.id ? (
                     <input
                       autoFocus
@@ -1444,9 +1453,10 @@ export default function StudioPage() {
                       setEditingFormulaId(f.id);
                     }}
                     title="แก้ชื่อสูตร"
+                    aria-label="แก้ชื่อสูตร"
                     className="grid size-4 shrink-0 place-items-center rounded text-slate-300 opacity-0 transition hover:text-brand group-hover:opacity-100"
                   >
-                    ✎
+                    <SemanticIcon name="pencil" className="size-3" />
                   </button>
                   {formulas.length > 1 && (
                     <button
@@ -1455,9 +1465,10 @@ export default function StudioPage() {
                         deleteFormula(f.id);
                       }}
                       title="ลบสูตร"
+                      aria-label="ลบสูตร"
                       className="grid size-4 shrink-0 place-items-center rounded text-slate-300 opacity-0 transition hover:bg-rose-50 hover:text-rose-500 group-hover:opacity-100"
                     >
-                      ×
+                      <SemanticIcon name="x" className="size-3" />
                     </button>
                   )}
                 </div>
@@ -1474,7 +1485,7 @@ export default function StudioPage() {
           {showTemplates && (
             <Section title="เทมเพลตผลิตภัณฑ์">
               <div className="mb-2 flex items-center gap-2">
-                <p className="flex-1 text-[11px] text-slate-800/50">เลือกสูตรตัวอย่าง แล้วกด ▶ Run</p>
+                <p className="flex-1 text-[11px] text-slate-800/50">เลือกสูตรตัวอย่าง แล้วกด Run</p>
                 <select
                   value={templateRisk}
                   onChange={(e) => setTemplateRisk(e.target.value as "all" | "low" | "mid" | "high")}
@@ -1482,9 +1493,9 @@ export default function StudioPage() {
                   title="กรองตามระดับความเสี่ยง (สำหรับทดสอบ)"
                 >
                   <option value="all">ทุกระดับ</option>
-                  <option value="low">🟢 ต่ำ</option>
-                  <option value="mid">🟡 กลาง</option>
-                  <option value="high">🔴 สูง</option>
+                  <option value="low">ต่ำ</option>
+                  <option value="mid">กลาง</option>
+                  <option value="high">สูง</option>
                 </select>
               </div>
               <div className="space-y-1">
@@ -1495,7 +1506,7 @@ export default function StudioPage() {
                     className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left transition hover:border-brand hover:bg-teal-50"
                   >
                     <div className="flex items-center gap-1.5 text-sm">
-                      <span>{t.icon}</span>
+                      <SemanticIcon name={t.icon} className="size-4" />
                       <span className="font-medium text-slate-800">{t.name}</span>
                       <span className="ml-auto font-mono text-[10px] text-brand">{t.formula.length} สาร</span>
                     </div>
@@ -1509,9 +1520,10 @@ export default function StudioPage() {
         </aside>
 
         {/* Center canvas */}
-        <main className="relative flex min-w-0 flex-1 bg-background">
+        <main className="relative flex min-w-0 flex-1 overflow-hidden bg-background">
           {mode === "assess" && (
             <Viewport
+              panelOpen={formulaPanelOpen}
               paintOwnerKey={`${projectId ?? "standalone"}:${activeId}`}
               initialPaint={paintByFormulaId[activeId] ?? null}
               occupiedPaint={Object.entries(paintByFormulaId)
@@ -1538,9 +1550,7 @@ export default function StudioPage() {
           {/* Floating Layers panel — docked top-left inside the viewport */}
           {mode === "assess" && (
             <div
-              className={`relative order-1 h-full shrink-0 transition-[width] duration-300 ease-in-out ${
-                formulaPanelOpen ? "w-72" : "w-0"
-              }`}
+              className="pointer-events-none absolute inset-y-0 left-0 z-20 w-72"
             >
               <button
                 type="button"
@@ -1548,15 +1558,15 @@ export default function StudioPage() {
                 aria-expanded={formulaPanelOpen}
                 aria-label={formulaPanelOpen ? "ปิดส่วนผสมของสูตร" : "เปิดส่วนผสมของสูตร"}
                 title={formulaPanelOpen ? "ปิดส่วนผสมของสูตร" : "เปิดส่วนผสมของสูตร"}
-                className="absolute -left-3 top-1/2 z-30 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-slate-300 bg-white text-sm font-black text-slate-950 shadow-md transition hover:scale-105 hover:border-slate-500 focus:outline-none focus:ring-2 focus:ring-brand/40"
+                className="pointer-events-auto absolute left-2 top-1/2 z-30 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-slate-300 bg-white text-sm font-black text-slate-950 shadow-md transition hover:scale-105 hover:border-slate-500 focus:outline-none focus:ring-2 focus:ring-brand/40"
               >
                 {formulaPanelOpen ? "←" : "→"}
               </button>
 
               <div
-                className={`absolute inset-y-0 right-0 flex w-72 flex-col overflow-y-auto border-r border-slate-200 bg-white transition-all duration-300 ease-in-out ${
+                className={`absolute inset-y-0 right-0 flex w-72 flex-col overflow-y-auto border-r border-slate-200 bg-white transition-[transform,opacity] duration-300 ease-in-out motion-reduce:transition-none ${
                   formulaPanelOpen
-                    ? "translate-x-0 opacity-100"
+                    ? "pointer-events-auto translate-x-0 opacity-100"
                     : "pointer-events-none -translate-x-full opacity-0"
                 }`}
               >
@@ -1574,7 +1584,7 @@ export default function StudioPage() {
                 <div className="space-y-1.5">
                   <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-1.5">
                     <div className="flex items-center gap-1 text-xs">
-                      <span className="text-sky-500">💧</span>
+                      <SemanticIcon name="droplet" className="size-3.5 text-sky-500" />
                       <span className="flex-1 font-medium text-slate-700">Water (Aqua)</span>
                       <span className="font-mono tabular-nums text-slate-600">{waterPct}</span>
                       <span className="text-[10px] text-slate-400">%</span>
@@ -1582,15 +1592,16 @@ export default function StudioPage() {
                     <div className="pl-4 text-[9px] text-slate-400">เบส · ปรับอัตโนมัติให้รวม 100%</div>
                   </div>
                   {waterMissing && (
-                    <div className="rounded-lg border border-amber-300 bg-amber-50 p-1.5 text-[10px] leading-snug text-amber-700">
-                      ⚠️ สูตรประเภท “{activeFormula?.type}” ปกติต้องมีน้ำเป็นเบส แต่สัดส่วนสารตอนนี้รวม ≥ 100% แล้ว
-                      จึงไม่เหลือที่ให้น้ำ — ลองลดความเข้มข้นลง
+                    <div className="flex gap-1 rounded-lg border border-amber-300 bg-amber-50 p-1.5 text-[10px] leading-snug text-amber-700">
+                      <SemanticIcon name="alert" className="mt-0.5 size-3 shrink-0" />
+                      <span>สูตรประเภท “{activeFormula?.type}” ปกติต้องมีน้ำเป็นเบส แต่สัดส่วนสารตอนนี้รวม ≥ 100% แล้ว
+                      จึงไม่เหลือที่ให้น้ำ — ลองลดความเข้มข้นลง</span>
                     </div>
                   )}
                   {formula.map((it, i) => (
                     <div key={i} className="rounded-lg border border-slate-200 bg-slate-100/50 p-1.5">
                       <div className="flex items-center gap-1">
-                        <span className="shrink-0 text-brand">◇</span>
+                        <SemanticIcon name="circle" className="size-2.5 shrink-0 text-brand" />
                         <input
                           className="min-w-0 flex-1 bg-transparent text-xs outline-none"
                           placeholder="ชื่อสาร"
@@ -1619,7 +1630,7 @@ export default function StudioPage() {
                           }}
                         />
                         <span className="shrink-0 text-[10px] text-slate-800/40">%</span>
-                        <button onClick={() => removeItem(i)} className="shrink-0 text-slate-800/30 hover:text-rose-500">×</button>
+                        <button onClick={() => removeItem(i)} aria-label="ลบสาร" className="shrink-0 text-slate-800/30 hover:text-rose-500"><SemanticIcon name="x" className="size-3" /></button>
                       </div>
                       <input
                         className="mt-1 w-full bg-transparent font-mono text-[10px] text-slate-800/45 outline-none"
@@ -1633,7 +1644,7 @@ export default function StudioPage() {
                           <div className="mt-0.5 flex items-center gap-1 text-[9px]" title={c.reason}>
                             <span className="size-1.5 rounded-full" style={{ background: CONF_HEX[c.level] }} />
                             <span className="text-slate-400">ความเชื่อมั่น {CONF_TH[c.level] ?? c.level}</span>
-                            {!c.inDomain && <span className="font-medium text-rose-500">· ⚠ นอกขอบเขตโมเดล</span>}
+                            {!c.inDomain && <span className="inline-flex items-center gap-0.5 font-medium text-rose-500">· <SemanticIcon name="alert" className="size-2.5" /> นอกขอบเขตโมเดล</span>}
                           </div>
                         );
                       })()}
@@ -1651,7 +1662,7 @@ export default function StudioPage() {
                       onClick={openLabelScan}
                       className="rounded-lg border border-dashed border-brand/40 px-2 py-2 text-xs font-medium text-brand transition hover:bg-teal-50"
                     >
-                      📷 OCR รูปฉลาก
+                      <span className="inline-flex items-center gap-1"><SemanticIcon name="camera" className="size-3.5" /> OCR รูปฉลาก</span>
                     </button>
                     <label
                       htmlFor="formula-csv-upload"
@@ -1709,7 +1720,7 @@ export default function StudioPage() {
               <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showTrend ? "w-[420px]" : "w-0"}`}>
                 <div className="w-[420px] max-w-[calc(100vw-2rem)] rounded-l-2xl border border-r-0 border-slate-200 bg-white p-4 text-slate-800 shadow-xl">
                   <div className="mb-4 flex items-start gap-3">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-teal-50 text-lg">📈</span>
+                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-teal-50 text-lg"><SemanticIcon name="chart" className="size-4" /></span>
                     <div>
                       <div className="text-sm font-semibold">แนวโน้มความเสี่ยงตามเวลา</div>
                       <div className="mt-0.5 text-[10px] text-slate-400">เปรียบเทียบคะแนนจำลอง Day 1, Day 3 และ Day 7</div>
@@ -1719,7 +1730,7 @@ export default function StudioPage() {
                       className="ml-auto grid size-7 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
                       aria-label="ปิดกราฟแนวโน้ม"
                     >
-                      ✕
+                      <SemanticIcon name="x" className="size-4" />
                     </button>
                   </div>
                   {completed && trendData.length ? (
@@ -1785,7 +1796,7 @@ export default function StudioPage() {
                     showTrend ? "bg-brand text-white" : "bg-white text-slate-600 hover:text-brand"
                   }`}
                 >
-                  📈
+                  <SemanticIcon name="chart" className="size-4" />
                 </button>
                 <span className="pointer-events-none absolute right-full top-1/2 mr-1.5 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-800 px-2 py-1 text-[11px] text-white opacity-0 shadow transition group-hover:opacity-100">
                   กราฟแนวโน้ม
@@ -1843,7 +1854,7 @@ export default function StudioPage() {
                   }}
                   className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-dark disabled:cursor-wait disabled:opacity-60"
                 >
-                  {assessing ? "กำลังประเมิน…" : completed ? "↻ ประเมินอีกครั้ง" : "▶ ประเมินสูตร"}
+                  {assessing ? "กำลังประเมิน…" : <span className="inline-flex items-center gap-1"><SemanticIcon name={completed ? "refresh" : "play"} className="size-4" /> {completed ? "ประเมินอีกครั้ง" : "ประเมินสูตร"}</span>}
                 </button>
               </div>
             </div>
@@ -1893,7 +1904,7 @@ export default function StudioPage() {
                 {error && <div className="rounded border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-600">{error}</div>}
                 {!completed && !error && (
                   <div className="grid place-items-center gap-2 py-6 text-center">
-                    <span className="text-2xl text-slate-800/20">◇</span>
+                    <SemanticIcon name="flask" className="size-6 text-slate-800/20" />
                     <p className="text-xs text-slate-800/50">
                       {jobId ? "กำลังประเมิน…" : "ยังไม่ได้ประเมิน"}
                       <br />เลือกสูตร + บริเวณ แล้วกด <span className="text-brand">ประเมินสูตรด้านขวาล่าง</span>
@@ -1903,9 +1914,10 @@ export default function StudioPage() {
                 {completed && endpoints && (
                   <div className="space-y-2">
                     {lowConfidence && (
-                      <div className="rounded-lg border border-rose-300 bg-rose-50 p-2 text-[11px] leading-snug text-rose-700">
-                        ⚠ ผลนี้เชื่อถือได้ต่ำ — สารส่วนใหญ่อยู่นอกขอบเขตแบบจำลอง (out-of-domain)
-                        โมเดลอาจเดาว่า “ไม่ระคาย” ทั้งที่ไม่เคยเห็นสารกลุ่มนี้ <b>อย่าตีความคะแนนต่ำว่าปลอดภัย</b>
+                      <div className="flex gap-1.5 rounded-lg border border-rose-300 bg-rose-50 p-2 text-[11px] leading-snug text-rose-700">
+                        <SemanticIcon name="alert" className="mt-0.5 size-3.5 shrink-0" />
+                        <span>ผลนี้เชื่อถือได้ต่ำ — สารส่วนใหญ่อยู่นอกขอบเขตแบบจำลอง (out-of-domain)
+                        โมเดลอาจเดาว่า “ไม่ระคาย” ทั้งที่ไม่เคยเห็นสารกลุ่มนี้ <b>อย่าตีความคะแนนต่ำว่าปลอดภัย</b></span>
                       </div>
                     )}
                     {ENDPOINTS.map((ep) => {
@@ -1953,7 +1965,7 @@ export default function StudioPage() {
                       disabled={optBusy}
                       className="w-full rounded-lg border border-brand/40 bg-teal-50 py-1.5 text-xs font-medium text-brand-dark transition hover:bg-teal-100 disabled:opacity-60"
                     >
-                      {optBusy ? "⏳ กำลังให้ AI วิเคราะห์…" : "🤖 ให้ AI เสนออัตราส่วนใหม่"}
+                      <span className="inline-flex items-center justify-center gap-1"><SemanticIcon name={optBusy ? "timer" : "bot"} className="size-3.5" /> {optBusy ? "กำลังให้ AI วิเคราะห์…" : "ให้ AI เสนออัตราส่วนใหม่"}</span>
                     </button>
                     {optMsg && <div className="mt-1 text-[10px] leading-snug text-slate-500">{optMsg}</div>}
                     {pendingOptimization && (
@@ -1976,7 +1988,7 @@ export default function StudioPage() {
                               invalidateFormulaAssessment(activeId);
                               setFormula(pendingOptimization);
                               setPendingOptimization(null);
-                              setOptMsg("✓ ยืนยันอัตราส่วนใหม่แล้ว กด Run เพื่อประเมิน");
+                              setOptMsg("ยืนยันอัตราส่วนใหม่แล้ว กด Run เพื่อประเมิน");
                             }}
                             className="flex-1 rounded bg-brand px-2 py-1 text-[10px] font-semibold text-white"
                           >
@@ -1992,9 +2004,10 @@ export default function StudioPage() {
                       </div>
                     )}
                     {formulaCoverage && formulaCoverage.coverage_percentage < 100 && (
-                      <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] leading-snug text-amber-800">
-                        ⚠ ประเมินครอบคลุม {formulaCoverage.coverage_percentage}% · ยังประเมินไม่ได้ {formulaCoverage.unresolved_ingredients} รายการ
-                        <br /><b>คะแนนนี้เป็นผลเฉพาะส่วนที่ประเมินได้ ไม่ใช่ความเสี่ยงของสูตรทั้งหมด</b>
+                      <div className="flex gap-1.5 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] leading-snug text-amber-800">
+                        <SemanticIcon name="alert" className="mt-0.5 size-3.5 shrink-0" />
+                        <span>ประเมินครอบคลุม {formulaCoverage.coverage_percentage}% · ยังประเมินไม่ได้ {formulaCoverage.unresolved_ingredients} รายการ
+                        <br /><b>คะแนนนี้เป็นผลเฉพาะส่วนที่ประเมินได้ ไม่ใช่ความเสี่ยงของสูตรทั้งหมด</b></span>
                       </div>
                     )}
                   </div>
@@ -2016,10 +2029,10 @@ export default function StudioPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center gap-2">
-              <span className="grid size-8 place-items-center rounded-lg bg-teal-50 text-brand">🧪</span>
+              <span className="grid size-8 place-items-center rounded-lg bg-teal-50 text-brand"><SemanticIcon name="flask" className="size-4" /></span>
               <h2 className="text-base font-semibold text-slate-800">สร้างสูตรใหม่</h2>
-              <button onClick={() => setShowCreate(false)} className="ml-auto text-slate-400 hover:text-slate-700">
-                ✕
+              <button onClick={() => setShowCreate(false)} aria-label="ปิด" className="ml-auto text-slate-400 hover:text-slate-700">
+                <SemanticIcon name="x" className="size-4" />
               </button>
             </div>
 
@@ -2056,8 +2069,8 @@ export default function StudioPage() {
                   onChange={(e) => setDraft((d) => ({ ...d, region: e.target.value as Region }))}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand"
                 >
-                  <option value="face">🙂 ใบหน้า</option>
-                  <option value="eye">👁️ ดวงตา</option>
+                  <option value="face">ใบหน้า</option>
+                  <option value="eye">ดวงตา</option>
                 </select>
               </label>
 
@@ -2070,14 +2083,14 @@ export default function StudioPage() {
                 >
                   <option value="blank">สูตรเปล่า (กรอกเอง)</option>
                   {PRODUCT_TEMPLATES.map((t) => (
-                    <option key={t.id} value={t.id}>{t.icon} {t.name}</option>
+                    <option key={t.id} value={t.id}>{t.name}</option>
                   ))}
                 </select>
               </label>
 
               {draft.from === "blank" && (
                 <div className="rounded-lg border border-brand/20 bg-teal-50/60 p-3 text-[11px] leading-relaxed text-slate-600">
-                  <div className="mb-1.5 font-semibold text-brand-dark">📝 สูตรเปล่าต้องกรอกอะไรบ้าง?</div>
+                  <div className="mb-1.5 flex items-center gap-1 font-semibold text-brand-dark"><SemanticIcon name="clipboard" className="size-3.5" /> สูตรเปล่าต้องกรอกอะไรบ้าง?</div>
                   <ul className="space-y-1">
                     <li>
                       • <b>ชื่อสาร</b> — ชื่อสารเคมี/INCI เช่น Glycerin (ใช้แสดงผล ไม่บังคับ)
@@ -2153,7 +2166,7 @@ function SubstanceLibraryPicker({ onSelect }: { onSelect: (smiles: string) => vo
           aria-label="เลือกสารจากคลัง"
         >
           <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-teal-50 text-sm text-brand transition group-hover:bg-brand group-hover:text-white">
-            ◇
+            <SemanticIcon name="flask" className="size-3.5" />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[11px] font-semibold text-slate-700">เลือกจากคลังสาร</span>
@@ -2191,7 +2204,7 @@ function SubstanceLibraryPicker({ onSelect }: { onSelect: (smiles: string) => vo
             filteredGroups.map((group) => (
               <section key={group.category} className="mb-2 last:mb-0">
                 <div className="sticky top-0 z-10 flex items-center gap-1.5 bg-white/95 px-2 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-slate-400 backdrop-blur">
-                  <span>{group.icon}</span>
+                  <SemanticIcon name={group.icon} className="size-3.5" />
                   <span>{group.category}</span>
                   <span className="ml-auto font-normal tabular-nums">{group.items.length}</span>
                 </div>
@@ -2256,7 +2269,7 @@ function WorkflowChip({
               : "border border-slate-200 bg-white text-slate-400"
         }`}
       >
-        {done ? "✓" : step}
+        {done ? <SemanticIcon name="check" className="size-3" /> : step}
       </span>
       <span>{label}</span>
     </div>
@@ -2281,6 +2294,7 @@ function Section({
 }
 
 function Viewport({
+  panelOpen,
   paintOwnerKey,
   initialPaint,
   occupiedPaint,
@@ -2293,6 +2307,7 @@ function Viewport({
   layers,
   eraseMode,
 }: {
+  panelOpen: boolean;
   paintOwnerKey: string;
   initialPaint: PaintMaskSnapshot | null;
   occupiedPaint: PaintMaskSnapshot[];
@@ -2307,17 +2322,25 @@ function Viewport({
 }) {
   return (
     <div className="relative order-2 h-full min-w-0 flex-1">
-      <div className="relative h-full w-full bg-[repeating-conic-gradient(#F4F1EE_0%_25%,#FFFDFB_0%_50%)] bg-[length:24px_24px]">
-        <div className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-3 py-2 shadow-sm backdrop-blur">
+      <div className="relative h-full w-full bg-[#F4F1EE]">
+        <div
+          className={`absolute left-4 top-4 z-10 flex items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-3 py-2 shadow-sm backdrop-blur transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
+            panelOpen ? "translate-x-72" : "translate-x-0"
+          }`}
+        >
           <span className="grid size-6 place-items-center rounded-lg bg-teal-50 text-xs font-bold text-brand">2</span>
           <div>
             <div className="text-[11px] font-semibold text-slate-700">ดูผลบนโมเดล</div>
             <div className="text-[9px] text-slate-400">Day {DAY_LABELS[dayIdx]} · Paint แล้ว hover เพื่อดูตำแหน่ง</div>
           </div>
         </div>
-        <div className="absolute inset-0">
+        <div
+          className={`absolute inset-0 will-change-transform transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
+            panelOpen ? "translate-x-36" : "translate-x-0"
+          }`}
+        >
           <FaceView
-            key={paintOwnerKey}
+            paintOwnerKey={paintOwnerKey}
             layers={layers}
             armed={ready}
             productName={productName}
@@ -2339,7 +2362,11 @@ function Viewport({
         )}
         {/* Risk legend */}
         {ready && (
-          <div className="absolute bottom-3 left-3 flex gap-3 rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-[11px] backdrop-blur">
+          <div
+            className={`absolute bottom-3 left-3 flex gap-3 rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-[11px] backdrop-blur transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
+              panelOpen ? "translate-x-72" : "translate-x-0"
+            }`}
+          >
             {(["low", "moderate", "high", "severe"] as const).map((b) => (
               <span key={b} className="flex items-center gap-1">
                 <span className="size-2 rounded-full" style={{ background: BAND_HEX[b] }} />

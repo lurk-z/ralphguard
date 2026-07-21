@@ -10,15 +10,16 @@
  * backend/DB endpoint later without touching the UI.
  */
 import type { FormulaItem, Region } from "./api";
+import type { SemanticIconName } from "@/components/SemanticIcon";
 
 export type CatalogItem = { name: string; smiles: string; conc: number };
-export type CatalogGroup = { category: string; icon: string; items: CatalogItem[] };
+export type CatalogGroup = { category: string; icon: SemanticIconName; items: CatalogItem[] };
 
 // ───────────────────────── Ingredient catalog (grouped) ─────────────────────────
 export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
   {
     category: "ตัวทำละลาย / แอลกอฮอล์",
-    icon: "💧",
+    icon: "droplet",
     items: [
       { name: "Ethanol", smiles: "CCO", conc: 40 },
       { name: "Isopropanol", smiles: "CC(C)O", conc: 30 },
@@ -33,7 +34,7 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
   },
   {
     category: "กรด (Acids)",
-    icon: "🧫",
+    icon: "flask",
     items: [
       { name: "Salicylic Acid", smiles: "O=C(O)c1ccccc1O", conc: 2 },
       { name: "Glycolic Acid", smiles: "OCC(=O)O", conc: 5 },
@@ -46,7 +47,7 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
   },
   {
     category: "สารกันเสีย (Preservatives)",
-    icon: "🛡️",
+    icon: "shield",
     items: [
       { name: "Phenoxyethanol", smiles: "OCCOc1ccccc1", conc: 1 },
       { name: "Methylparaben", smiles: "O=C(OC)c1ccc(O)cc1", conc: 0.4 },
@@ -60,7 +61,7 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
   },
   {
     category: "น้ำหอม / สารก่อภูมิแพ้",
-    icon: "🌸",
+    icon: "flower",
     items: [
       { name: "Cinnamaldehyde", smiles: "O=C/C=C/c1ccccc1", conc: 1 },
       { name: "Eugenol", smiles: "C=CCc1ccc(O)c(OC)c1", conc: 1 },
@@ -74,7 +75,7 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
   },
   {
     category: "สารออกฤทธิ์ (Actives)",
-    icon: "✨",
+    icon: "sparkles",
     items: [
       { name: "Niacinamide", smiles: "O=C(N)c1cccnc1", conc: 5 },
       { name: "Caffeine", smiles: "Cn1cnc2c1c(=O)n(C)c(=O)n2C", conc: 3 },
@@ -88,7 +89,7 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
   },
   {
     category: "สารลดแรงตึงผิว (Surfactants)",
-    icon: "🫧",
+    icon: "bubbles",
     items: [
       { name: "Sodium Lauryl Sulfate", smiles: "CCCCCCCCCCCCOS(=O)(=O)[O-].[Na+]", conc: 5 },
       { name: "Cocamidopropyl Betaine", smiles: "CCCCCCCCCCCC(=O)NCCC[N+](C)(C)CC([O-])=O", conc: 5 },
@@ -97,7 +98,7 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
   },
   {
     category: "สารกันแดด (UV Filters)",
-    icon: "🌞",
+    icon: "sun",
     items: [
       { name: "Oxybenzone (BP-3)", smiles: "COc1ccc(C(=O)c2ccccc2)c(O)c1", conc: 3 },
       { name: "Octinoxate", smiles: "CCCCC(CC)COC(=O)/C=C/c1ccc(OC)cc1", conc: 7 },
@@ -108,7 +109,7 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
   },
   {
     category: "อีมอลเลียนต์ / เพิ่มความชุ่มชื้น",
-    icon: "🧴",
+    icon: "spray",
     items: [
       { name: "Squalane", smiles: "CC(C)CCCC(C)CCCC(C)CCCC(C)CCCC(C)C", conc: 5 },
       { name: "Isopropyl Myristate", smiles: "CCCCCCCCCCCCCC(=O)OC(C)C", conc: 3 },
@@ -230,7 +231,7 @@ export type RiskLevel = "low" | "mid" | "high";
 export type ProductTemplate = {
   id: string;
   name: string;
-  icon: string;
+  icon: SemanticIconName;
   desc: string;
   region: Region;
   formula: FormulaItem[];
@@ -258,7 +259,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "toner",
     risk: "mid",
     name: "โทนเนอร์เช็ดหน้า",
-    icon: "🧴",
+    icon: "spray",
     desc: "แอลกอฮอล์อ่อน + ให้ความชุ่มชื้น (ทดสอบที่ใบหน้า)",
     region: "face",
     formula: [
@@ -271,7 +272,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "aha-serum",
     risk: "high",
     name: "เซรั่มผลัดเซลล์ AHA",
-    icon: "💉",
+    icon: "syringe",
     desc: "กรด AHA + Niacinamide สูตรผลัดผิว (ทดสอบที่ใบหน้า)",
     region: "face",
     formula: [
@@ -284,7 +285,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "hand-gel",
     risk: "high",
     name: "เจลล้างมือแอลกอฮอล์",
-    icon: "🖐️",
+    icon: "hand",
     desc: "แอลกอฮอล์เข้มข้นสูง (ทดสอบที่มือ)",
     region: "hand",
     formula: [
@@ -296,7 +297,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "moisturizer",
     risk: "low",
     name: "ครีมบำรุงผิว (มอยส์เจอร์)",
-    icon: "🧕",
+    icon: "leaf",
     desc: "ให้ความชุ่มชื้น อ่อนโยน (ทดสอบที่ท่อนแขน)",
     region: "forearm",
     formula: [
@@ -310,7 +311,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "fragrance-mist",
     risk: "high",
     name: "สเปรย์น้ำหอม (Body Mist)",
-    icon: "🌸",
+    icon: "flower",
     desc: "มีสารก่อภูมิแพ้ในน้ำหอม — ดูความเสี่ยงแพ้ผิวหนัง (ท่อนแขน)",
     region: "forearm",
     formula: [
@@ -325,7 +326,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "test-low",
     risk: "low",
     name: "ทดสอบ: ความเสี่ยงต่ำ",
-    icon: "🟢",
+    icon: "check-circle",
     desc: "สารอ่อนโยน ควรได้คะแนนต่ำทุกด้าน",
     region: "face",
     formula: [
@@ -338,7 +339,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "test-mid",
     risk: "mid",
     name: "ทดสอบ: ความเสี่ยงกลาง",
-    icon: "🟡",
+    icon: "circle-alert",
     desc: "กรดอ่อน + แอลกอฮอล์ปานกลาง",
     region: "face",
     formula: [
@@ -351,7 +352,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "test-high",
     risk: "high",
     name: "ทดสอบ: ความเสี่ยงสูง",
-    icon: "🔴",
+    icon: "alert",
     desc: "สารระคาย/ก่อภูมิแพ้เข้มข้น ควรได้คะแนนสูง",
     region: "face",
     formula: [
