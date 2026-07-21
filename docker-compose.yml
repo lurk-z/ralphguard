@@ -82,25 +82,6 @@ services:
       - ./data:/data
     command: python worker.py
 
-  # -------------- Frontend --------------
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: ralphguard-frontend
-    restart: unless-stopped
-    depends_on:
-      - backend
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
-    command: npm run dev
-
 volumes:
   postgres-data:
   redis-data:

@@ -26,7 +26,6 @@ $requiredFiles = @(
     "backend/Dockerfile",
     "backend/alembic.ini",
     "backend/alembic/versions/20260616_0001_initial_schema.py",
-    "frontend/Dockerfile",
     "frontend/package.json",
     "frontend/package-lock.json",
     "frontend/public/models/Lab_room.glb",

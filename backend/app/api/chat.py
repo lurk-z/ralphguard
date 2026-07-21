@@ -33,6 +33,20 @@ GENTLE_ACTION_SUBSTANCES = {
     "Phenoxyethanol": "OCCOc1ccccc1",
 }
 
+# Reviewed UI fixture for demonstrating a sensitisation score above 50 with
+# the currently bundled QSAR models. This is intentionally not a cosmetic
+# formulation: at 65% the model yields sens ~=63.5 at peak and ~=52 on Day 3.
+# Keeping it deterministic prevents the LLM from promising a target score from
+# an arbitrary high-hazard ingredient used at a token concentration.
+SENSITISATION_UI_TEST_FORMULA = [
+    {"name": "Water (Aqua)", "smiles": "O", "concentration": 35.0},
+    {
+        "name": "Cinnamaldehyde",
+        "smiles": "O=C/C=C/c1ccccc1",
+        "concentration": 65.0,
+    },
+]
+
 
 def _parse_actions(text: str) -> list[dict]:
     match = re.search(r"<action>([\s\S]*?)</action>", text, flags=re.IGNORECASE)
@@ -97,6 +111,42 @@ def _is_toner_creation_request(question: str) -> bool:
     return bool(
         re.search(r"(โทนเนอร์|toner)", question, flags=re.IGNORECASE)
         and re.search(r"(สร้าง|ทำให้|จัดให้|create|make|build)", question, flags=re.IGNORECASE)
+    )
+
+
+def _is_sensitisation_ui_test_request(question: str) -> bool:
+    """Match an explicit high-sensitisation score request made for UI testing."""
+    endpoint = re.search(
+        r"(แพ้ผิว(?:หนัง)?|การแพ้ผิว(?:หนัง)?|skin\s*sensiti[sz]ation|sensiti[sz]ation)",
+        question,
+        flags=re.IGNORECASE,
+    )
+    test_intent = re.search(
+        r"(ทดสอบ|ทดลอง|test|demo|แสดงผล|visual)",
+        question,
+        flags=re.IGNORECASE,
+    )
+    requested_scores = [int(value) for value in re.findall(r"(?<!\d)(\d{2,3})(?!\d)", question)]
+    return bool(endpoint and test_intent and requested_scores and max(requested_scores) >= 50)
+
+
+def _sensitisation_ui_test_fallback(question: str) -> str | None:
+    """Return a reviewed test fixture instead of an LLM concentration guess."""
+    if not _is_sensitisation_ui_test_request(question):
+        return None
+    actions = [
+        {
+            "type": "create_formula",
+            "name": "TEST ONLY — แพ้ผิวหนัง 50+",
+            "items": SENSITISATION_UI_TEST_FORMULA,
+        }
+    ]
+    return (
+        "สร้างสูตรจำลองสำหรับทดสอบการแสดงผลให้แล้วค่ะ สูตรนี้ใช้ Cinnamaldehyde 65% "
+        "เพื่อให้โมเดลชุดปัจจุบันประเมินการแพ้ผิวหนังประมาณ 64 ที่จุดสูงสุด "
+        "และประมาณ 52 ใน Day 3 หลังยืนยันการสร้างสูตร ให้ระบายพื้นที่ทดสอบแล้วกด Run "
+        "เพื่อยืนยันผลจริง สูตรนี้มีความเข้มข้นที่ไม่ใช่สูตรเครื่องสำอางและห้ามผลิตหรือใช้กับผิวโดยเด็ดขาดค่ะ\n"
+        f"<action>{json.dumps(actions, ensure_ascii=False)}</action>"
     )
 
 SYSTEM_TH = """คุณคือ "แรลฟ์" (Ralph) เพื่อนร่วมทีมช่วยพัฒนาสูตรเครื่องสำอางในระบบ RalphGuard —
@@ -166,6 +216,10 @@ SCIENTIFIC_AGENT_GUARD = """
   {"type":"goto","tab":"nodes"} ใน action ชุดเดียวกัน
 - ถ้าผลมี confidence ต่ำหรือ out-of-domain ห้ามสรุปว่าคะแนนสูงนั้นคือความรุนแรงจริง
   ให้บอกก่อนว่าผลไม่น่าเชื่อถือและควรตรวจ structure/coverage หรือใช้วิธี fallback
+- คะแนนสูตรคำนวณแบบถ่วงความเข้มข้น ดังนั้นสารที่ได้คะแนนรายสารสูงแต่ใส่เพียง 5%
+  มักเพิ่มคะแนนสูตรได้เพียงประมาณ 5 คะแนน ห้ามอ้างว่าสูตรจะถึงคะแนนเป้าหมายจากชื่อสารอย่างเดียว
+- ถ้าผู้ใช้ระบุคะแนนเป้าหมาย ห้ามรับรองว่าถึงเป้าหมายก่อน Run ต้องเรียกว่า "ออกแบบเพื่อทดสอบ"
+  และให้ผลจาก assessment engine เป็นตัวยืนยัน ห้ามเสนอสูตรอันตรายเป็นผลิตภัณฑ์ใช้งานจริง
 """
 
 
@@ -189,6 +243,10 @@ async def chat(body: ChatIn):
     # concentration on every request.
     if _is_toner_creation_request(question):
         return ChatOut(answer=_gentle_toner_fallback(question) or "")
+
+    sensitisation_fixture = _sensitisation_ui_test_fallback(question)
+    if sensitisation_fixture:
+        return ChatOut(answer=sensitisation_fixture)
 
     if not settings.GROQ_API_KEY:
         raise HTTPException(status_code=503, detail="GROQ_API_KEY not configured")

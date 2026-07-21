@@ -8,7 +8,7 @@
  *
  *   skin (ระคายเคืองผิว)  → redness + edema (+ peeling when severe)
  *   sens (แพ้ผิวหนัง)      → papule
- *   acute/severe          → reinforces edema (swelling)
+ *   acute                 → score/status UI only; not a local skin lesion
  *   eye  (ระคายเคืองตา)   → per-eye redness
  *
  * Drop-in replacement for FacePaintCanvas (same props) so the assess viewport

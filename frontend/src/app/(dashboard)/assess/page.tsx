@@ -749,6 +749,9 @@ export default function StudioPage() {
     const selected = formulas.find((item) => item.id === id);
     setActiveId(id);
     if (selected) setRegion(selected.region);
+    // Selecting a formula should immediately reveal its ingredients. The
+    // viewport arrow remains available as an independent open/close control.
+    setFormulaPanelOpen(true);
     setError(null);
   };
   const renameFormula = (id: string, name: string) =>
@@ -1455,6 +1458,16 @@ export default function StudioPage() {
                 <div
                   key={f.id}
                   onClick={() => selectFormula(f.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      selectFormula(f.id);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={f.id === activeId}
+                  aria-label={`เลือก ${f.name} และแสดงส่วนผสม`}
                   className={`group flex w-full cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-2 text-sm transition ${
                     f.id === activeId
                       ? "border-brand bg-teal-50 text-brand-dark"

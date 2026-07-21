@@ -144,35 +144,71 @@ export type AssessmentEndpointScores = {
 };
 
 /**
+ * Operating cut-offs from scientific/models/validation_report.json.
+ *
+ * These are classifier decision thresholds, not clinical lesion grades. They
+ * are used only to stop the 3D viewer from implying a visible reaction when an
+ * endpoint is still on the model's negative side of its validated cut-off.
+ */
+export const ASSESSMENT_VISUAL_THRESHOLDS = {
+  skin: 0.4,
+  eye: 0.35,
+  sens: 0.3,
+  acute: 0.45,
+  // Peeling is a deliberately conservative visual proxy for a strong skin
+  // response. It is not a separate RalphGuard prediction endpoint.
+  skinPeeling: 0.75,
+} as const;
+
+function visualActivation(score: number, threshold: number): number {
+  const value = Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : 0;
+  if (value < threshold) return 0;
+
+  // Give a just-positive result a faint but readable signal, then scale the
+  // effect smoothly to full intensity. Below-threshold results remain exactly
+  // zero, so e.g. sens=1/100 cannot create papules.
+  const progress = (value - threshold) / (1 - threshold);
+  return Math.min(1, 0.08 + progress * 0.92);
+}
+
+/**
  * Single source of truth for mapping RalphGuard's four assessment endpoints to
  * the symptom renderer. Inputs are normalized 0..1 scores.
  *
- * Skin irritation drives both erythema and edema, matching the two visible
- * reactions used when irritation is graded. A high acute score can reinforce
- * the edema signal, but is not required for skin swelling to appear.
+ * Skin irritation drives erythema and edema, matching the two visible reactions
+ * graded by OECD TG 404. Sensitisation is represented by papules only as a
+ * visual proxy after the model's positive cut-off. Acute toxicity is kept out
+ * of the local skin shader because it is a systemic/dose endpoint rather than
+ * a prediction of the lesion's appearance.
  */
 export function mapAssessmentEndpointsToSymptoms(scores: AssessmentEndpointScores): {
   sev: Record<SkinKey, number>;
   eyeRed: number;
 } {
-  const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
-  const skin = clamp01(scores.skin);
-  const eye = clamp01(scores.eye);
-  const sens = clamp01(scores.sens);
-  const acute = clamp01(scores.acute);
+  const skinReaction = visualActivation(scores.skin, ASSESSMENT_VISUAL_THRESHOLDS.skin);
+  const eyeReaction = visualActivation(scores.eye, ASSESSMENT_VISUAL_THRESHOLDS.eye);
+  const sensitisationReaction = visualActivation(
+    scores.sens,
+    ASSESSMENT_VISUAL_THRESHOLDS.sens,
+  );
+  const peelingReaction = visualActivation(
+    scores.skin,
+    ASSESSMENT_VISUAL_THRESHOLDS.skinPeeling,
+  );
 
   return {
     sev: {
-      redness: skin,
-      papule: sens,
-      // Desquamation is a severe skin-irritation manifestation, not a separate
-      // endpoint. Keep it absent below the severe visual threshold.
-      peeling: Math.max(0, (skin - 0.55) / 0.45),
-      // Irritated skin can be both red and swollen. Acute toxicity contributes
-      // an additional edema signal only above its high-risk threshold.
-      edema: Math.max(skin, Math.max(0, (acute - 0.5) / 0.5)),
+      redness: skinReaction,
+      papule: sensitisationReaction,
+      // Once desquamation is active it needs enough contrast to remain legible
+      // on top of simultaneous erythema and edema.
+      peeling: Math.min(1, peelingReaction * 1.3),
+      // A positive skin-irritation result includes swelling in this product's
+      // visual language. Keep it subtler than erythema while using the same
+      // validated skin cut-off.
+      edema: skinReaction * 0.82,
     },
-    eyeRed: eye,
+    eyeRed: eyeReaction,
   };
 }
 
@@ -473,9 +509,38 @@ export function PaintSymptomModel({
           }),
       ),
     ).then(() => {
+      // Production assessment paint marks an exposure area, not one particular
+      // symptom. Older snapshots can contain pixels in only the symptom that
+      // happened to be dominant when they were saved, leaving the other three
+      // masks black. Union every restored legacy layer and apply that exposure
+      // mask to all four symptoms so high scores can render redness, papules,
+      // peeling and edema together. The standalone symptom lab still keeps its
+      // deliberately independent per-symptom masks.
+      if (!cancelled && paintSymptomsRef.current.length > 1) {
+        const unionCanvas = document.createElement("canvas");
+        unionCanvas.width = masks.redness.canvas.width;
+        unionCanvas.height = masks.redness.canvas.height;
+        const unionContext = unionCanvas.getContext("2d")!;
+        unionContext.fillStyle = "#000000";
+        unionContext.fillRect(0, 0, unionCanvas.width, unionCanvas.height);
+        unionContext.globalCompositeOperation = "lighten";
+        SKIN_KEYS.forEach((key) => {
+          unionContext.drawImage(masks[key].canvas, 0, 0);
+        });
+        unionContext.globalCompositeOperation = "source-over";
+        SKIN_KEYS.forEach((key) => {
+          const mask = masks[key];
+          mask.ctx.globalCompositeOperation = "source-over";
+          mask.ctx.clearRect(0, 0, mask.canvas.width, mask.canvas.height);
+          mask.ctx.drawImage(unionCanvas, 0, 0);
+          mask.tex.needsUpdate = true;
+        });
+      }
+
       // Old workspace snapshots did not carry hasPaint metadata. Once their
-      // images are restored, emit the same masks with accurate pixel presence
-      // so refresh migration completes without guessing from a PNG's existence.
+      // images are restored and unified, emit the same masks with accurate
+      // pixel presence so refresh migration completes without guessing from a
+      // PNG's existence.
       if (!cancelled) notifyPaintChange();
     });
 
@@ -648,9 +713,9 @@ roughnessFactor = mix(roughnessFactor, 0.06, _eyeWetness * 0.72);`,
       mesh.geometry.computeBoundingBox();
       const bb = mesh.geometry.boundingBox!;
       skinBounds.current = bb.clone();
-      // 1.8% of head height gives a visible local swell without distorting the
-      // face silhouette. The previous 6% looked like an inflated mesh.
-      uEdemaScale.current.value = (bb.max.y - bb.min.y) * 0.018;
+      // 2.4% of head height keeps a high-risk local swell readable without the
+      // inflated look produced by the old 6% displacement.
+      uEdemaScale.current.value = (bb.max.y - bb.min.y) * 0.024;
       // Tile repeats across the largest dimension (lower = bigger, sparser vesicles).
       uBlisterScale.current.value =
         5.5 / Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z);
@@ -848,18 +913,25 @@ if (gPap > 0.001) {
   vec3 _bnZ = texture2D(uBlisterNormalTex, vLocalPos.xy * _bs).xyz * 2.0 - 1.0;
   vec2 _bnXY = _bnX.xy * _bw.x + _bnY.xy * _bw.y + _bnZ.xy * _bw.z;
   float _normalDetail = dot(_bnXY, vec2(0.70710678));
-  float _pap  = smoothstep(0.55, 0.85, _bh);
-  float _gate = smoothstep(0.10, 0.30, _flush);   // bumps only where red
+  float _pap  = smoothstep(0.48, 0.82, _bh);
+  float _gate = smoothstep(0.06, 0.22, _flush);   // bumps only where red
   float _papv = _pap * _gate;
+  float _papRim = max(
+    0.0,
+    smoothstep(0.28, 0.54, _bh) - smoothstep(0.68, 0.90, _bh)
+  ) * _gate;
 
-  // Red lives ONLY on the papules (slightly stronger since it's the only red).
-  _c.r += _papv * 0.34;
-  _c.g -= _papv * 0.14;
-  _c.b -= _papv * 0.11;
+  // Preserve a darker rim and a softly lit centre so papules remain readable
+  // even when erythema and edema are active underneath them.
+  _c = mix(_c, vec3(0.76, 0.12, 0.14), _papv * 0.58);
+  _c += vec3(0.12, 0.045, 0.035) * _papv;
+  _c -= vec3(0.07, 0.025, 0.02) * _papRim;
 
   // Both maps are restricted to the actual papule footprint. Applying normal
   // detail to the wider flush gate makes the whole painted patch look swollen.
-  gBumpH += _papv * (0.35 + _normalDetail * 0.08);
+  gBumpH += (_papv + _papRim * 0.35)
+    * (0.52 + _sev * 0.68 + clamp(_normalDetail, -1.0, 1.0) * 0.12);
+  gPapDot = max(gPapDot, max(_papv, _papRim * 0.55));
 }
 
 // ═══════════════ [SX:PEELING] — ผิวลอก (desquamation) ═══════════════
@@ -884,14 +956,14 @@ if (gPeel > 0.001) {
   // ขุย — Blender recipe: thin ISO-BAND ribbons of high-freq noise (naturally
   // curly, like lifted flake edges) BROKEN into small separate chips by a
   // second noise. High frequency + crisped edges = small SHARP flakes.
-  float _fn   = fbm(vLocalPos * 430.0);
-  float _band = 1.0 - smoothstep(0.0, 0.020, abs(_fn - 0.45));   // thin curvy ribbon
-  float _keep = smoothstep(0.52, 0.60, fbm(vLocalPos * 260.0 + 7.3)); // fragment it
+  float _fn   = fbm(vLocalPos * 230.0);
+  float _band = 1.0 - smoothstep(0.0, 0.030, abs(_fn - 0.45));   // thin curvy ribbon
+  float _keep = smoothstep(0.49, 0.58, fbm(vLocalPos * 145.0 + 7.3)); // fragment it
   float _flake = _band * _keep * _patch * (0.40 + 0.60 * gPeel); // denser w/ severity
   _flake = smoothstep(0.15, 0.60, _flake);                       // crisp edges
 
   // Pale dry chips (Blender: BLP_ColFlake) — sit IN the skin, not on top.
-  _c = mix(_c, vec3(0.94, 0.93, 0.91), _flake * 0.9);
+  _c = mix(_c, vec3(0.97, 0.96, 0.94), _flake * 0.96);
 
   gFlake = max(_flake * 0.8, _patch * gPeel * 0.6);   // dry matte roughness
   // NO bump — flakes stay flush with the skin exactly like the Blender look.
@@ -948,7 +1020,7 @@ if (abs(gBumpH) > 0.0001) {
   float _det = dot(_sigX, _R1);
   _det *= (gl_FrontFacing ? 1.0 : -1.0);
   vec3 _grad = sign(_det) * (_dHdxy.x * _R1 + _dHdxy.y * _R2);
-  normal = normalize(abs(_det) * normal - _grad * 3.0);
+  normal = normalize(abs(_det) * normal - _grad * 4.8);
 }`
           )
           .replace(
@@ -957,9 +1029,9 @@ if (abs(gBumpH) > 0.0001) {
 roughnessFactor = clamp(
   roughnessFactor
   + gRed * 0.06
-  - gPapDot * 0.45
-  + gFlake * 0.42
-  - gTaut * 0.42
+  + gPapDot * 0.16
+  + gFlake * 0.55
+  - gTaut * (1.0 - gFlake) * 0.45
   - gEyeRim * 0.12,
   0.03, 1.0);`
           );
