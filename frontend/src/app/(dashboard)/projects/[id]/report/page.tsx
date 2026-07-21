@@ -10,6 +10,8 @@ import { ArrowLeft, Download } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { api, apiErrorMessage } from "@/lib/api";
+import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
+import { parseProjectRouteId } from "@/lib/project-routing";
 
 const BAND_HEX: Record<string, string> = {
   low: "#16A34A",
@@ -46,14 +48,15 @@ export default function ReportPage({ params }: { params: { id: string } }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const projectId = Number(params.id);
+    const projectId = parseProjectRouteId(params.id);
 
     let alive = true;
+    const controller = new AbortController();
     setData(null);
     setError(null);
     (async () => {
       try {
-        if (!Number.isSafeInteger(projectId) || projectId <= 0) {
+        if (projectId === null) {
           if (alive) setError("รหัสโปรเจกต์ไม่ถูกต้อง");
           return;
         }
@@ -62,8 +65,8 @@ export default function ReportPage({ params }: { params: { id: string } }) {
           return;
         }
         const [project, record] = await Promise.all([
-          api.getProject(projectId),
-          api.getProjectAssessment(projectId, assessmentId),
+          api.getProject(projectId, controller.signal),
+          api.getProjectAssessment(projectId, assessmentId, controller.signal),
         ]);
         if (record.status !== "completed") {
           if (alive) {
@@ -106,11 +109,15 @@ export default function ReportPage({ params }: { params: { id: string } }) {
           });
         }
       } catch (cause) {
-        if (alive) setError(apiErrorMessage(cause, "โหลดรายงานไม่สำเร็จ"));
+        if (!isAbortError(cause)) {
+          logRequestFailure("load assessment report", cause);
+          if (alive) setError(apiErrorMessage(cause, "โหลดรายงานไม่สำเร็จ"));
+        }
       }
     })();
     return () => {
       alive = false;
+      controller.abort();
     };
   }, [params.id, assessmentId]);
 

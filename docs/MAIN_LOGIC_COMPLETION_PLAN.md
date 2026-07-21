@@ -44,6 +44,12 @@ Base commit: `9bdf0c45c14f9dc1cdcb1625c6e3573c4c9d9404` (`main`)
 - [x] P2.10 implementation: บันทึก nodes/edges/viewport/result แยกตาม project และ formula, แสดงกราฟของกล่องที่เลือก และ sync สารระหว่างกล่องกับ chemical nodes
 - [x] P2.10 automated tests: graph build/sync/invalidation, empty-formula cleanup, formula ownership, corrupt-data normalization และ regression รวมผ่าน 32/32
 - [ ] P2.10 live smoke test: รอผู้ใช้ทดสอบสูตร A/B, sync สองทาง, layout/result persistence, F5 และ project isolation
+- [x] P3.11 implementation: เพิ่ม route loading/error boundary, caller abort signal, latest-request guard, stale-response protection และ secret-safe error logging
+- [x] P3.11 automated tests: signal forwarding, timeout message, request supersession/cancel, abort filtering, secret-safe logging และ regression รวมผ่าน 38/38
+- [ ] P3.11 live smoke test: รอผู้ใช้ทดสอบเปลี่ยน route/filter ระหว่างโหลด, กด mutation ซ้ำ, เปลี่ยนสูตรระหว่างเริ่มประเมิน และ Backend unavailable
+- [x] P3.12 implementation: แยก project route parser, normalize/reject ชื่อโปรเจกต์ว่างที่ Backend และตรวจ stale polling ด้วย job ID + input signature
+- [x] P3.12 automated tests: project create success/failure, invalid route IDs, stale polling response และ regression ผ่าน frontend 43/43 + backend 15/15
+- [ ] P3.12 live smoke test: รอผู้ใช้ทดสอบชื่อโปรเจกต์ว่าง, invalid project URL และแก้สูตรระหว่าง polling
 
 หมายเหตุการตรวจ P0.1: `npm run type-check` ยังไม่ผ่านจาก error เดิมใน `src/components/TrendChart.tsx` ซึ่งอยู่นอก diff ของงานนี้ จึงยังไม่แก้เพื่อรักษาขอบเขตงาน logic และ UI freeze
 

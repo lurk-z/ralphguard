@@ -1,17 +1,15 @@
 import { redirect } from "next/navigation";
 
+import { parseProjectRouteId } from "@/lib/project-routing";
+
 /**
  * Project assessments use the canonical Studio workspace.
  * Keeping one implementation prevents the project flow from drifting into the
  * old mock-only assessment UI while preserving project ownership on every run.
  */
 export default function ProjectAssessmentPage({ params }: { params: { id: string } }) {
-  if (!/^\d+$/.test(params.id)) {
-    redirect("/projects?projectError=invalid-project");
-  }
-
-  const projectId = Number(params.id);
-  if (!Number.isSafeInteger(projectId) || projectId <= 0) {
+  const projectId = parseProjectRouteId(params.id);
+  if (projectId === null) {
     redirect("/projects?projectError=invalid-project");
   }
 

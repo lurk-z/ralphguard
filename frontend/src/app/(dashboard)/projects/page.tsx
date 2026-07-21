@@ -1,7 +1,7 @@
 "use client";
 
 // Project List — the shared project workspace backed by the project API.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -50,6 +50,7 @@ import { Textarea } from "@/components/ui/textarea";
 import DashboardShell from "@/components/layout/DashboardShell";
 import { api, apiErrorMessage, type ProjectOut } from "@/lib/api";
 import { deleteProjectWorkspace } from "@/lib/project-workspace";
+import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
 
 const PROJECT_ROUTE_ERRORS: Record<string, string> = {
   "invalid-project": "รหัสโปรเจกต์ไม่ถูกต้อง",
@@ -81,6 +82,8 @@ export default function ProjectListPage() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const editControllerRef = useRef<AbortController | null>(null);
+  const deleteControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const currentUrl = new URL(window.location.href);
@@ -96,15 +99,17 @@ export default function ProjectListPage() {
     }
 
     let alive = true;
+    const controller = new AbortController();
     api
-      .listProjects()
+      .listProjects(controller.signal)
       .then((rows) => {
         if (!alive) return;
         setProjects(rows);
         setLoadError(null);
       })
       .catch((cause) => {
-        if (!alive) return;
+        if (!alive || isAbortError(cause)) return;
+        logRequestFailure("list projects", cause);
         const message = apiErrorMessage(cause, "โหลดรายการโปรเจกต์ไม่สำเร็จ");
         setLoadError(message);
         toast.error(message);
@@ -112,8 +117,17 @@ export default function ProjectListPage() {
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
+      controller.abort();
     };
   }, []);
+
+  useEffect(
+    () => () => {
+      editControllerRef.current?.abort();
+      deleteControllerRef.current?.abort();
+    },
+    [],
+  );
 
   const empty = !loadError && projects.length === 0;
 
@@ -134,14 +148,29 @@ export default function ProjectListPage() {
 
     setSaving(true);
     setActionError(null);
+    editControllerRef.current?.abort();
+    const controller = new AbortController();
+    editControllerRef.current = controller;
     try {
-      const updated = await api.updateProject(editingProject.id, name, editDescription);
+      const updated = await api.updateProject(
+        editingProject.id,
+        name,
+        editDescription,
+        controller.signal,
+      );
+      if (editControllerRef.current !== controller) return;
       setProjects((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
       setEditingProject(null);
     } catch (cause) {
-      setActionError(`แก้ไขโปรเจกต์ไม่สำเร็จ: ${String(cause)}`);
+      if (!isAbortError(cause) && editControllerRef.current === controller) {
+        logRequestFailure("update project", cause);
+        setActionError(apiErrorMessage(cause, "แก้ไขโปรเจกต์ไม่สำเร็จ"));
+      }
     } finally {
-      setSaving(false);
+      if (editControllerRef.current === controller) {
+        editControllerRef.current = null;
+        setSaving(false);
+      }
     }
   };
 
@@ -149,15 +178,25 @@ export default function ProjectListPage() {
     if (!deletingProject || deleting) return;
     setDeleting(true);
     setActionError(null);
+    deleteControllerRef.current?.abort();
+    const controller = new AbortController();
+    deleteControllerRef.current = controller;
     try {
-      await api.deleteProject(deletingProject.id);
+      await api.deleteProject(deletingProject.id, controller.signal);
+      if (deleteControllerRef.current !== controller) return;
       deleteProjectWorkspace(deletingProject.id);
       setProjects((rows) => rows.filter((row) => row.id !== deletingProject.id));
       setDeletingProject(null);
     } catch (cause) {
-      setActionError(`ลบโปรเจกต์ไม่สำเร็จ: ${String(cause)}`);
+      if (!isAbortError(cause) && deleteControllerRef.current === controller) {
+        logRequestFailure("delete project", cause);
+        setActionError(apiErrorMessage(cause, "ลบโปรเจกต์ไม่สำเร็จ"));
+      }
     } finally {
-      setDeleting(false);
+      if (deleteControllerRef.current === controller) {
+        deleteControllerRef.current = null;
+        setDeleting(false);
+      }
     }
   };
 

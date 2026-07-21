@@ -186,10 +186,16 @@ export default function AnatomyModelGLTF({
   const [ok, setOk] = useState<boolean | null>(null);
   useEffect(() => {
     let active = true;
-    fetch(url, { method: "HEAD" })
+    const controller = new AbortController();
+    fetch(url, { method: "HEAD", signal: controller.signal })
       .then((r) => active && setOk(r.ok))
-      .catch(() => active && setOk(false));
-    return () => { active = false; };
+      .catch((cause) => {
+        if (active && !(cause instanceof Error && cause.name === "AbortError")) setOk(false);
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [url]);
 
   if (ok === false) return <AnatomyModel value={value} onChange={onChange} band={band} scores={scores} />;

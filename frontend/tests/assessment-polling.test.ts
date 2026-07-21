@@ -5,6 +5,7 @@ import {
   ASSESSMENT_POLL_MAX_AGE_MS,
   assessmentPollDelay,
   assessmentPollExpired,
+  assessmentPollResponseIsCurrent,
 } from "../src/lib/assessment-polling.ts";
 
 test("backs off failed assessment polling with an upper bound", () => {
@@ -32,4 +33,21 @@ test("expires invalid and over-age assessment jobs", () => {
     ),
     true,
   );
+});
+
+test("accepts polling responses only for the same job and formula signature", () => {
+  const snapshot = { jobId: "job-new", inputSignature: "formula-v2" };
+  assert.equal(
+    assessmentPollResponseIsCurrent(snapshot, "job-new", "formula-v2"),
+    true,
+  );
+  assert.equal(
+    assessmentPollResponseIsCurrent(snapshot, "job-old", "formula-v2"),
+    false,
+  );
+  assert.equal(
+    assessmentPollResponseIsCurrent(snapshot, "job-new", "formula-v1"),
+    false,
+  );
+  assert.equal(assessmentPollResponseIsCurrent(null, "job-new", "formula-v2"), false);
 });

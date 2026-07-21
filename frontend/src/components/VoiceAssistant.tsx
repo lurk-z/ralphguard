@@ -7,6 +7,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 
+import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
+
 type Layer = {
   key: string;
   label: string;
@@ -54,10 +56,25 @@ export default function VoiceAssistant({
   const [actionBusy, setActionBusy] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const recogRef = useRef<any>(null);
+  const chatControllerRef = useRef<AbortController | null>(null);
+  const ttsControllerRef = useRef<AbortController | null>(null);
 
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(
+    () => () => {
+      chatControllerRef.current?.abort();
+      ttsControllerRef.current?.abort();
+      audioRef.current?.pause();
+      recogRef.current?.stop?.();
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    },
+    [],
+  );
 
   // Load & rank available voices — prefer natural / neural / online Thai voices,
   // which sound far smoother than the default local robotic one.
@@ -105,6 +122,9 @@ export default function VoiceAssistant({
 
   const speak = async (text: string) => {
     if (!voiceOn) return;
+    ttsControllerRef.current?.abort();
+    const controller = new AbortController();
+    ttsControllerRef.current = controller;
     const clean = text.replace(/\s*·\s*/g, ", ").replace(/\s+/g, " ").trim();
     // Neural TTS (Edge, via backend) → far more human than the browser voice.
     try {
@@ -112,8 +132,9 @@ export default function VoiceAssistant({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: clean }),
+        signal: controller.signal,
       });
-      if (res.ok) {
+      if (res.ok && ttsControllerRef.current === controller) {
         const url = URL.createObjectURL(await res.blob());
         audioRef.current?.pause();
         if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
@@ -127,13 +148,17 @@ export default function VoiceAssistant({
         await a.play();
         return;
       }
-    } catch {
+    } catch (cause) {
+      if (isAbortError(cause)) return;
+      logRequestFailure("assistant text to speech", cause);
       /* fall through to browser voice */
     }
-    browserSpeak(clean);
+    if (ttsControllerRef.current === controller) browserSpeak(clean);
   };
 
   const stopSpeak = () => {
+    ttsControllerRef.current?.abort();
+    ttsControllerRef.current = null;
     if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
     audioRef.current?.pause();
     setSpeaking(false);
@@ -165,6 +190,9 @@ export default function VoiceAssistant({
     setMessages((m) => [...m.slice(-6), { role: "user", text }]);
     setInput("");
     setThinking(true);
+    chatControllerRef.current?.abort();
+    const controller = new AbortController();
+    chatControllerRef.current = controller;
     let a = "";
     let err = "";
     try {
@@ -172,12 +200,17 @@ export default function VoiceAssistant({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: text, context: buildContext() }),
+        signal: controller.signal,
       });
       if (res.ok) a = (await res.json()).answer;
       else err = `(${res.status}) ${await res.text()}`;
-    } catch (e) {
-      err = String(e);
+    } catch (cause) {
+      if (isAbortError(cause)) return;
+      logRequestFailure("assistant chat", cause);
+      err = String(cause);
     }
+    if (chatControllerRef.current !== controller) return;
+    chatControllerRef.current = null;
     setThinking(false);
     if (!a) {
       // Gemini only — no rule-based fallback. Surface the real error to debug.

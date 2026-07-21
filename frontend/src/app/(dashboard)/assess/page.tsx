@@ -33,6 +33,7 @@ import { assessmentStartProblem } from "@/lib/assessment-preconditions";
 import {
   assessmentPollDelay,
   assessmentPollExpired,
+  assessmentPollResponseIsCurrent,
 } from "@/lib/assessment-polling";
 import {
   assertNoDuplicateFormulaRows,
@@ -44,6 +45,8 @@ import {
   prepareOcrFormulaReplacement,
 } from "@/lib/formula-ocr";
 import { formulaGraphItemsSignature } from "@/lib/formula-graph";
+import { parseProjectRouteId } from "@/lib/project-routing";
+import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
 import {
   loadProjectWorkspace,
   formulaAssessmentSignature,
@@ -181,28 +184,40 @@ export default function StudioPage() {
   >({});
   const [submittingFormulaIds, setSubmittingFormulaIds] = useState<string[]>([]);
   const assessmentGenerationByFormulaId = useRef<Record<string, number>>({});
+  const assessmentStartControllerByFormulaId = useRef<Record<string, AbortController>>({});
   const announcedAssessmentIds = useRef(new Set<string>());
   const announcedTimedOutJobIds = useRef(new Set<string>());
   const pollingFailuresByJobId = useRef<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(
+    () => () => {
+      Object.values(assessmentStartControllerByFormulaId.current).forEach((controller) =>
+        controller.abort(),
+      );
+      assessmentStartControllerByFormulaId.current = {};
+    },
+    [],
+  );
+
   // `/projects/:id/assess` redirects here with projectId so there is only one
   // real assessment workspace. Every run remains attached to that project.
   useEffect(() => {
     const raw = new URLSearchParams(window.location.search).get("projectId");
-    const id = raw ? Number(raw) : NaN;
     if (raw === null) {
       setProjectContextStatus("standalone");
       return;
     }
-    if (!Number.isSafeInteger(id) || id <= 0) {
+    const id = parseProjectRouteId(raw);
+    if (id === null) {
       router.replace("/projects?projectError=invalid-project");
       return;
     }
 
     let alive = true;
+    const controller = new AbortController();
     api
-      .getProject(id)
+      .getProject(id, controller.signal)
       .then((loadedProject) => {
         if (!alive) return;
         const savedWorkspace = loadProjectWorkspace(loadedProject.id);
@@ -223,7 +238,8 @@ export default function StudioPage() {
         setProjectContextStatus("ready");
       })
       .catch((cause) => {
-        if (!alive) return;
+        if (!alive || isAbortError(cause)) return;
+        logRequestFailure("load assessment project", cause);
         const reason = cause instanceof ApiError && cause.status === 404
           ? "project-not-found"
           : "project-load-failed";
@@ -232,6 +248,7 @@ export default function StudioPage() {
 
     return () => {
       alive = false;
+      controller.abort();
     };
   }, [router]);
 
@@ -402,12 +419,13 @@ export default function StudioPage() {
           formulaId,
           jobId: snapshot.jobId!,
           startedAt: snapshot.startedAt,
+          inputSignature: snapshot.inputSignature,
         })),
     [assessmentByFormulaId],
   );
   const pendingAssessmentKey = pendingAssessmentJobs
-    .map(({ formulaId, jobId: pendingJobId, startedAt }) =>
-      `${formulaId}:${pendingJobId}:${startedAt}`,
+    .map(({ formulaId, jobId: pendingJobId, startedAt, inputSignature }) =>
+      `${formulaId}:${pendingJobId}:${startedAt}:${inputSignature}`,
     )
     .sort()
     .join("|");
@@ -443,13 +461,22 @@ export default function StudioPage() {
         !assessmentPollExpired(startedAt),
       );
       await Promise.all(
-        activeJobs.map(async ({ formulaId, jobId: pendingJobId }) => {
+        activeJobs.map(async ({ formulaId, jobId: pendingJobId, inputSignature }) => {
           try {
             const record = await api.getAssessment(
               pendingJobId,
               requestController.signal,
             );
             if (cancelled) return;
+            if (
+              !assessmentPollResponseIsCurrent(
+                latestWorkspaceDraft.current.assessmentByFormulaId[formulaId],
+                pendingJobId,
+                inputSignature,
+              )
+            ) {
+              return;
+            }
             pollingFailuresByJobId.current[pendingJobId] = 0;
             if (
               (record.status === "completed" || record.status === "failed") &&
@@ -467,7 +494,15 @@ export default function StudioPage() {
             }
             setAssessmentByFormulaId((previous) => {
               const current = previous[formulaId];
-              if (!current || current.jobId !== pendingJobId) return previous;
+              if (
+                !assessmentPollResponseIsCurrent(
+                  current,
+                  pendingJobId,
+                  inputSignature,
+                )
+              ) {
+                return previous;
+              }
               return {
                 ...previous,
                 [formulaId]: { ...current, assessment: record },
@@ -508,6 +543,9 @@ export default function StudioPage() {
   }, [pendingAssessmentKey, activeId]);
 
   const invalidateFormulaAssessment = (formulaId: string) => {
+    assessmentStartControllerByFormulaId.current[formulaId]?.abort();
+    delete assessmentStartControllerByFormulaId.current[formulaId];
+    setSubmittingFormulaIds((current) => current.filter((id) => id !== formulaId));
     assessmentGenerationByFormulaId.current[formulaId] =
       (assessmentGenerationByFormulaId.current[formulaId] ?? 0) + 1;
     setAssessmentByFormulaId((previous) => {
@@ -553,12 +591,16 @@ export default function StudioPage() {
     }
 
     const runGeneration = assessmentGenerationByFormulaId.current[formulaId] ?? 0;
+    const controller = new AbortController();
+    assessmentStartControllerByFormulaId.current[formulaId] = controller;
     setSubmittingFormulaIds((current) =>
       current.includes(formulaId) ? current : [...current, formulaId],
     );
     try {
       const actives = substances;
-      const validation = await Promise.all(actives.map((item) => api.validateSmiles(item.smiles)));
+      const validation = await Promise.all(
+        actives.map((item) => api.validateSmiles(item.smiles, controller.signal)),
+      );
       const invalidAt = validation.findIndex((item) => !item.valid);
       if (invalidAt >= 0) {
         const message = `SMILES ของ ${actives[invalidAt].name || `สารลำดับ ${invalidAt + 1}`} ไม่ถูกต้อง`;
@@ -568,7 +610,12 @@ export default function StudioPage() {
       }
       const cleaned = withWaterBase(actives); // น้ำเป็นเบส เติมให้รวม 100%
       const inputSignature = formulaAssessmentSignature(actives, runRegion);
-      const { job_id } = await api.createAssessment(cleaned, runRegion, projectId);
+      const { job_id } = await api.createAssessment(
+        cleaned,
+        runRegion,
+        projectId,
+        controller.signal,
+      );
       if ((assessmentGenerationByFormulaId.current[formulaId] ?? 0) !== runGeneration) return;
 
       setAssessmentByFormulaId((previous) => ({
@@ -580,14 +627,22 @@ export default function StudioPage() {
           startedAt: new Date().toISOString(),
         },
       }));
-    } catch (e: any) {
-      if (latestWorkspaceDraft.current.activeFormulaId === formulaId) {
-        const message = e.message ?? String(e);
+    } catch (cause: unknown) {
+      if (
+        !isAbortError(cause) &&
+        assessmentStartControllerByFormulaId.current[formulaId] === controller &&
+        latestWorkspaceDraft.current.activeFormulaId === formulaId
+      ) {
+        logRequestFailure("start assessment", cause);
+        const message = cause instanceof Error ? cause.message : String(cause);
         setError(message);
         toast.error(`เริ่มการวิเคราะห์ไม่สำเร็จ: ${message}`);
       }
     } finally {
-      setSubmittingFormulaIds((current) => current.filter((id) => id !== formulaId));
+      if (assessmentStartControllerByFormulaId.current[formulaId] === controller) {
+        delete assessmentStartControllerByFormulaId.current[formulaId];
+        setSubmittingFormulaIds((current) => current.filter((id) => id !== formulaId));
+      }
     }
   };
   const run = () => runFormula(formula);
@@ -1014,9 +1069,23 @@ export default function StudioPage() {
   const [optBusy, setOptBusy] = useState(false);
   const [optMsg, setOptMsg] = useState<string | null>(null);
   const [pendingOptimization, setPendingOptimization] = useState<FormulaItem[] | null>(null);
+  const optimizationControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    optimizationControllerRef.current?.abort();
+    optimizationControllerRef.current = null;
+    setOptBusy(false);
+    setPendingOptimization(null);
+  }, [activeId]);
+  useEffect(() => () => optimizationControllerRef.current?.abort(), []);
   const optimizeFormula = async () => {
+    if (optBusy) return;
     const actives = formula.filter((it) => it.smiles.trim() && !isWaterItem(it));
     if (!actives.length) return;
+    const targetFormulaId = activeId;
+    const targetSignature = formulaGraphItemsSignature(actives);
+    optimizationControllerRef.current?.abort();
+    const controller = new AbortController();
+    optimizationControllerRef.current = controller;
     setOptBusy(true);
     setOptMsg(null);
     setPendingOptimization(null);
@@ -1035,6 +1104,7 @@ export default function StudioPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question, context: null }),
+        signal: controller.signal,
       });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
@@ -1061,12 +1131,30 @@ export default function StudioPage() {
       if (items.some((item: FormulaItem) => item.concentration <= 0 || item.concentration > 100) || total > 100.0001) {
         throw new Error(`อัตราส่วนที่ AI เสนอไม่ถูกต้อง (รวม ${total.toFixed(2)}%)`);
       }
+      const currentFormula = latestWorkspaceDraft.current.formulas.find(
+        (item) => item.id === targetFormulaId,
+      );
+      if (
+        optimizationControllerRef.current !== controller ||
+        !currentFormula ||
+        formulaGraphItemsSignature(
+          currentFormula.items.filter((item) => item.smiles.trim() && !isWaterItem(item)),
+        ) !== targetSignature
+      ) {
+        return;
+      }
       setPendingOptimization(items);
       setOptMsg("AI เสนออัตราส่วนใหม่แล้ว กรุณาตรวจ Before → After ก่อนยืนยัน");
-    } catch (e: any) {
-      setOptMsg("✗ ปรับไม่สำเร็จ: " + (e?.message || String(e)));
+    } catch (cause: unknown) {
+      if (!isAbortError(cause) && optimizationControllerRef.current === controller) {
+        logRequestFailure("optimize formula", cause);
+        setOptMsg("✗ ปรับไม่สำเร็จ: " + (cause instanceof Error ? cause.message : String(cause)));
+      }
     } finally {
-      setOptBusy(false);
+      if (optimizationControllerRef.current === controller) {
+        optimizationControllerRef.current = null;
+        setOptBusy(false);
+      }
     }
   };
 
@@ -2269,8 +2357,14 @@ function TrustReport() {
   const [metrics, setMetrics] = useState<ModelMetricsPayload | null>(null);
   const [info, setInfo] = useState<ModelInfoPayload | null>(null);
   useEffect(() => {
-    api.getModelMetrics().then(setMetrics).catch(() => {});
-    api.getModelInfo().then(setInfo).catch(() => {});
+    const controller = new AbortController();
+    api.getModelMetrics(controller.signal).then(setMetrics).catch((cause) => {
+      if (!isAbortError(cause)) logRequestFailure("load trust metrics", cause);
+    });
+    api.getModelInfo(controller.signal).then(setInfo).catch((cause) => {
+      if (!isAbortError(cause)) logRequestFailure("load trust model info", cause);
+    });
+    return () => controller.abort();
   }, []);
   const pct = (x: number | null | undefined) => (x == null ? "—" : x.toFixed(2));
 

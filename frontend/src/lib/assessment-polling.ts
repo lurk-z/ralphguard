@@ -18,3 +18,15 @@ export function assessmentPollExpired(
   if (!Number.isFinite(startedMs)) return true;
   return nowMs - startedMs >= ASSESSMENT_POLL_MAX_AGE_MS;
 }
+
+export function assessmentPollResponseIsCurrent(
+  snapshot: { jobId?: string | null; inputSignature?: string } | null | undefined,
+  expectedJobId: string,
+  expectedInputSignature: string,
+): boolean {
+  return Boolean(
+    snapshot &&
+      snapshot.jobId === expectedJobId &&
+      snapshot.inputSignature === expectedInputSignature,
+  );
+}

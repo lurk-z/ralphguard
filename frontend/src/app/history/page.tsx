@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { AssessmentSummary, ProjectOut, api } from "../../lib/api";
+import { AssessmentSummary, ProjectOut, api, apiErrorMessage } from "../../lib/api";
+import {
+  createLatestRequestGate,
+  isAbortError,
+  logRequestFailure,
+  type LatestRequestGate,
+} from "../../lib/request-reliability";
 
 const REGION_LABEL_TH: Record<string, string> = {
   forearm: "ท่อนแขน",
@@ -24,21 +30,39 @@ export default function HistoryPage() {
   const [projectId, setProjectId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const assessmentGateRef = useRef<LatestRequestGate | null>(null);
+  if (!assessmentGateRef.current) assessmentGateRef.current = createLatestRequestGate();
 
   useEffect(() => {
-    api.listProjects().then(setProjects).catch(() => setProjects([]));
+    const controller = new AbortController();
+    api.listProjects(controller.signal).then(setProjects).catch((cause) => {
+      if (isAbortError(cause)) return;
+      logRequestFailure("load history projects", cause);
+      setProjects([]);
+    });
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
+    const gate = assessmentGateRef.current!;
+    const lease = gate.start();
     setLoading(true);
     api
-      .listAssessments(projectId, 100)
+      .listAssessments(projectId, 100, lease.signal)
       .then((r) => {
+        if (!lease.isCurrent()) return;
         setRows(r);
         setError(null);
       })
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
+      .catch((cause) => {
+        if (isAbortError(cause)) return;
+        logRequestFailure("load assessment history", cause);
+        setError(apiErrorMessage(cause, "โหลดประวัติไม่สำเร็จ"));
+      })
+      .finally(() => {
+        if (lease.isCurrent()) setLoading(false);
+      });
+    return () => gate.cancel();
   }, [projectId]);
 
   const projectName = (id: number | null) =>

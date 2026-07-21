@@ -1,7 +1,7 @@
 "use client";
 
 // Create Project — focused two-step entry into the assessment workspace.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import DashboardShell from "@/components/layout/DashboardShell";
 import { api, apiErrorMessage } from "@/lib/api";
+import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
 
 const NAME_MAX = 100;
 const DESC_MAX = 500;
@@ -32,19 +33,36 @@ export default function NewProjectPage() {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [creating, setCreating] = useState(false);
+  const createControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => createControllerRef.current?.abort(), []);
 
   const canCreate = name.trim().length > 0 && !creating;
 
   const create = async () => {
     if (!canCreate) return;
     setCreating(true);
+    createControllerRef.current?.abort();
+    const controller = new AbortController();
+    createControllerRef.current = controller;
     try {
-      const project = await api.createProject(name.trim(), desc.trim() || undefined);
+      const project = await api.createProject(
+        name.trim(),
+        desc.trim() || undefined,
+        controller.signal,
+      );
+      if (createControllerRef.current !== controller) return;
       router.push(`/projects/${project.id}/assess`);
     } catch (cause) {
-      toast.error(apiErrorMessage(cause, "สร้างโปรเจกต์ไม่สำเร็จ"));
+      if (!isAbortError(cause) && createControllerRef.current === controller) {
+        logRequestFailure("create project", cause);
+        toast.error(apiErrorMessage(cause, "สร้างโปรเจกต์ไม่สำเร็จ"));
+      }
     } finally {
-      setCreating(false);
+      if (createControllerRef.current === controller) {
+        createControllerRef.current = null;
+        setCreating(false);
+      }
     }
   };
 

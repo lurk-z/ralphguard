@@ -1,5 +1,15 @@
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+export class ApiTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`Request timed out after ${timeoutMs} ms`);
+    this.name = "ApiTimeoutError";
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly statusText: string;
@@ -15,14 +25,14 @@ export class ApiError extends Error {
 }
 
 export function apiErrorMessage(cause: unknown, fallback: string): string {
+  if (cause instanceof ApiTimeoutError) {
+    return `${fallback}: หมดเวลาการเชื่อมต่อเซิร์ฟเวอร์`;
+  }
   if (cause instanceof ApiError) {
     if (cause.status === 404) return `${fallback}: ไม่พบข้อมูลที่ร้องขอ`;
     if (cause.status === 422 && cause.detail) return `${fallback}: ${cause.detail}`;
     if (cause.status >= 500) return `${fallback}: เซิร์ฟเวอร์ยังไม่พร้อมใช้งาน`;
     return `${fallback}: ${cause.detail || cause.statusText}`;
-  }
-  if (cause instanceof Error && cause.name === "AbortError") {
-    return `${fallback}: หมดเวลาการเชื่อมต่อเซิร์ฟเวอร์`;
   }
   return `${fallback}: ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้`;
 }
@@ -126,10 +136,14 @@ export type AssessmentRecord = {
 async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Promise<T> {
   const ctrl = new AbortController();
   const externalSignal = init?.signal;
+  let timedOut = false;
   const abortFromCaller = () => ctrl.abort();
   if (externalSignal?.aborted) ctrl.abort();
   else externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  const t = setTimeout(() => {
+    timedOut = true;
+    ctrl.abort();
+  }, timeoutMs);
   try {
     const res = await fetch(`${API}${path}`, {
       ...init,
@@ -151,6 +165,9 @@ async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Pro
     }
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
+  } catch (cause) {
+    if (timedOut && !externalSignal?.aborted) throw new ApiTimeoutError(timeoutMs);
+    throw cause;
   } finally {
     clearTimeout(t);
     externalSignal?.removeEventListener("abort", abortFromCaller);
@@ -158,48 +175,64 @@ async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Pro
 }
 
 export const api = {
-  validateSmiles: (smiles: string) =>
+  validateSmiles: (smiles: string, signal?: AbortSignal) =>
     http<ValidateResult>("/api/substances/validate", {
       method: "POST",
       body: JSON.stringify({ smiles }),
+      signal,
     }),
 
-  createAssessment: (formula: FormulaItem[], region: Region, projectId?: number | null) =>
+  createAssessment: (
+    formula: FormulaItem[],
+    region: Region,
+    projectId?: number | null,
+    signal?: AbortSignal,
+  ) =>
     http<{ job_id: string; status: string }>("/api/assessments/", {
       method: "POST",
       body: JSON.stringify({ formula, region, project_id: projectId ?? null }),
+      signal,
     }),
 
   getAssessment: (jobId: string, signal?: AbortSignal) =>
     http<AssessmentRecord>(`/api/assessments/${jobId}`, { signal }),
 
-  listAssessments: (projectId?: number | null, limit = 50) =>
+  listAssessments: (projectId?: number | null, limit = 50, signal?: AbortSignal) =>
     http<AssessmentSummary[]>(
       `/api/assessments/?limit=${limit}` +
         (projectId != null ? `&project_id=${projectId}` : ""),
+      { signal },
     ),
 
-  listProjects: () => http<ProjectOut[]>("/api/projects/"),
+  listProjects: (signal?: AbortSignal) => http<ProjectOut[]>("/api/projects/", { signal }),
 
-  getProject: (projectId: number) => http<ProjectOut>(`/api/projects/${projectId}`),
+  getProject: (projectId: number, signal?: AbortSignal) =>
+    http<ProjectOut>(`/api/projects/${projectId}`, { signal }),
 
-  createProject: (name: string, description?: string) =>
+  createProject: (name: string, description?: string, signal?: AbortSignal) =>
     http<ProjectOut>("/api/projects/", {
       method: "POST",
       body: JSON.stringify({ name, description: description ?? null }),
+      signal,
     }),
 
-  updateProject: (projectId: number, name: string, description?: string) =>
+  updateProject: (
+    projectId: number,
+    name: string,
+    description?: string,
+    signal?: AbortSignal,
+  ) =>
     http<ProjectOut>(`/api/projects/${projectId}`, {
       method: "PATCH",
       body: JSON.stringify({ name, description: description?.trim() || null }),
+      signal,
     }),
 
-  deleteProject: (projectId: number) =>
-    http<void>(`/api/projects/${projectId}`, { method: "DELETE" }),
+  deleteProject: (projectId: number, signal?: AbortSignal) =>
+    http<void>(`/api/projects/${projectId}`, { method: "DELETE", signal }),
 
-  listProjectAssessments: (projectId: number) =>
-    http<AssessmentSummary[]>(`/api/projects/${projectId}/assessments`),
+  listProjectAssessments: (projectId: number, signal?: AbortSignal) =>
+    http<AssessmentSummary[]>(`/api/projects/${projectId}/assessments`, { signal }),
 
   getProjectAssessment: (
     projectId: number,
@@ -211,9 +244,11 @@ export const api = {
       { signal },
     ),
 
-  getModelMetrics: () => http<ModelMetricsPayload>("/api/models/metrics"),
+  getModelMetrics: (signal?: AbortSignal) =>
+    http<ModelMetricsPayload>("/api/models/metrics", { signal }),
 
-  getModelInfo: () => http<ModelInfoPayload>("/api/models/info"),
+  getModelInfo: (signal?: AbortSignal) =>
+    http<ModelInfoPayload>("/api/models/info", { signal }),
 };
 
 export type AssessmentSummary = {

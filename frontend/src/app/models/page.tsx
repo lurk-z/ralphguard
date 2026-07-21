@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-import { EndpointMetric, ModelInfoPayload, ModelMetricsPayload, api } from "../../lib/api";
+import { EndpointMetric, ModelInfoPayload, ModelMetricsPayload, api, apiErrorMessage } from "../../lib/api";
+import { isAbortError, logRequestFailure } from "../../lib/request-reliability";
 
 function pct(x: number | null | undefined) {
   return x == null ? "—" : `${(x * 100).toFixed(1)}%`;
@@ -33,12 +34,21 @@ export default function ModelsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.getModelMetrics(), api.getModelInfo()])
+    const controller = new AbortController();
+    Promise.all([
+      api.getModelMetrics(controller.signal),
+      api.getModelInfo(controller.signal),
+    ])
       .then(([m, i]) => {
         setMetrics(m);
         setInfo(i);
       })
-      .catch((e) => setError(String(e)));
+      .catch((cause) => {
+        if (isAbortError(cause)) return;
+        logRequestFailure("load model reliability", cause);
+        setError(apiErrorMessage(cause, "โหลดข้อมูลโมเดลไม่สำเร็จ"));
+      });
+    return () => controller.abort();
   }, []);
 
   return (
