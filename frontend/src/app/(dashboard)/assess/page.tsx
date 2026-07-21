@@ -168,6 +168,10 @@ export default function StudioPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [formulaPendingDeletion, setFormulaPendingDeletion] = useState<WorkspaceFormula | null>(null);
   const [recentlyCreatedFormulaId, setRecentlyCreatedFormulaId] = useState<string | null>(null);
+  const [recentlyAddedIngredient, setRecentlyAddedIngredient] = useState<{
+    formulaId: string;
+    index: number;
+  } | null>(null);
   const [draft, setDraft] = useState<{ name: string; type: string; region: Region; from: string }>({
     name: "",
     type: "ครีม / โลชั่น",
@@ -182,6 +186,11 @@ export default function StudioPage() {
     const timeout = window.setTimeout(() => setRecentlyCreatedFormulaId(null), 700);
     return () => window.clearTimeout(timeout);
   }, [recentlyCreatedFormulaId]);
+  useEffect(() => {
+    if (!recentlyAddedIngredient) return;
+    const timeout = window.setTimeout(() => setRecentlyAddedIngredient(null), 700);
+    return () => window.clearTimeout(timeout);
+  }, [recentlyAddedIngredient]);
   const setFormula = (u: FormulaItem[] | ((prev: FormulaItem[]) => FormulaItem[])) =>
     setFormulas((prev) =>
       prev.map((f) =>
@@ -678,8 +687,10 @@ export default function StudioPage() {
     setFormula((prev) => prev.filter((_, idx) => idx !== i));
   };
   const addItem = () => {
+    const addedIndex = formula.length;
     invalidateFormulaAssessment(activeId);
     setFormula((prev) => [...prev, { name: "", smiles: "", concentration: 10 }]);
+    setRecentlyAddedIngredient({ formulaId: activeId, index: addedIndex });
   };
 
   // Create / select saved formulas
@@ -942,8 +953,10 @@ export default function StudioPage() {
   const addFromCatalog = (smiles: string) => {
     const it = SUBSTANCE_LIBRARY.flatMap((g) => g.items).find((s) => s.smiles === smiles);
     if (!it) return;
+    const addedIndex = formula.length;
     invalidateFormulaAssessment(activeId);
     setFormula((prev) => [...prev, { name: it.name, smiles: it.smiles, concentration: it.conc }]);
+    setRecentlyAddedIngredient({ formulaId: activeId, index: addedIndex });
   };
 
   // OCR: read an ingredient-label photo (via the LabelScanModal popup).
@@ -1630,8 +1643,19 @@ export default function StudioPage() {
                       จึงไม่เหลือที่ให้น้ำ — ลองลดความเข้มข้นลง</span>
                     </div>
                   )}
-                  {formula.map((it, i) => (
-                    <div key={i} className="rounded-lg border border-slate-200 bg-slate-100/50 p-1.5">
+                  {formula.map((it, i) => {
+                    const wasJustAdded =
+                      recentlyAddedIngredient?.formulaId === activeId &&
+                      recentlyAddedIngredient.index === i;
+                    return (
+                      <div
+                        key={i}
+                        className={`rounded-lg border p-1.5 transition-[background-color,border-color,box-shadow] duration-300 ${
+                          wasJustAdded
+                            ? "animate-in border-brand/30 bg-teal-50/80 ring-1 ring-brand/20 fade-in-0 slide-in-from-right-2 motion-reduce:animate-none"
+                            : "border-slate-200 bg-slate-100/50"
+                        }`}
+                      >
                       <div className="flex items-center gap-1">
                         <SemanticIcon name="circle" className="size-2.5 shrink-0 text-brand" />
                         <input
@@ -1680,8 +1704,9 @@ export default function StudioPage() {
                           </div>
                         );
                       })()}
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                   <div className="flex items-center gap-2 pt-0.5">
                     <button onClick={addItem} className="text-xs font-medium text-brand hover:underline">+ เพิ่มสาร</button>
                     <span className="text-[10px] text-slate-800/30">หรือ</span>
@@ -1860,21 +1885,20 @@ export default function StudioPage() {
           )}
           {mode === "trust" && <TrustReport />}
 
-          {/* Keep the eraser discoverable; it becomes usable when paint results exist. */}
+          {/* The eraser edits the selected formula's paint mask, so it is usable before assessment too. */}
           {mode === "assess" && (
             <div className="pointer-events-none absolute bottom-4 right-4 z-40 print:hidden">
               <div className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-soft backdrop-blur">
                 <button
                   type="button"
                   onClick={() => setEraseMode((value) => !value)}
-                  disabled={!completed}
-                  title={completed ? (eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบระบาย") : "ประเมินสูตรก่อนใช้ยางลบ"}
+                  title={eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบระบาย"}
                   aria-pressed={eraseMode}
                   className={`flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-semibold transition ${
                     eraseMode
                       ? "bg-slate-900 text-white shadow-sm"
                       : "text-slate-600 hover:bg-slate-100"
-                  } disabled:cursor-not-allowed disabled:opacity-40`}
+                  }`}
                 >
                   <Eraser className="size-4" />
                   {eraseMode ? "ลากเพื่อระบายลบ" : "ยางลบ"}
