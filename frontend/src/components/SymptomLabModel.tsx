@@ -188,7 +188,10 @@ function usePlayAllAnimations(
 }
 
 /** Frame the camera on the FACE skin mesh (Material.001), not the whole group. */
-function useFaceCameraFit(groupRef: React.RefObject<THREE.Group>) {
+function useFaceCameraFit(
+  groupRef: React.RefObject<THREE.Group>,
+  distanceScale = 1.5,
+) {
   const { camera, get } = useThree();
   const fitted = useRef(false);
   useFrame(() => {
@@ -220,7 +223,7 @@ function useFaceCameraFit(groupRef: React.RefObject<THREE.Group>) {
 
     const persp = camera as THREE.PerspectiveCamera;
     const fovRad = (persp.fov * Math.PI) / 180;
-    const distance = (maxDim / 2 / Math.tan(fovRad / 2)) * 1.5;
+    const distance = (maxDim / 2 / Math.tan(fovRad / 2)) * distanceScale;
 
     persp.position.set(center.x, center.y, center.z + distance);
     persp.near = Math.max(0.01, distance / 100);
@@ -252,6 +255,7 @@ export function PaintSymptomModel({
   onPaintChange,
   occupiedPaint = [],
   onPaintBlocked,
+  cameraDistanceScale,
 }: {
   paintOwnerKey?: string;
   activeSymptom: SkinKey;
@@ -269,6 +273,7 @@ export function PaintSymptomModel({
   onPaintChange?: (snapshot: PaintMaskSnapshot) => void;
   occupiedPaint?: PaintMaskSnapshot[];
   onPaintBlocked?: () => void;
+  cameraDistanceScale?: number;
 }) {
   const { scene: rawScene, animations } = useGLTF("/models/head.glb", true);
   const gl = useThree((s) => s.gl);
@@ -278,7 +283,7 @@ export function PaintSymptomModel({
   const group = useRef<THREE.Group>(null);
   const { actions } = useAnimations(animations, group);
   usePlayAllAnimations(actions);
-  useFaceCameraFit(group);
+  useFaceCameraFit(group, cameraDistanceScale);
 
   const brushSizeRef = useRef(brushSizePct);
   useEffect(() => void (brushSizeRef.current = brushSizePct), [brushSizePct]);
