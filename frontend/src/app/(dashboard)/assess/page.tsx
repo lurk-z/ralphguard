@@ -29,6 +29,16 @@ import {
 } from "@/lib/catalog";
 import VoiceAssistant from "@/components/VoiceAssistant";
 import LabelScanModal, { type ScanImportContext } from "@/components/LabelScanModal";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { assessmentStartProblem } from "@/lib/assessment-preconditions";
 import {
@@ -149,13 +159,15 @@ export default function StudioPage() {
   const [templateRisk, setTemplateRisk] = useState<"all" | "low" | "mid" | "high">("all");
   const [eraseMode, setEraseMode] = useState(false);
   const [showTrend, setShowTrend] = useState(false);
-  const [formulaPanelOpen, setFormulaPanelOpen] = useState(true);
+  const [formulaPanelOpen, setFormulaPanelOpen] = useState(false);
   const [formulas, setFormulas] = useState<WorkspaceFormula[]>([
     { id: "f1", name: "สูตร A", type: "ครีม / โลชั่น", region: "face", items: [] },
   ]);
   const [activeId, setActiveId] = useState("f1");
   const [editingFormulaId, setEditingFormulaId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [formulaPendingDeletion, setFormulaPendingDeletion] = useState<WorkspaceFormula | null>(null);
+  const [recentlyCreatedFormulaId, setRecentlyCreatedFormulaId] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ name: string; type: string; region: Region; from: string }>({
     name: "",
     type: "ครีม / โลชั่น",
@@ -164,6 +176,12 @@ export default function StudioPage() {
   });
   const activeFormula = formulas.find((f) => f.id === activeId) ?? formulas[0];
   const formula = activeFormula?.items ?? [];
+
+  useEffect(() => {
+    if (!recentlyCreatedFormulaId) return;
+    const timeout = window.setTimeout(() => setRecentlyCreatedFormulaId(null), 700);
+    return () => window.clearTimeout(timeout);
+  }, [recentlyCreatedFormulaId]);
   const setFormula = (u: FormulaItem[] | ((prev: FormulaItem[]) => FormulaItem[])) =>
     setFormulas((prev) =>
       prev.map((f) =>
@@ -228,7 +246,8 @@ export default function StudioPage() {
           setRegion(savedWorkspace.region);
           setDayIdx(savedWorkspace.dayIdx);
           setMode(savedWorkspace.mode);
-          setFormulaPanelOpen(savedWorkspace.formulaPanelOpen);
+          // Always start with the formula panel closed when entering a project.
+          setFormulaPanelOpen(false);
           setAssessmentByFormulaId(savedWorkspace.assessmentByFormulaId);
           setPaintByFormulaId(savedWorkspace.paintByFormulaId);
           setGraphByFormulaId(savedWorkspace.graphByFormulaId);
@@ -686,6 +705,7 @@ export default function StudioPage() {
     }
     setFormulas((prev) => [...prev, { id, name: draft.name.trim() || "สูตรใหม่", type: draft.type, region: reg, items }]);
     setActiveId(id);
+    setRecentlyCreatedFormulaId(id);
     setRegion(reg);
     setShowCreate(false);
   };
@@ -697,6 +717,7 @@ export default function StudioPage() {
     const n = formulas.filter((f) => (f.type || "").includes("Node")).length + 1;
     setFormulas((prev) => [...prev, { id, name: `สูตรจาก Node ${n}`, type: "จาก Node graph", region, items: actives }]);
     setActiveId(id);
+    setRecentlyCreatedFormulaId(id);
   };
   const syncFormulaFromGraph = (formulaId: string, items: FormulaItem[]) => {
     const current = latestWorkspaceDraft.current.formulas.find(
@@ -993,6 +1014,13 @@ export default function StudioPage() {
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : "นำเข้าผล OCR ไม่สำเร็จ");
     }
+  };
+  const requestDeleteFormula = (formulaToDelete: WorkspaceFormula) => {
+    if (formulaToDelete.items.length > 0) {
+      setFormulaPendingDeletion(formulaToDelete);
+      return;
+    }
+    deleteFormula(formulaToDelete.id);
   };
 
   const importCsvFile = async (file: File) => {
@@ -1418,6 +1446,10 @@ export default function StudioPage() {
                     f.id === activeId
                       ? "border-brand bg-teal-50 text-brand-dark"
                       : "border-slate-200 bg-white text-slate-800 hover:border-brand/50"
+                  } ${
+                    f.id === recentlyCreatedFormulaId
+                      ? "animate-in fade-in-0 slide-in-from-bottom-2 ring-2 ring-brand/20 duration-300 motion-reduce:animate-none"
+                      : ""
                   }`}
                 >
                   <SemanticIcon name="flask" className="size-4 shrink-0" />
@@ -1462,13 +1494,13 @@ export default function StudioPage() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        deleteFormula(f.id);
+                        requestDeleteFormula(f);
                       }}
                       title="ลบสูตร"
                       aria-label="ลบสูตร"
                       className="grid size-4 shrink-0 place-items-center rounded text-slate-300 opacity-0 transition hover:bg-rose-50 hover:text-rose-500 group-hover:opacity-100"
                     >
-                      <SemanticIcon name="x" className="size-3" />
+                      <SemanticIcon name="trash" className="size-3" />
                     </button>
                   )}
                 </div>
@@ -2021,11 +2053,11 @@ export default function StudioPage() {
       {/* Create-formula modal (centered, blurred backdrop) */}
       {showCreate && (
         <div
-          className="fixed inset-0 z-50 grid place-items-center bg-slate-900/30 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 grid animate-in place-items-center bg-slate-900/30 p-4 fade-in-0 duration-200 backdrop-blur-sm motion-reduce:animate-none"
           onClick={() => setShowCreate(false)}
         >
           <div
-            className="w-[min(92vw,420px)] rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+            className="w-[min(92vw,420px)] animate-in rounded-2xl border border-slate-200 bg-white p-5 shadow-xl fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-200 motion-reduce:animate-none"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center gap-2">
@@ -2129,6 +2161,39 @@ export default function StudioPage() {
         </div>
       )}
 
+      <AlertDialog
+        open={Boolean(formulaPendingDeletion)}
+        onOpenChange={(open) => {
+          if (!open) setFormulaPendingDeletion(null);
+        }}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              ลบสูตร “{formulaPendingDeletion?.name}” ใช่ไหม?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              สูตรนี้มีสาร {formulaPendingDeletion?.items.length ?? 0} รายการ ผลประเมิน รอยที่ทา
+              และข้อมูลของสูตรนี้จะถูกลบทั้งหมด
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction
+              className="gap-2 bg-rose-600 text-white hover:bg-rose-700 focus-visible:ring-rose-600"
+              onClick={() => {
+                if (!formulaPendingDeletion) return;
+                deleteFormula(formulaPendingDeletion.id);
+                setFormulaPendingDeletion(null);
+              }}
+            >
+              <SemanticIcon name="trash" className="size-4" />
+              ลบสูตร
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <LabelScanModal open={scanOpen} onClose={closeLabelScan} onImport={importScannedItems} />
     </div>
   );
@@ -2176,7 +2241,13 @@ function SubstanceLibraryPicker({ onSelect }: { onSelect: (smiles: string) => vo
         </button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" sideOffset={8} className="w-[350px] overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-2xl">
+      <PopoverContent
+        side="right"
+        align="start"
+        sideOffset={12}
+        collisionPadding={16}
+        className="w-[350px] overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-2xl"
+      >
         <div className="border-b border-slate-100 bg-gradient-to-r from-teal-50 to-white p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <div>
