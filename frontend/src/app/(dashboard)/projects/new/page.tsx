@@ -3,6 +3,7 @@
 // Create Project — focused two-step entry into the assessment workspace.
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   ArrowLeft,
   ArrowRight,
@@ -21,7 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import DashboardShell from "@/components/layout/DashboardShell";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
 
 const NAME_MAX = 100;
 const DESC_MAX = 500;
@@ -40,10 +41,8 @@ export default function NewProjectPage() {
     try {
       const project = await api.createProject(name.trim(), desc.trim() || undefined);
       router.push(`/projects/${project.id}/assess`);
-    } catch {
-      // Backend unreachable — continue the flow with a local id so the
-      // workspace is still reachable for demos.
-      router.push(`/projects/local-${Date.now()}/assess`);
+    } catch (cause) {
+      toast.error(apiErrorMessage(cause, "สร้างโปรเจกต์ไม่สำเร็จ"));
     } finally {
       setCreating(false);
     }

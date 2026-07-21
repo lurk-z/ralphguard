@@ -38,6 +38,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, useAnimations, useGLTF } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import type { PaintMaskSnapshot } from "@/lib/project-workspace";
 
 // The four paintable skin symptoms (eye redness is a separate, non-painted category).
 export type SkinKey = "redness" | "papule" | "peeling" | "edema";
@@ -121,7 +122,12 @@ vec2 worley(vec3 P, float freq, float seed){
   return vec2(f1, f2);
 }`;
 
-export type PaintApi = { clear: () => void; run: () => void; fillAll: () => void };
+export type PaintApi = {
+  clear: () => void;
+  run: () => void;
+  fillAll: () => void;
+  snapshot: () => PaintMaskSnapshot;
+};
 export type PaintHoverInfo = {
   x: number;
   y: number;
@@ -240,6 +246,10 @@ export function PaintSymptomModel({
   eraseMode = false,
   onHover,
   paintSymptoms,
+  initialPaint,
+  onPaintChange,
+  occupiedPaint = [],
+  onPaintBlocked,
 }: {
   activeSymptom: SkinKey;
   sev: Record<SkinKey, number>; // 0..1 severity PER symptom (each kept independently)
@@ -252,6 +262,10 @@ export function PaintSymptomModel({
   // Production assessment can paint several endpoint-driven symptoms with one
   // stroke. The standalone lab omits this and continues to paint only activeSymptom.
   paintSymptoms?: SkinKey[];
+  initialPaint?: PaintMaskSnapshot | null;
+  onPaintChange?: (snapshot: PaintMaskSnapshot) => void;
+  occupiedPaint?: PaintMaskSnapshot[];
+  onPaintBlocked?: () => void;
 }) {
   const { scene: rawScene, animations } = useGLTF("/models/head.glb", true);
   const gl = useThree((s) => s.gl);
@@ -328,6 +342,10 @@ export function PaintSymptomModel({
   // Keep the production paint set in a ref so pointer events always use the
   // latest endpoint mapping; the standalone lab falls back to activeSymptom.
   const paintSymptomsRef = useRef<SkinKey[]>(paintSymptoms ?? [activeSymptom]);
+  const onPaintChangeRef = useRef(onPaintChange);
+  const onPaintBlockedRef = useRef(onPaintBlocked);
+  useEffect(() => void (onPaintChangeRef.current = onPaintChange), [onPaintChange]);
+  useEffect(() => void (onPaintBlockedRef.current = onPaintBlocked), [onPaintBlocked]);
   useEffect(() => {
     paintSymptomsRef.current = paintSymptoms?.length ? paintSymptoms : [activeSymptom];
   }, [paintSymptoms, activeSymptom]);
@@ -350,6 +368,169 @@ export function PaintSymptomModel({
       redness: make(), papule: make(), peeling: make(), edema: make(),
     } as Record<SkinKey, { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture }>;
   }, []);
+
+  // Union of every non-selected formula's paint. It is deliberately separate
+  // from the active symptom masks: other formulas remain visible as test-cream
+  // marks, but can never inherit the selected formula's assessment severity.
+  const occupiedMask = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1024;
+    canvas.height = 1024;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.flipY = false;
+    tex.colorSpace = THREE.NoColorSpace;
+    return { canvas, ctx, tex };
+  }, []);
+  const occupiedReady = useRef(false);
+  const blockedDuringStroke = useRef(false);
+  const paintProbe = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    return { canvas, ctx: canvas.getContext("2d")! };
+  }, []);
+
+  const hasAnyPaint = () =>
+    SKIN_KEYS.some((key) => {
+      paintProbe.ctx.globalCompositeOperation = "source-over";
+      paintProbe.ctx.clearRect(0, 0, paintProbe.canvas.width, paintProbe.canvas.height);
+      paintProbe.ctx.drawImage(
+        masks[key].canvas,
+        0,
+        0,
+        paintProbe.canvas.width,
+        paintProbe.canvas.height,
+      );
+      const pixels = paintProbe.ctx.getImageData(
+        0,
+        0,
+        paintProbe.canvas.width,
+        paintProbe.canvas.height,
+      ).data;
+      for (let index = 0; index < pixels.length; index += 4) {
+        if (pixels[index] > 12) return true;
+      }
+      return false;
+    });
+
+  const snapshotMasks = (): PaintMaskSnapshot => {
+    const snapshot: PaintMaskSnapshot = { hasPaint: hasAnyPaint() };
+    SKIN_KEYS.forEach((key) => {
+      snapshot[key] = masks[key].canvas.toDataURL("image/png");
+    });
+    return snapshot;
+  };
+
+  const notifyPaintChange = () => {
+    onPaintChangeRef.current?.(snapshotMasks());
+  };
+
+  // A formula switch remounts the assessment renderer with its own snapshot.
+  // Restore the saved grayscale masks without emitting a change event, otherwise
+  // hydration would rewrite localStorage before the images finish loading.
+  useEffect(() => {
+    let cancelled = false;
+    const clearMasks = () => {
+      SKIN_KEYS.forEach((key) => {
+        const mask = masks[key];
+        mask.ctx.globalCompositeOperation = "source-over";
+        mask.ctx.fillStyle = "#000000";
+        mask.ctx.fillRect(0, 0, mask.canvas.width, mask.canvas.height);
+        mask.tex.needsUpdate = true;
+      });
+    };
+    clearMasks();
+    if (!initialPaint) return () => void (cancelled = true);
+
+    void Promise.all(
+      SKIN_KEYS.map(
+        (key) =>
+          new Promise<void>((resolve) => {
+            const dataUrl = initialPaint[key];
+            if (!dataUrl) return resolve();
+            const image = new Image();
+            image.onload = () => {
+              if (!cancelled) {
+                const mask = masks[key];
+                mask.ctx.globalCompositeOperation = "source-over";
+                mask.ctx.drawImage(image, 0, 0, mask.canvas.width, mask.canvas.height);
+                mask.tex.needsUpdate = true;
+              }
+              resolve();
+            };
+            image.onerror = () => resolve();
+            image.src = dataUrl;
+          }),
+      ),
+    ).then(() => {
+      // Old workspace snapshots did not carry hasPaint metadata. Once their
+      // images are restored, emit the same masks with accurate pixel presence
+      // so refresh migration completes without guessing from a PNG's existence.
+      if (!cancelled) notifyPaintChange();
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // initialPaint belongs to this mounted formula and never changes in place.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [masks]);
+
+  // Formula switches remount this component, so occupiedPaint is an immutable
+  // snapshot for the lifetime of the renderer. Merge every symptom layer from
+  // every other formula into one grayscale collision/display mask.
+  useEffect(() => {
+    let cancelled = false;
+    occupiedReady.current = occupiedPaint.length === 0;
+    occupiedMask.ctx.globalCompositeOperation = "source-over";
+    occupiedMask.ctx.fillStyle = "#000000";
+    occupiedMask.ctx.fillRect(0, 0, occupiedMask.canvas.width, occupiedMask.canvas.height);
+    occupiedMask.tex.needsUpdate = true;
+
+    const dataUrls = occupiedPaint.flatMap((snapshot) =>
+      SKIN_KEYS.map((key) => snapshot[key]).filter((value): value is string => Boolean(value)),
+    );
+    if (dataUrls.length === 0) {
+      occupiedReady.current = true;
+      return () => void (cancelled = true);
+    }
+
+    void Promise.all(
+      dataUrls.map(
+        (dataUrl) =>
+          new Promise<void>((resolve) => {
+            const image = new Image();
+            image.onload = () => {
+              if (!cancelled) {
+                occupiedMask.ctx.globalCompositeOperation = "lighter";
+                occupiedMask.ctx.drawImage(
+                  image,
+                  0,
+                  0,
+                  occupiedMask.canvas.width,
+                  occupiedMask.canvas.height,
+                );
+                occupiedMask.tex.needsUpdate = true;
+              }
+              resolve();
+            };
+            image.onerror = () => resolve();
+            image.src = dataUrl;
+          }),
+      ),
+    ).then(() => {
+      if (!cancelled) occupiedReady.current = true;
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // occupiedPaint belongs to this mounted formula and never changes in place.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [occupiedMask]);
 
   // Seamless tiling vesicle-relief map (baked from the Blender dome pattern).
   // Sampled triplanar in object space inside the papule branch.
@@ -472,12 +653,14 @@ roughnessFactor = mix(roughnessFactor, 0.06, _eyeWetness * 0.72);`,
       const uMaskPapule = { value: masks.papule.tex };
       const uMaskPeeling = { value: masks.peeling.tex };
       const uMaskEdema = { value: masks.edema.tex };
+      const uMaskOccupied = { value: occupiedMask.tex };
 
       mat.onBeforeCompile = (shader) => {
         shader.uniforms.uMaskRedness = uMaskRedness;
         shader.uniforms.uMaskPapule = uMaskPapule;
         shader.uniforms.uMaskPeeling = uMaskPeeling;
         shader.uniforms.uMaskEdema = uMaskEdema;
+        shader.uniforms.uMaskOccupied = uMaskOccupied;
         shader.uniforms.uRevealRedness = uRevealRedness.current;
         shader.uniforms.uRevealPapule = uRevealPapule.current;
         shader.uniforms.uRevealPeeling = uRevealPeeling.current;
@@ -536,6 +719,7 @@ uniform sampler2D uMaskRedness;
 uniform sampler2D uMaskPapule;
 uniform sampler2D uMaskPeeling;
 uniform sampler2D uMaskEdema;
+uniform sampler2D uMaskOccupied;
 uniform float uRevealRedness;
 uniform float uRevealPapule;
 uniform float uRevealPeeling;
@@ -563,11 +747,15 @@ float _mR = clamp(texture2D(uMaskRedness, vPaintUv).r, 0.0, 1.0);
 float _mP = clamp(texture2D(uMaskPapule,  vPaintUv).r, 0.0, 1.0);
 float _mK = clamp(texture2D(uMaskPeeling, vPaintUv).r, 0.0, 1.0);
 float _mE = clamp(texture2D(uMaskEdema,   vPaintUv).r, 0.0, 1.0);
+float _mOccupied = clamp(texture2D(uMaskOccupied, vPaintUv).r, 0.0, 1.0);
 
 // White "test cream" marking = any symptom painted but not yet revealed.
 float _cream = clamp(max(
   max(_mR * (1.0 - uRevealRedness), _mP * (1.0 - uRevealPapule)),
   max(_mK * (1.0 - uRevealPeeling), _mE * (1.0 - uRevealEdema))), 0.0, 1.0);
+// Other formulas stay visible as neutral cream. They are not allowed to use
+// this formula's severity/reveal uniforms.
+_cream = max(_cream, _mOccupied * 0.88);
 
 float gRed   = clamp(_mR * uRevealRedness * uRedness, 0.0, 1.0);
 float gPap   = clamp(_mP * uRevealPapule  * uPapule,  0.0, 1.0);
@@ -584,7 +772,11 @@ vec3 _c = diffuseColor.rgb;
 // ═══════════════ [SX:SCAN-GRID] — paint interaction feedback ═══════════════
 // This locator is driven only by the masks, never by risk severity. A score of
 // zero therefore still produces clear feedback that the brush hit the model.
-float _paintPresence = smoothstep(0.015, 0.12, max(max(_mR, _mP), max(_mK, _mE)));
+float _paintPresence = smoothstep(
+  0.015,
+  0.12,
+  max(max(max(_mR, _mP), max(_mK, _mE)), _mOccupied)
+);
 vec2 _gridUv = fract(vPaintUv * 68.0);
 vec2 _edge = min(_gridUv, 1.0 - _gridUv);
 float _gridX = 1.0 - smoothstep(0.018, 0.045, _edge.x);
@@ -768,7 +960,7 @@ roughnessFactor = clamp(
       };
       mat.needsUpdate = true;
     });
-  }, [scene, gl, masks, blisterTex, blisterNormalTex]);
+  }, [scene, gl, masks, occupiedMask, blisterTex, blisterNormalTex]);
 
   // Run reveals ALL painted symptoms at once; Clear wipes the current paint set
   // (one selected symptom in the lab, or all mapped symptoms in assessment).
@@ -786,6 +978,7 @@ roughnessFactor = clamp(
           revealTargets.current[k] = 0;
           revealRefs[k].current.value = 0;
         });
+        notifyPaintChange();
       },
       run: () => {
         // One press reveals every painted symptom (empty masks show nothing).
@@ -805,7 +998,9 @@ roughnessFactor = clamp(
           m.tex.needsUpdate = true;
           revealTargets.current[k] = 1;
         });
+        notifyPaintChange();
       },
+      snapshot: snapshotMasks,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiRef, masks]);
@@ -828,6 +1023,49 @@ roughnessFactor = clamp(
   });
 
   const dabAt = (uv: THREE.Vector2) => {
+    if (!eraseRef.current) {
+      // Wait for the other formula masks before accepting paint. This closes a
+      // short race immediately after switching formulas where overlap could be
+      // written before their PNG snapshots finish decoding.
+      if (!occupiedReady.current) return;
+
+      const W = occupiedMask.canvas.width;
+      const H = occupiedMask.canvas.height;
+      const px = uv.x * W;
+      const py = uv.y * H;
+      const radius = (brushSizeRef.current / 100) * 0.09 * W;
+      const minX = Math.max(0, Math.floor(px - radius));
+      const minY = Math.max(0, Math.floor(py - radius));
+      const maxX = Math.min(W - 1, Math.ceil(px + radius));
+      const maxY = Math.min(H - 1, Math.ceil(py + radius));
+      const width = Math.max(1, maxX - minX + 1);
+      const height = Math.max(1, maxY - minY + 1);
+      const pixels = occupiedMask.ctx.getImageData(minX, minY, width, height).data;
+      let overlapsOtherFormula = false;
+
+      // Sampling every four pixels is fast enough for continuous strokes while
+      // still detecting the feathered edge of another formula's brush mask.
+      for (let y = 0; y < height && !overlapsOtherFormula; y += 4) {
+        for (let x = 0; x < width; x += 4) {
+          const dx = minX + x - px;
+          const dy = minY + y - py;
+          if (dx * dx + dy * dy > radius * radius) continue;
+          if (pixels[(y * width + x) * 4] > 12) {
+            overlapsOtherFormula = true;
+            break;
+          }
+        }
+      }
+
+      if (overlapsOtherFormula) {
+        if (!blockedDuringStroke.current) {
+          blockedDuringStroke.current = true;
+          onPaintBlockedRef.current?.();
+        }
+        return;
+      }
+    }
+
     // Erasing uses the same brush interaction as painting and clears every
     // symptom mask underneath it so no hidden reaction layer is left behind.
     const targetSymptoms = eraseRef.current ? SKIN_KEYS : paintSymptomsRef.current;
@@ -969,6 +1207,7 @@ roughnessFactor = clamp(
       painting.current = false;
       lastPaintUv.current = null;
       setControls(true);
+      notifyPaintChange();
     }
   };
   useEffect(() => {
@@ -985,6 +1224,7 @@ roughnessFactor = clamp(
           if (!isSkin(e.object)) return;
           e.stopPropagation();
           onHover?.(null);
+          blockedDuringStroke.current = false;
           painting.current = true;
           lastPaintUv.current = null;
           setControls(false);

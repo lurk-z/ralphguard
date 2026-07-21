@@ -6,5 +6,14 @@ import { redirect } from "next/navigation";
  * old mock-only assessment UI while preserving project ownership on every run.
  */
 export default function ProjectAssessmentPage({ params }: { params: { id: string } }) {
-  redirect(`/assess?projectId=${encodeURIComponent(params.id)}`);
+  if (!/^\d+$/.test(params.id)) {
+    redirect("/projects?projectError=invalid-project");
+  }
+
+  const projectId = Number(params.id);
+  if (!Number.isSafeInteger(projectId) || projectId <= 0) {
+    redirect("/projects?projectError=invalid-project");
+  }
+
+  redirect(`/assess?projectId=${projectId}`);
 }

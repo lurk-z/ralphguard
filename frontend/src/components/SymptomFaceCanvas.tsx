@@ -18,6 +18,7 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import type { PaintMaskSnapshot } from "@/lib/project-workspace";
 import {
   PaintSymptomModel,
   type PaintApi,
@@ -69,12 +70,20 @@ export function SymptomFaceCanvas({
   background = "#F4F1EE",
   productName = "สูตรที่ประเมิน",
   eraseMode = false,
+  initialPaint = null,
+  onPaintChange,
+  occupiedPaint = [],
+  onPaintBlocked,
 }: {
   layers?: PaintLayer[];
   armed?: boolean;
   background?: string;
   productName?: string;
   eraseMode?: boolean;
+  initialPaint?: PaintMaskSnapshot | null;
+  onPaintChange?: (snapshot: PaintMaskSnapshot) => void;
+  occupiedPaint?: PaintMaskSnapshot[];
+  onPaintBlocked?: () => void;
 }) {
   const scoreOf = (k: string) => (layers.find((l) => l.key === k)?.score ?? 0) / 100;
   const skin = scoreOf("skin");
@@ -179,6 +188,10 @@ export function SymptomFaceCanvas({
             eraseMode={eraseMode}
             apiRef={apiRef}
             onHover={handleHover}
+            initialPaint={initialPaint}
+            onPaintChange={onPaintChange}
+            occupiedPaint={occupiedPaint}
+            onPaintBlocked={onPaintBlocked}
           />
         </Suspense>
         {/* Left-right orbit only (locked polar) to keep the face front-on. */}

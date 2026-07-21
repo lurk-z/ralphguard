@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { ChevronDown, Eraser, FileUp, House, Search } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   AssessmentRecord,
+  ApiError,
+  apiErrorMessage,
   EndpointMetric,
   FormulaItem,
   ModelInfoPayload,
@@ -23,8 +27,34 @@ import {
   resolveCatalogSubstance,
 } from "@/lib/catalog";
 import VoiceAssistant from "@/components/VoiceAssistant";
-import LabelScanModal from "@/components/LabelScanModal";
+import LabelScanModal, { type ScanImportContext } from "@/components/LabelScanModal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { assessmentStartProblem } from "@/lib/assessment-preconditions";
+import {
+  assessmentPollDelay,
+  assessmentPollExpired,
+} from "@/lib/assessment-polling";
+import {
+  assertNoDuplicateFormulaRows,
+  parseFormulaCsv,
+  type ParsedFormulaCsvRow,
+} from "@/lib/formula-csv";
+import {
+  describeOcrSkippedItems,
+  prepareOcrFormulaReplacement,
+} from "@/lib/formula-ocr";
+import { formulaGraphItemsSignature } from "@/lib/formula-graph";
+import {
+  loadProjectWorkspace,
+  formulaAssessmentSignature,
+  saveProjectWorkspace,
+  type FormulaAssessmentSnapshot,
+  type FormulaGraphSnapshot,
+  type PaintMaskSnapshot,
+  type ProjectWorkspaceDraft,
+  type WorkspaceFormula,
+  type WorkspaceMode,
+} from "@/lib/project-workspace";
 
 // ── 3D head (client-only). Auto-fills irritation by the result intensity. ──
 const FaceView = dynamic(
@@ -52,7 +82,7 @@ const FormulaGraph = dynamic(() => import("@/components/FormulaGraph"), {
   ),
 });
 
-type Mode = "assess" | "nodes" | "trust";
+type Mode = WorkspaceMode;
 
 const REGIONS: { value: Region; label: string; icon: string }[] = [
   { value: "forearm", label: "ท่อนแขน", icon: "💪" },
@@ -83,11 +113,6 @@ const EP_COLOR: Record<string, string> = {
   acute: "#F59E0B", // ส้ม
 };
 
-const SAMPLE: FormulaItem[] = [
-  { name: "Ethanol", smiles: "CCO", concentration: 40 },
-  { name: "Cinnamaldehyde", smiles: "O=C/C=C/c1ccccc1", concentration: 3 },
-];
-
 const PRODUCT_TYPES = [
   "โทนเนอร์",
   "เซรั่ม / เอสเซนส์",
@@ -109,74 +134,20 @@ const WATER_BASED_TYPES = new Set([
   "ครีมกันแดด",
 ]);
 
-const CSV_HEADER_ALIASES = {
-  name: ["name", "ingredient", "inciname", "canonicalname", "substance", "สาร", "ชื่อสาร"],
-  smiles: ["smiles", "canonicalsmiles", "structure"],
-  concentration: ["concentration", "percent", "percentage", "pct", "%", "ความเข้มข้น", "เปอร์เซ็นต์"],
-};
-
-const normalizeCsvHeader = (value: string) =>
-  value.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/[%]/g, "percent").replace(/[\s_-]+/g, "");
-
-const detectCsvDelimiter = (text: string) => {
-  const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
-  const candidates = [",", ";", "\t"];
-  let quoted = false;
-  const counts = new Map(candidates.map((candidate) => [candidate, 0]));
-  for (let index = 0; index < firstLine.length; index += 1) {
-    const char = firstLine[index];
-    if (char === '"') quoted = !quoted;
-    if (!quoted && counts.has(char)) counts.set(char, (counts.get(char) ?? 0) + 1);
-  }
-  return candidates.sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0))[0];
-};
-
-const parseCsvRows = (text: string): string[][] => {
-  const delimiter = detectCsvDelimiter(text);
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let quoted = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === '"') {
-      if (quoted && text[index + 1] === '"') {
-        field += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (char === delimiter && !quoted) {
-      row.push(field.trim());
-      field = "";
-    } else if ((char === "\n" || char === "\r") && !quoted) {
-      if (char === "\r" && text[index + 1] === "\n") index += 1;
-      row.push(field.trim());
-      if (row.some(Boolean)) rows.push(row);
-      row = [];
-      field = "";
-    } else {
-      field += char;
-    }
-  }
-  if (quoted) throw new Error("CSV มีเครื่องหมายคำพูดที่ปิดไม่ครบ");
-  row.push(field.trim());
-  if (row.some(Boolean)) rows.push(row);
-  return rows;
-};
-
 export default function StudioPage() {
+  const router = useRouter();
   const [projectId, setProjectId] = useState<number | null>(null);
   const [project, setProject] = useState<ProjectOut | null>(null);
+  const [projectContextStatus, setProjectContextStatus] = useState<"loading" | "ready" | "standalone">("loading");
+  const [workspaceHydrated, setWorkspaceHydrated] = useState(false);
   const [mode, setMode] = useState<Mode>("assess");
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateRisk, setTemplateRisk] = useState<"all" | "low" | "mid" | "high">("all");
   const [eraseMode, setEraseMode] = useState(false);
   const [showTrend, setShowTrend] = useState(false);
   const [formulaPanelOpen, setFormulaPanelOpen] = useState(true);
-  const [formulas, setFormulas] = useState<{ id: string; name: string; type?: string; items: FormulaItem[] }[]>([
-    { id: "f1", name: "สูตร A", type: "ครีม / โลชั่น", items: SAMPLE },
+  const [formulas, setFormulas] = useState<WorkspaceFormula[]>([
+    { id: "f1", name: "สูตร A", type: "ครีม / โลชั่น", region: "face", items: [] },
   ]);
   const [activeId, setActiveId] = useState("f1");
   const [editingFormulaId, setEditingFormulaId] = useState<string | null>(null);
@@ -199,9 +170,20 @@ export default function StudioPage() {
     );
   const [region, setRegion] = useState<Region>("face");
   const [dayIdx, setDayIdx] = useState(1);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [assessment, setAssessment] = useState<AssessmentRecord | null>(null);
-  const [running, setRunning] = useState(false);
+  const [assessmentByFormulaId, setAssessmentByFormulaId] = useState<
+    Record<string, FormulaAssessmentSnapshot>
+  >({});
+  const [paintByFormulaId, setPaintByFormulaId] = useState<
+    Record<string, PaintMaskSnapshot>
+  >({});
+  const [graphByFormulaId, setGraphByFormulaId] = useState<
+    Record<string, FormulaGraphSnapshot>
+  >({});
+  const [submittingFormulaIds, setSubmittingFormulaIds] = useState<string[]>([]);
+  const assessmentGenerationByFormulaId = useRef<Record<string, number>>({});
+  const announcedAssessmentIds = useRef(new Set<string>());
+  const announcedTimedOutJobIds = useRef(new Set<string>());
+  const pollingFailuresByJobId = useRef<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
 
   // `/projects/:id/assess` redirects here with projectId so there is only one
@@ -209,11 +191,113 @@ export default function StudioPage() {
   useEffect(() => {
     const raw = new URLSearchParams(window.location.search).get("projectId");
     const id = raw ? Number(raw) : NaN;
-    if (!Number.isInteger(id) || id <= 0) return;
-    setProjectId(id);
-    api.getProject(id).then(setProject).catch((cause) => setError(`โหลดโปรเจกต์ไม่สำเร็จ: ${String(cause)}`));
-  }, []);
+    if (raw === null) {
+      setProjectContextStatus("standalone");
+      return;
+    }
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      router.replace("/projects?projectError=invalid-project");
+      return;
+    }
 
+    let alive = true;
+    api
+      .getProject(id)
+      .then((loadedProject) => {
+        if (!alive) return;
+        const savedWorkspace = loadProjectWorkspace(loadedProject.id);
+        if (savedWorkspace) {
+          setFormulas(savedWorkspace.formulas);
+          setActiveId(savedWorkspace.activeFormulaId);
+          setRegion(savedWorkspace.region);
+          setDayIdx(savedWorkspace.dayIdx);
+          setMode(savedWorkspace.mode);
+          setFormulaPanelOpen(savedWorkspace.formulaPanelOpen);
+          setAssessmentByFormulaId(savedWorkspace.assessmentByFormulaId);
+          setPaintByFormulaId(savedWorkspace.paintByFormulaId);
+          setGraphByFormulaId(savedWorkspace.graphByFormulaId);
+        }
+        setProject(loadedProject);
+        setProjectId(loadedProject.id);
+        setWorkspaceHydrated(true);
+        setProjectContextStatus("ready");
+      })
+      .catch((cause) => {
+        if (!alive) return;
+        const reason = cause instanceof ApiError && cause.status === 404
+          ? "project-not-found"
+          : "project-load-failed";
+        router.replace(`/projects?projectError=${reason}`);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [router]);
+
+  const workspaceDraft = useMemo<ProjectWorkspaceDraft>(
+    () => ({
+      formulas,
+      activeFormulaId: activeId,
+      region,
+      dayIdx: dayIdx === 0 || dayIdx === 2 ? dayIdx : 1,
+      mode,
+      formulaPanelOpen,
+      assessmentByFormulaId,
+      paintByFormulaId,
+      graphByFormulaId,
+    }),
+    [
+      formulas,
+      activeId,
+      region,
+      dayIdx,
+      mode,
+      formulaPanelOpen,
+      assessmentByFormulaId,
+      paintByFormulaId,
+      graphByFormulaId,
+    ],
+  );
+  const latestWorkspaceDraft = useRef(workspaceDraft);
+  latestWorkspaceDraft.current = workspaceDraft;
+
+  // Save a sanitized, project-scoped draft after meaningful workspace changes.
+  // Hydration must finish first so the default React state can never overwrite
+  // a saved workspace before it has been restored.
+  useEffect(() => {
+    if (!projectId || projectContextStatus !== "ready" || !workspaceHydrated) return;
+    const timeout = window.setTimeout(() => {
+      if (!saveProjectWorkspace(projectId, workspaceDraft)) {
+        console.warn(`Unable to persist workspace for project ${projectId}`);
+      }
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [projectId, projectContextStatus, workspaceHydrated, workspaceDraft]);
+
+  // Flush the latest draft on refresh, tab close, or client-side navigation so
+  // a change made just before leaving is not lost to the debounce window.
+  useEffect(() => {
+    if (!projectId || projectContextStatus !== "ready" || !workspaceHydrated) return;
+    const flush = () => {
+      saveProjectWorkspace(projectId, latestWorkspaceDraft.current);
+    };
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, [projectId, projectContextStatus, workspaceHydrated]);
+
+  const currentActiveInputSignature = formulaAssessmentSignature(formula, region);
+  const storedActiveAssessmentSnapshot = assessmentByFormulaId[activeId];
+  const activeAssessmentSnapshot =
+    storedActiveAssessmentSnapshot?.inputSignature === currentActiveInputSignature
+      ? storedActiveAssessmentSnapshot
+      : undefined;
+  const jobId = activeAssessmentSnapshot?.jobId ?? null;
+  const assessment = activeAssessmentSnapshot?.assessment ?? null;
+  const running = submittingFormulaIds.includes(activeId);
   const endpoints = assessment?.result?.endpoints ?? null;
   const completed = assessment?.status === "completed";
   const assessing = running || (!!jobId && !completed && assessment?.status !== "failed");
@@ -304,50 +388,224 @@ export default function StudioPage() {
     return list.length > 0 && bad >= Math.ceil(list.length / 2);
   }, [assessment]);
 
-  // Poll
-  useEffect(() => {
-    if (!jobId) return;
-    if (assessment && (completed || assessment.status === "failed")) return;
-    const tick = async () => {
-      try {
-        setAssessment(await api.getAssessment(jobId));
-      } catch (e) {
-        setError(String(e));
-      }
-    };
-    tick();
-    const id = setInterval(tick, 1500);
-    return () => clearInterval(id);
-  }, [jobId, assessment?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pendingAssessmentJobs = useMemo(
+    () =>
+      Object.entries(assessmentByFormulaId)
+        .filter(([, snapshot]) =>
+          Boolean(
+            snapshot.jobId &&
+              snapshot.assessment?.status !== "completed" &&
+              snapshot.assessment?.status !== "failed",
+          ),
+        )
+        .map(([formulaId, snapshot]) => ({
+          formulaId,
+          jobId: snapshot.jobId!,
+          startedAt: snapshot.startedAt,
+        })),
+    [assessmentByFormulaId],
+  );
+  const pendingAssessmentKey = pendingAssessmentJobs
+    .map(({ formulaId, jobId: pendingJobId, startedAt }) =>
+      `${formulaId}:${pendingJobId}:${startedAt}`,
+    )
+    .sort()
+    .join("|");
 
-  const runFormula = async (candidate: FormulaItem[]) => {
+  // Poll every pending formula, not only the currently selected one. Switching
+  // formula therefore cannot stop or steal another formula's assessment job.
+  useEffect(() => {
+    if (!pendingAssessmentJobs.length) return;
+    let cancelled = false;
+    let nextPoll: number | null = null;
+    const requestController = new AbortController();
+    const jobs = pendingAssessmentJobs;
+    const tick = async () => {
+      const expiredJobs = jobs.filter(({ startedAt }) =>
+        assessmentPollExpired(startedAt),
+      );
+      for (const { formulaId, jobId: expiredJobId } of expiredJobs) {
+        if (!announcedTimedOutJobIds.current.has(expiredJobId)) {
+          announcedTimedOutJobIds.current.add(expiredJobId);
+          toast.error("งานวิเคราะห์ใช้เวลานานเกินกำหนด กรุณาเริ่มทดสอบใหม่");
+        }
+        setAssessmentByFormulaId((previous) => {
+          const current = previous[formulaId];
+          if (!current || current.jobId !== expiredJobId) return previous;
+          return {
+            ...previous,
+            [formulaId]: { ...current, jobId: null },
+          };
+        });
+      }
+
+      const activeJobs = jobs.filter(({ startedAt }) =>
+        !assessmentPollExpired(startedAt),
+      );
+      await Promise.all(
+        activeJobs.map(async ({ formulaId, jobId: pendingJobId }) => {
+          try {
+            const record = await api.getAssessment(
+              pendingJobId,
+              requestController.signal,
+            );
+            if (cancelled) return;
+            pollingFailuresByJobId.current[pendingJobId] = 0;
+            if (
+              (record.status === "completed" || record.status === "failed") &&
+              !announcedAssessmentIds.current.has(record.id)
+            ) {
+              announcedAssessmentIds.current.add(record.id);
+              const formulaName = latestWorkspaceDraft.current.formulas.find(
+                (item) => item.id === formulaId,
+              )?.name;
+              if (record.status === "completed") {
+                toast.success(`วิเคราะห์${formulaName ? ` “${formulaName}”` : "สูตร"}เสร็จสิ้น`);
+              } else {
+                toast.error(record.error || `วิเคราะห์${formulaName ? ` “${formulaName}”` : "สูตร"}ไม่สำเร็จ`);
+              }
+            }
+            setAssessmentByFormulaId((previous) => {
+              const current = previous[formulaId];
+              if (!current || current.jobId !== pendingJobId) return previous;
+              return {
+                ...previous,
+                [formulaId]: { ...current, assessment: record },
+              };
+            });
+          } catch (cause) {
+            // A route/formula change aborts the shared controller and must not
+            // count as a network failure. The HTTP helper's own 12s timeout is
+            // different: count it so repeated timeouts receive backoff.
+            if (cancelled || requestController.signal.aborted) return;
+            pollingFailuresByJobId.current[pendingJobId] =
+              (pollingFailuresByJobId.current[pendingJobId] ?? 0) + 1;
+            if (formulaId === activeId) {
+              setError(apiErrorMessage(cause, "ตรวจสอบสถานะการวิเคราะห์ไม่สำเร็จ"));
+            }
+          }
+        }),
+      );
+      if (cancelled || activeJobs.length === 0) return;
+      const highestFailureCount = activeJobs.reduce(
+        (highest, { jobId: activeJobId }) =>
+          Math.max(highest, pollingFailuresByJobId.current[activeJobId] ?? 0),
+        0,
+      );
+      nextPoll = window.setTimeout(
+        () => void tick(),
+        assessmentPollDelay(highestFailureCount),
+      );
+    };
+    void tick();
+    return () => {
+      cancelled = true;
+      requestController.abort();
+      if (nextPoll !== null) window.clearTimeout(nextPoll);
+    };
+    // The stable key changes only when the set of pending formula/job pairs changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAssessmentKey, activeId]);
+
+  const invalidateFormulaAssessment = (formulaId: string) => {
+    assessmentGenerationByFormulaId.current[formulaId] =
+      (assessmentGenerationByFormulaId.current[formulaId] ?? 0) + 1;
+    setAssessmentByFormulaId((previous) => {
+      if (!(formulaId in previous)) return previous;
+      const next = { ...previous };
+      delete next[formulaId];
+      return next;
+    });
+    if (formulaId === activeId) setError(null);
+  };
+
+  const runFormula = async (
+    candidate: FormulaItem[],
+    formulaId = activeId,
+    runRegion = region,
+  ) => {
     setError(null);
-    setAssessment(null);
-    setJobId(null);
-    setRunning(true);
+    const selectedFormula = formulas.find((item) => item.id === formulaId);
+    const substances = candidate.filter(
+      (item) =>
+        !isWaterItem(item) &&
+        Boolean(item.name?.trim() || item.smiles.trim()),
+    );
+    const storedSnapshot = assessmentByFormulaId[formulaId];
+    const hasPendingJob = Boolean(
+      storedSnapshot?.jobId &&
+        storedSnapshot.assessment?.status !== "completed" &&
+        storedSnapshot.assessment?.status !== "failed",
+    );
+    const problem = assessmentStartProblem({
+      projectStatus: projectContextStatus,
+      hasProjectId: projectId !== null,
+      hasSelectedFormula: Boolean(selectedFormula),
+      substances,
+      hasPaint: paintByFormulaId[formulaId]?.hasPaint === true,
+      isSubmitting: submittingFormulaIds.includes(formulaId),
+      hasPendingJob,
+    });
+    if (problem) {
+      setError(problem);
+      toast.warning(problem);
+      return;
+    }
+
+    const runGeneration = assessmentGenerationByFormulaId.current[formulaId] ?? 0;
+    setSubmittingFormulaIds((current) =>
+      current.includes(formulaId) ? current : [...current, formulaId],
+    );
     try {
-      const actives = candidate.filter((it) => it.smiles.trim() && it.concentration > 0 && !isWaterItem(it));
-      if (!actives.length) throw new Error("เพิ่มอย่างน้อย 1 สาร + ความเข้มข้น");
-      const activeTotal = actives.reduce((sum, item) => sum + item.concentration, 0);
-      if (activeTotal > 100.0001) throw new Error(`ผลรวมความเข้มข้นเกิน 100% (${activeTotal.toFixed(2)}%)`);
+      const actives = substances;
       const validation = await Promise.all(actives.map((item) => api.validateSmiles(item.smiles)));
       const invalidAt = validation.findIndex((item) => !item.valid);
-      if (invalidAt >= 0) throw new Error(`SMILES ของ ${actives[invalidAt].name || `สารลำดับ ${invalidAt + 1}`} ไม่ถูกต้อง`);
+      if (invalidAt >= 0) {
+        const message = `SMILES ของ ${actives[invalidAt].name || `สารลำดับ ${invalidAt + 1}`} ไม่ถูกต้อง`;
+        setError(message);
+        toast.warning(message);
+        return;
+      }
       const cleaned = withWaterBase(actives); // น้ำเป็นเบส เติมให้รวม 100%
-      const { job_id } = await api.createAssessment(cleaned, region, projectId);
-      setJobId(job_id);
+      const inputSignature = formulaAssessmentSignature(actives, runRegion);
+      const { job_id } = await api.createAssessment(cleaned, runRegion, projectId);
+      if ((assessmentGenerationByFormulaId.current[formulaId] ?? 0) !== runGeneration) return;
+
+      setAssessmentByFormulaId((previous) => ({
+        ...previous,
+        [formulaId]: {
+          inputSignature,
+          jobId: job_id,
+          assessment: null,
+          startedAt: new Date().toISOString(),
+        },
+      }));
     } catch (e: any) {
-      setError(e.message ?? String(e));
+      if (latestWorkspaceDraft.current.activeFormulaId === formulaId) {
+        const message = e.message ?? String(e);
+        setError(message);
+        toast.error(`เริ่มการวิเคราะห์ไม่สำเร็จ: ${message}`);
+      }
     } finally {
-      setRunning(false);
+      setSubmittingFormulaIds((current) => current.filter((id) => id !== formulaId));
     }
   };
   const run = () => runFormula(formula);
 
-  const patchItem = (i: number, p: Partial<FormulaItem>) =>
+  const patchItem = (i: number, p: Partial<FormulaItem>) => {
+    if (p.smiles !== undefined || p.concentration !== undefined) {
+      invalidateFormulaAssessment(activeId);
+    }
     setFormula((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...p } : it)));
-  const removeItem = (i: number) => setFormula((prev) => prev.filter((_, idx) => idx !== i));
-  const addItem = () => setFormula((prev) => [...prev, { name: "", smiles: "", concentration: 10 }]);
+  };
+  const removeItem = (i: number) => {
+    invalidateFormulaAssessment(activeId);
+    setFormula((prev) => prev.filter((_, idx) => idx !== i));
+  };
+  const addItem = () => {
+    invalidateFormulaAssessment(activeId);
+    setFormula((prev) => [...prev, { name: "", smiles: "", concentration: 10 }]);
+  };
 
   // Create / select saved formulas
   const openCreate = () => {
@@ -361,7 +619,7 @@ export default function StudioPage() {
   };
   const createFormula = () => {
     const id = "f" + Date.now();
-    let items: FormulaItem[] = [{ name: "", smiles: "", concentration: 10 }];
+    let items: FormulaItem[] = [];
     let reg = draft.region;
     if (draft.from !== "blank") {
       const t = PRODUCT_TEMPLATES.find((x) => x.id === draft.from);
@@ -370,11 +628,9 @@ export default function StudioPage() {
         reg = t.region === "eye" ? "eye" : "face";
       }
     }
-    setFormulas((prev) => [...prev, { id, name: draft.name.trim() || "สูตรใหม่", type: draft.type, items }]);
+    setFormulas((prev) => [...prev, { id, name: draft.name.trim() || "สูตรใหม่", type: draft.type, region: reg, items }]);
     setActiveId(id);
     setRegion(reg);
-    setAssessment(null);
-    setJobId(null);
     setShowCreate(false);
   };
   // Save the current node graph as a brand-new formula (from node mode).
@@ -383,15 +639,29 @@ export default function StudioPage() {
     if (!actives.length) return;
     const id = "f" + Date.now();
     const n = formulas.filter((f) => (f.type || "").includes("Node")).length + 1;
-    setFormulas((prev) => [...prev, { id, name: `สูตรจาก Node ${n}`, type: "จาก Node graph", items: actives }]);
+    setFormulas((prev) => [...prev, { id, name: `สูตรจาก Node ${n}`, type: "จาก Node graph", region, items: actives }]);
     setActiveId(id);
-    setAssessment(null);
-    setJobId(null);
+  };
+  const syncFormulaFromGraph = (formulaId: string, items: FormulaItem[]) => {
+    const current = latestWorkspaceDraft.current.formulas.find(
+      (formula) => formula.id === formulaId,
+    );
+    if (!current) return;
+    if (formulaGraphItemsSignature(current.items) === formulaGraphItemsSignature(items)) {
+      return;
+    }
+    invalidateFormulaAssessment(formulaId);
+    setFormulas((previous) =>
+      previous.map((formula) =>
+        formula.id === formulaId ? { ...formula, items } : formula,
+      ),
+    );
   };
   const selectFormula = (id: string) => {
+    const selected = formulas.find((item) => item.id === id);
     setActiveId(id);
-    setAssessment(null);
-    setJobId(null);
+    if (selected) setRegion(selected.region);
+    setError(null);
   };
   const renameFormula = (id: string, name: string) =>
     setFormulas((prev) => prev.map((f) => (f.id === id ? { ...f, name } : f)));
@@ -399,10 +669,21 @@ export default function StudioPage() {
     if (formulas.length <= 1) return; // keep at least one
     const next = formulas.filter((f) => f.id !== id);
     setFormulas(next);
+    invalidateFormulaAssessment(id);
+    setPaintByFormulaId((previous) => {
+      if (!(id in previous)) return previous;
+      const nextPaint = { ...previous };
+      delete nextPaint[id];
+      return nextPaint;
+    });
+    setGraphByFormulaId((previous) => {
+      if (!(id in previous)) return previous;
+      const nextGraph = { ...previous };
+      delete nextGraph[id];
+      return nextGraph;
+    });
     if (id === activeId) {
       setActiveId(next[0].id);
-      setAssessment(null);
-      setJobId(null);
     }
   };
 
@@ -410,10 +691,13 @@ export default function StudioPage() {
   const loadTemplate = (id: string) => {
     const t = PRODUCT_TEMPLATES.find((x) => x.id === id);
     if (!t) return;
+    const nextRegion: Region = t.region === "eye" ? "eye" : "face";
+    invalidateFormulaAssessment(activeId);
     setFormula(t.formula.map((f) => ({ ...f })));
-    setRegion(t.region === "eye" ? "eye" : "face"); // model is head-only
-    setAssessment(null);
-    setJobId(null);
+    setFormulas((previous) =>
+      previous.map((item) => item.id === activeId ? { ...item, region: nextRegion } : item),
+    );
+    setRegion(nextRegion); // model is head-only
   };
 
   // Import an AI-suggested formula straight into the Formulation input.
@@ -429,9 +713,8 @@ export default function StudioPage() {
       })
       .filter((it) => it.smiles && !isWaterItem(it));
     if (!mapped.length) return;
+    invalidateFormulaAssessment(activeId);
     setFormula(mapped);
-    setAssessment(null);
-    setJobId(null);
   };
 
   // Agent actions are previewed in VoiceAssistant, then validated and applied
@@ -565,102 +848,153 @@ export default function StudioPage() {
 
     if (createdId) {
       const id = createdId;
-      setFormulas((previous) => [...previous, { id, name: renamedTo || createdName, type: "สร้างโดย AI (ยืนยันแล้ว)", items: nextFormula }]);
+      setFormulas((previous) => [...previous, { id, name: renamedTo || createdName, type: "สร้างโดย AI (ยืนยันแล้ว)", region, items: nextFormula }]);
       setActiveId(id);
     } else {
+      invalidateFormulaAssessment(activeId);
       setFormula(nextFormula);
       if (renamedTo && activeId) renameFormula(activeId, renamedTo);
     }
     if (nextMode) setMode(nextMode);
-    setAssessment(null);
-    setJobId(null);
-    if (shouldRun) await runFormula(nextFormula);
+    if (shouldRun) {
+      await runFormula(nextFormula, createdId ?? activeId, region);
+    }
   };
 
   // Add one ingredient (picked from the catalog dropdown) as a new formula row.
   const addFromCatalog = (smiles: string) => {
     const it = SUBSTANCE_LIBRARY.flatMap((g) => g.items).find((s) => s.smiles === smiles);
     if (!it) return;
+    invalidateFormulaAssessment(activeId);
     setFormula((prev) => [...prev, { name: it.name, smiles: it.smiles, concentration: it.conc }]);
   };
 
   // OCR: read an ingredient-label photo (via the LabelScanModal popup).
   const [scanOpen, setScanOpen] = useState(false);
+  const [scanTargetFormulaId, setScanTargetFormulaId] = useState<string | null>(null);
+  const [scanTargetProjectId, setScanTargetProjectId] = useState<number | null>(null);
   const [csvBusy, setCsvBusy] = useState(false);
   const [csvStatus, setCsvStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
-  const importScannedItems = (scanned: { name: string; smiles: string; concentration: number }[]) => {
-    const items = scanned
-      .filter((it) => it.smiles && !isWaterItem(it))
-      .map((it) => ({ name: it.name, smiles: String(it.smiles), concentration: Number(it.concentration) }));
-    if (!items.length) return;
-    setFormula(items);
-    setAssessment(null);
-    setJobId(null);
+  const openLabelScan = () => {
+    setScanTargetFormulaId(activeId);
+    setScanTargetProjectId(projectId);
+    setScanOpen(true);
+  };
+  const closeLabelScan = () => {
+    setScanOpen(false);
+    setScanTargetFormulaId(null);
+    setScanTargetProjectId(null);
+  };
+  useEffect(() => {
+    if (scanOpen && scanTargetProjectId !== projectId) {
+      setScanOpen(false);
+      setScanTargetFormulaId(null);
+      setScanTargetProjectId(null);
+    }
+  }, [projectId, scanOpen, scanTargetProjectId]);
+  const importScannedItems = (
+    scanned: { name: string; smiles: string; concentration: number }[],
+    context: ScanImportContext,
+  ) => {
+    const targetFormulaId = scanTargetFormulaId;
+    if (!targetFormulaId) {
+      toast.error("ไม่พบกล่องสูตรปลายทาง กรุณาเปิด OCR ใหม่");
+      return;
+    }
+    if (scanTargetProjectId !== projectId) {
+      toast.error("โปรเจกต์เปลี่ยนระหว่างสแกน ผล OCR จึงถูกยกเลิก");
+      return;
+    }
+    if (!latestWorkspaceDraft.current.formulas.some((item) => item.id === targetFormulaId)) {
+      toast.error("กล่องสูตรที่เริ่มสแกนถูกลบแล้ว กรุณาเลือกกล่องใหม่");
+      return;
+    }
+
+    try {
+      const prepared = prepareOcrFormulaReplacement(scanned);
+      if (!prepared.items.length) {
+        throw new Error("ไม่มีสารที่มี SMILES และความเข้มข้นถูกต้องให้นำเข้า");
+      }
+      invalidateFormulaAssessment(targetFormulaId);
+      // OCR is an explicit replace operation for the formula that owned the
+      // modal when it opened. Switching cards while OCR runs cannot redirect it.
+      setFormulas((previous) =>
+        previous.map((item) =>
+          item.id === targetFormulaId ? { ...item, items: prepared.items } : item,
+        ),
+      );
+
+      const unresolved = context.recognizedNoStructure.map((name) => `${name} (ไม่มี SMILES)`);
+      const unselected = context.unselected.map((name) => `${name} (ไม่ได้เลือก)`);
+      const unmatched = context.unmatched.map((name) => `${name} (จับคู่ไม่ได้)`);
+      const skipped = describeOcrSkippedItems(prepared.skipped);
+      const notImported = [skipped, ...unresolved, ...unselected, ...unmatched].filter(Boolean);
+      toast.success(`นำเข้า ${prepared.items.length} สารแล้ว`, {
+        description: notImported.length
+          ? `ไม่ได้นำเข้า: ${notImported.join(", ")}`
+          : "แทนที่รายการเดิมในกล่องสูตรที่เริ่มสแกน",
+      });
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "นำเข้าผล OCR ไม่สำเร็จ");
+    }
   };
 
   const importCsvFile = async (file: File) => {
+    const targetFormulaId = activeId;
     setCsvBusy(true);
     setCsvStatus(null);
     try {
       if (!file.name.toLowerCase().endsWith(".csv")) {
         throw new Error("กรุณาเลือกไฟล์นามสกุล .csv");
       }
-      const rows = parseCsvRows(await file.text());
-      if (rows.length < 2) throw new Error("CSV ต้องมีแถวหัวตารางและข้อมูลอย่างน้อย 1 แถว");
-
-      const headers = rows[0].map(normalizeCsvHeader);
-      const columnIndex = (key: keyof typeof CSV_HEADER_ALIASES) =>
-        headers.findIndex((header) => CSV_HEADER_ALIASES[key].includes(header));
-      const nameColumn = columnIndex("name");
-      const smilesColumn = columnIndex("smiles");
-      const concentrationColumn = columnIndex("concentration");
-      if (nameColumn < 0 && smilesColumn < 0) {
-        throw new Error("ไม่พบคอลัมน์ name/ingredient หรือ smiles");
-      }
-      if (concentrationColumn < 0) {
-        throw new Error("ไม่พบคอลัมน์ concentration/percent");
-      }
-
-      const parsed = rows.slice(1).map((columns, rowIndex) => {
-        const line = rowIndex + 2;
-        const rawName = nameColumn >= 0 ? String(columns[nameColumn] ?? "").trim() : "";
-        const suppliedSmiles = smilesColumn >= 0 ? String(columns[smilesColumn] ?? "").trim() : "";
-        if (!rawName && !suppliedSmiles) throw new Error(`แถว ${line}: ต้องมีชื่อสารหรือ SMILES`);
-        const rawConcentration = String(columns[concentrationColumn] ?? "").trim().replace(/%/g, "").replace(",", ".");
-        const concentration = Number(rawConcentration);
-        if (!Number.isFinite(concentration) || concentration < 0 || concentration > 100) {
-          throw new Error(`แถว ${line}: concentration ต้องเป็นตัวเลข 0–100`);
-        }
-        const catalogHit = rawName ? resolveCatalogSubstance(rawName) : undefined;
+      const parsed = parseFormulaCsv(await file.text());
+      const resolved = parsed.map((row) => {
+        const catalogHit = row.name ? resolveCatalogSubstance(row.name) : undefined;
         return {
-          line,
-          name: catalogHit?.name || rawName,
-          smiles: suppliedSmiles || catalogHit?.smiles || "",
-          suppliedSmiles,
-          concentration,
+          ...row,
+          name: catalogHit?.name || row.name,
+          smiles: row.smiles || catalogHit?.smiles || "",
+          suppliedSmiles: row.smiles,
         };
       });
 
       const validated = await Promise.all(
-        parsed.map(async (item) => {
+        resolved.map(async (item) => {
           if (!item.suppliedSmiles) return item;
           const result = await api.validateSmiles(item.suppliedSmiles);
           if (!result.valid) throw new Error(`แถว ${item.line}: SMILES ของ ${item.name || "สาร"} ไม่ถูกต้อง`);
           return { ...item, smiles: result.canonical || item.suppliedSmiles };
         }),
       );
-      const imported: FormulaItem[] = validated
+      const normalizedRows: ParsedFormulaCsvRow[] = validated.map(
+        ({ line, name, smiles, concentration }) => ({
+          line,
+          name,
+          smiles,
+          concentration,
+        }),
+      );
+      // Resolve catalog names and canonicalize supplied SMILES first, then run
+      // duplicate detection again to catch aliases such as Ethanol vs CCO.
+      assertNoDuplicateFormulaRows(normalizedRows);
+      const imported: FormulaItem[] = normalizedRows
         .map(({ name, smiles, concentration }) => ({ name, smiles, concentration }))
         .filter((item) => !isWaterItem(item));
-      if (!imported.length && !validated.some((item) => isWaterItem(item))) {
-        throw new Error("ไม่พบข้อมูลส่วนผสมที่นำเข้าได้");
+      if (!imported.length) {
+        throw new Error("CSV ต้องมีสารอย่างน้อย 1 รายการที่ไม่ใช่น้ำ");
       }
-      const total = imported.reduce((sum, item) => sum + item.concentration, 0);
-      if (total > 100.0001) throw new Error(`ผลรวม concentration เท่ากับ ${total.toFixed(2)}% ซึ่งเกิน 100%`);
+      if (!latestWorkspaceDraft.current.formulas.some((item) => item.id === targetFormulaId)) {
+        throw new Error("กล่องสูตรที่เลือกถูกลบระหว่างนำเข้า กรุณาเลือกกล่องใหม่");
+      }
 
-      setFormula(imported);
-      setAssessment(null);
-      setJobId(null);
+      invalidateFormulaAssessment(targetFormulaId);
+      // CSV import is an explicit replace operation for the formula that was
+      // selected when the upload began. It never leaks into a later selection.
+      setFormulas((previous) =>
+        previous.map((item) =>
+          item.id === targetFormulaId ? { ...item, items: imported } : item,
+        ),
+      );
       setError(null);
       const unresolved = imported.filter((item) => !item.smiles).length;
       setCsvStatus({
@@ -1090,6 +1424,20 @@ export default function StudioPage() {
         <main className="relative flex min-w-0 flex-1 bg-background">
           {mode === "assess" && (
             <Viewport
+              paintOwnerKey={`${projectId ?? "standalone"}:${activeId}`}
+              initialPaint={paintByFormulaId[activeId] ?? null}
+              occupiedPaint={Object.entries(paintByFormulaId)
+                .filter(([formulaId]) => formulaId !== activeId)
+                .map(([, snapshot]) => snapshot)}
+              onPaintChange={(snapshot) => {
+                setPaintByFormulaId((previous) => ({
+                  ...previous,
+                  [activeId]: snapshot,
+                }));
+              }}
+              onPaintBlocked={() => {
+                toast.warning("บริเวณนี้มีรอยจากกล่องสูตรอื่นแล้ว");
+              }}
               dayIdx={dayIdx}
               region={region}
               ready={completed}
@@ -1212,7 +1560,7 @@ export default function StudioPage() {
                   {/* Formula import tools */}
                   <div className="grid grid-cols-2 gap-2 pt-1">
                     <button
-                      onClick={() => setScanOpen(true)}
+                      onClick={openLabelScan}
                       className="rounded-lg border border-dashed border-brand/40 px-2 py-2 text-xs font-medium text-brand transition hover:bg-teal-50"
                     >
                       📷 OCR รูปฉลาก
@@ -1362,7 +1710,21 @@ export default function StudioPage() {
               <div className="absolute left-4 top-3 z-10 text-xs font-semibold text-slate-800/60">
                 Assessment Node Graph <span className="font-normal text-slate-800/40">· in-silico pipeline</span>
               </div>
-              <FormulaGraph key={`${activeId}-${projectId ?? "standalone"}`} seed={formula} region={region} projectId={projectId} onSaveFormula={saveGraphAsFormula} />
+              <FormulaGraph
+                key={`${projectId ?? "standalone"}:${activeId}`}
+                seed={formula}
+                region={activeFormula?.region ?? region}
+                projectId={projectId}
+                snapshot={graphByFormulaId[activeId] ?? null}
+                onSnapshotChange={(snapshot) => {
+                  setGraphByFormulaId((previous) => ({
+                    ...previous,
+                    [activeId]: snapshot,
+                  }));
+                }}
+                onFormulaChange={(items) => syncFormulaFromGraph(activeId, items)}
+                onSaveFormula={saveGraphAsFormula}
+              />
             </div>
           )}
           {mode === "trust" && <TrustReport />}
@@ -1391,7 +1753,6 @@ export default function StudioPage() {
                     setEraseMode(false); // กดประเมิน = กลับมาโหมด paint ผลลัพธ์
                     run();
                   }}
-                  disabled={assessing}
                   className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-dark disabled:cursor-wait disabled:opacity-60"
                 >
                   {assessing ? "กำลังประเมิน…" : completed ? "↻ ประเมินอีกครั้ง" : "▶ ประเมินสูตร"}
@@ -1524,10 +1885,9 @@ export default function StudioPage() {
                         <div className="mt-2 flex gap-1.5">
                           <button
                             onClick={() => {
+                              invalidateFormulaAssessment(activeId);
                               setFormula(pendingOptimization);
                               setPendingOptimization(null);
-                              setAssessment(null);
-                              setJobId(null);
                               setOptMsg("✓ ยืนยันอัตราส่วนใหม่แล้ว กด Run เพื่อประเมิน");
                             }}
                             className="flex-1 rounded bg-brand px-2 py-1 text-[10px] font-semibold text-white"
@@ -1668,7 +2028,7 @@ export default function StudioPage() {
         </div>
       )}
 
-      <LabelScanModal open={scanOpen} onClose={() => setScanOpen(false)} onImport={importScannedItems} />
+      <LabelScanModal open={scanOpen} onClose={closeLabelScan} onImport={importScannedItems} />
     </div>
   );
 }
@@ -1833,6 +2193,11 @@ function Section({
 }
 
 function Viewport({
+  paintOwnerKey,
+  initialPaint,
+  occupiedPaint,
+  onPaintChange,
+  onPaintBlocked,
   dayIdx,
   region,
   ready,
@@ -1840,6 +2205,11 @@ function Viewport({
   layers,
   eraseMode,
 }: {
+  paintOwnerKey: string;
+  initialPaint: PaintMaskSnapshot | null;
+  occupiedPaint: PaintMaskSnapshot[];
+  onPaintChange: (snapshot: PaintMaskSnapshot) => void;
+  onPaintBlocked: () => void;
   dayIdx: number;
   region: Region;
   ready: boolean;
@@ -1859,11 +2229,16 @@ function Viewport({
         </div>
         <div className="absolute inset-0">
           <FaceView
+            key={paintOwnerKey}
             layers={layers}
             armed={ready}
             productName={productName}
             eraseMode={eraseMode}
             background="#F4F1EE"
+            initialPaint={initialPaint}
+            onPaintChange={onPaintChange}
+            occupiedPaint={occupiedPaint}
+            onPaintBlocked={onPaintBlocked}
           />
         </div>
         {!ready && (

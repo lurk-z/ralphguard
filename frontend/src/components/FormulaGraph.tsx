@@ -24,10 +24,21 @@ import ReactFlow, {
   type Edge,
   type Node,
   type NodeProps,
+  type NodeTypes,
 } from "reactflow";
 
 import { FormulaItem, Region, api } from "../lib/api";
 import { SUBSTANCE_LIBRARY, withWaterBase, substanceInfo, type CatalogItem } from "../lib/catalog";
+import {
+  formulaGraphItemsSignature,
+  formulaItemsFromGraph,
+  synchronizeGraphWithFormula,
+} from "../lib/formula-graph";
+import {
+  normalizeFormulaGraphSnapshot,
+  type FormulaGraphNodeSnapshot,
+  type FormulaGraphSnapshot,
+} from "../lib/project-workspace";
 
 const ENDPOINTS = ["skin", "eye", "sens", "acute"] as const;
 const ENDPOINT_LABEL_TH: Record<string, string> = {
@@ -56,15 +67,18 @@ type LibItem = CatalogItem;
 // ─────────────────────────── Substance node ───────────────────────────
 type SubstanceData = { name?: string; smiles: string; concentration: number };
 
-function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
-  const { setNodes, setEdges } = useReactFlow();
+function SubstanceNode({
+  id,
+  data,
+  onRemove,
+}: NodeProps<SubstanceData> & { onRemove?: (id: string) => void }) {
+  const { setNodes } = useReactFlow();
   const patch = (p: Partial<SubstanceData>) =>
     setNodes((nds) =>
       nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...p } } : n)),
     );
   const remove = () => {
-    setNodes((nds) => nds.filter((n) => n.id !== id));
-    setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+    onRemove?.(id);
   };
 
   const [valid, setValid] = useState<null | boolean>(null);
@@ -143,7 +157,12 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
         </div>
       )}
       <button
-        onClick={remove}
+        type="button"
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          remove();
+        }}
+        onClick={(event) => event.stopPropagation()}
         title="ลบ node"
         className="nodrag nopan absolute -right-2 -top-2 z-10 grid size-5 place-items-center rounded-full border border-slate-200 bg-white text-sm leading-none text-slate-400 shadow-card transition hover:border-rose-300 hover:bg-rose-500 hover:text-white"
       >
@@ -359,18 +378,26 @@ type ModifierData = {
   concentration: number;
 };
 
-function ModifierNode({ id, data }: NodeProps<ModifierData>) {
-  const { setNodes, setEdges } = useReactFlow();
+function ModifierNode({
+  id,
+  data,
+  onRemove,
+}: NodeProps<ModifierData> & { onRemove?: (id: string) => void }) {
+  const { setNodes } = useReactFlow();
   const patch = (p: Partial<ModifierData>) =>
     setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...p } } : n)));
   const remove = () => {
-    setNodes((nds) => nds.filter((n) => n.id !== id));
-    setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+    onRemove?.(id);
   };
   return (
     <div className="relative w-52 rounded-lg border-2 border-amber-300 bg-amber-50 shadow-card">
       <button
-        onClick={remove}
+        type="button"
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          remove();
+        }}
+        onClick={(event) => event.stopPropagation()}
         title="ลบ node"
         className="nodrag nopan absolute -right-2 -top-2 z-10 grid size-5 place-items-center rounded-full border border-slate-200 bg-white text-sm leading-none text-slate-400 shadow-card hover:border-rose-300 hover:bg-rose-500 hover:text-white"
       >
@@ -418,87 +445,158 @@ function ModifierNode({ id, data }: NodeProps<ModifierData>) {
   );
 }
 
-const nodeTypes = { substance: SubstanceNode, result: ResultNode, modifier: ModifierNode };
-
 let idCounter = 100;
 const nextId = () => String(++idCounter);
 
-const DEFAULT_SEED: FormulaItem[] = [
-  { name: "Ethanol", smiles: "CCO", concentration: 40 },
-  { name: "Aspirin", smiles: "CC(=O)Oc1ccccc1C(=O)O", concentration: 5 },
-];
+const graphNodeToFlowNode = (
+  node: FormulaGraphNodeSnapshot,
+  projectId?: number | null,
+): Node => ({
+  ...node,
+  data: node.type === "result"
+    ? { ...node.data, region: node.data.region ?? "face", projectId }
+    : node.data,
+});
 
-function buildGraph(seed: FormulaItem[], region: Region, projectId?: number | null): { nodes: Node[]; edges: Edge[] } {
-  const items = seed.length ? seed : DEFAULT_SEED;
-  const nodes: Node[] = items.map((it, i) => ({
-    id: `s${i + 1}`,
-    type: "substance",
-    position: { x: 40, y: 40 + i * 200 },
-    data: { name: it.name, smiles: it.smiles, concentration: it.concentration },
-  }));
-  const cy = 40 + Math.max(0, items.length - 1) * 100;
-  nodes.push({ id: "r1", type: "result", position: { x: 460, y: cy }, data: { region, projectId, status: "idle" } });
-  const edges: Edge[] = items.map((_, i) => ({
-    id: `e-s${i + 1}`,
-    source: `s${i + 1}`,
-    target: "r1",
-    animated: true,
-  }));
-  return { nodes, edges };
-}
+const graphSnapshotFromFlow = (
+  nodes: Node[],
+  edges: Edge[],
+  viewport: FormulaGraphSnapshot["viewport"],
+): FormulaGraphSnapshot =>
+  normalizeFormulaGraphSnapshot({
+    nodes: nodes.map((node) => ({
+      id: node.id,
+      type: node.type,
+      position: node.position,
+      data: node.data,
+    })),
+    edges: edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: edge.sourceHandle,
+      targetHandle: edge.targetHandle,
+      animated: edge.animated,
+    })),
+    viewport,
+  })!;
+
+const nextUniqueId = (nodes: Node[]) => {
+  let id = nextId();
+  const used = new Set(nodes.map((node) => node.id));
+  while (used.has(id)) id = nextId();
+  return id;
+};
 
 function GraphInner({
   seed,
   region,
   projectId,
+  snapshot,
+  onSnapshotChange,
+  onFormulaChange,
   onSaveFormula,
 }: {
   seed: FormulaItem[];
   region: Region;
   projectId?: number | null;
+  snapshot?: FormulaGraphSnapshot | null;
+  onSnapshotChange?: (snapshot: FormulaGraphSnapshot) => void;
+  onFormulaChange?: (items: FormulaItem[]) => void;
   onSaveFormula?: (items: FormulaItem[]) => void;
 }) {
-  const initial = useMemo(() => buildGraph(seed, region, projectId), []); // seed once on mount
-  const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
+  const initial = useMemo(
+    () => synchronizeGraphWithFormula(snapshot, seed, region),
+    [],
+  );
+  const [nodes, setNodes, onNodesChange] = useNodesState(
+    initial.nodes.map((node) => graphNodeToFlowNode(node, projectId)),
+  );
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges as Edge[]);
+  const [graphViewport, setGraphViewport] = useState(initial.viewport);
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  const viewportRef = useRef(graphViewport);
+  nodesRef.current = nodes;
+  edgesRef.current = edges;
+  viewportRef.current = graphViewport;
 
-  // Keep substance nodes in sync with the formula (e.g. AI reduced a concentration).
-  // Updates matching nodes' conc/name and appends substances that have no node yet,
-  // without wiping user-added modifier/result nodes.
-  const prevSeedRef = useRef<string>(JSON.stringify(seed.map((s) => [s.smiles, s.concentration])));
+  const seedSignature = formulaGraphItemsSignature(seed);
+  // The selected formula is the source of truth when its ingredients change
+  // outside node mode. Existing positions/result nodes remain attached to it.
   useEffect(() => {
-    const sig = JSON.stringify(seed.map((s) => [s.smiles, s.concentration, s.name]));
-    if (sig === prevSeedRef.current) return;
-    prevSeedRef.current = sig;
-    if (!seed.length) return;
-    setNodes((nds) => {
-      let next = nds.map((n) => {
-        if (n.type !== "substance") return n;
-        const d = n.data as SubstanceData;
-        const m = seed.find((s) => s.smiles === d.smiles);
-        return m ? { ...n, data: { ...d, concentration: m.concentration, name: m.name ?? d.name } } : n;
-      });
-      const have = new Set(
-        next.filter((n) => n.type === "substance").map((n) => (n.data as SubstanceData).smiles),
-      );
-      let base = next.filter((n) => n.type === "substance").length;
-      seed
-        .filter((s) => s.smiles && !have.has(s.smiles))
-        .forEach((s) => {
-          next = [
-            ...next,
-            {
-              id: nextId(),
-              type: "substance",
-              position: { x: 40, y: 40 + base * 200 },
-              data: { name: s.name, smiles: s.smiles, concentration: s.concentration },
-            },
-          ];
-          base += 1;
-        });
-      return next;
-    });
-  }, [seed, setNodes]);
+    const current = graphSnapshotFromFlow(
+      nodesRef.current,
+      edgesRef.current,
+      viewportRef.current,
+    );
+    if (formulaGraphItemsSignature(formulaItemsFromGraph(current)) === seedSignature) return;
+    const synced = synchronizeGraphWithFormula(current, seed, region);
+    setNodes(synced.nodes.map((node) => graphNodeToFlowNode(node, projectId)));
+    setEdges(synced.edges as Edge[]);
+    // Depend on the content signature instead of the `seed` array identity.
+    // The parent rebuilds its formula-items array while graph snapshots are
+    // being persisted; reacting to that identity-only change can restore a
+    // chemical node immediately after the user deletes it.
+  }, [projectId, region, seedSignature, setEdges, setNodes]);
+
+  const currentSnapshot = useMemo(
+    () => graphSnapshotFromFlow(nodes, edges, graphViewport),
+    [edges, graphViewport, nodes],
+  );
+  const currentFormulaItems = useMemo(
+    () => formulaItemsFromGraph(currentSnapshot),
+    [currentSnapshot],
+  );
+  const currentFormulaSignature = formulaGraphItemsSignature(currentFormulaItems);
+  const lastFormulaSignatureRef = useRef(seedSignature);
+  const onFormulaChangeRef = useRef(onFormulaChange);
+  const onSnapshotChangeRef = useRef(onSnapshotChange);
+  onFormulaChangeRef.current = onFormulaChange;
+  onSnapshotChangeRef.current = onSnapshotChange;
+
+  // Editing, adding, or deleting a chemical node updates only the selected
+  // formula. Moving nodes or changing edges never mutates formula ingredients.
+  useEffect(() => {
+    if (currentFormulaSignature === lastFormulaSignatureRef.current) return;
+    lastFormulaSignatureRef.current = currentFormulaSignature;
+    onFormulaChangeRef.current?.(currentFormulaItems);
+  }, [currentFormulaItems, currentFormulaSignature]);
+
+  const previousResultInputRef = useRef(currentFormulaSignature);
+  useEffect(() => {
+    if (currentFormulaSignature === previousResultInputRef.current) return;
+    previousResultInputRef.current = currentFormulaSignature;
+    setNodes((currentNodes) =>
+      currentNodes.map((node) =>
+        node.type === "result"
+          ? {
+              ...node,
+              data: {
+                region: (node.data as ResultData).region ?? region,
+                projectId,
+                status: "idle",
+              },
+            }
+          : node,
+      ),
+    );
+  }, [currentFormulaSignature, projectId, region, setNodes]);
+
+  const latestSnapshotRef = useRef(currentSnapshot);
+  latestSnapshotRef.current = currentSnapshot;
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      onSnapshotChangeRef.current?.(currentSnapshot);
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [currentSnapshot]);
+  useEffect(
+    () => () => {
+      onSnapshotChangeRef.current?.(latestSnapshotRef.current);
+    },
+    [],
+  );
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [edgeMenu, setEdgeMenu] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -510,43 +608,69 @@ function GraphInner({
     (c: Connection) => setEdges((eds) => addEdge({ ...c, animated: true }, eds)),
     [setEdges],
   );
+  const removeNode = useCallback(
+    (id: string) => {
+      setNodes((currentNodes) => currentNodes.filter((node) => node.id !== id));
+      setEdges((currentEdges) =>
+        currentEdges.filter((edge) => edge.source !== id && edge.target !== id),
+      );
+    },
+    [setEdges, setNodes],
+  );
+  const nodeTypes = useMemo<NodeTypes>(
+    () => ({
+      substance: (props) => <SubstanceNode {...props} onRemove={removeNode} />,
+      result: ResultNode,
+      modifier: (props) => <ModifierNode {...props} onRemove={removeNode} />,
+    }),
+    [removeNode],
+  );
 
   const addSubstance = (item?: LibItem) =>
-    setNodes((nds) => [
-      ...nds,
-      {
-        id: nextId(),
-        type: "substance",
-        position: { x: 40, y: 40 + Math.min(nds.length, 6) * 60 },
-        data: item
-          ? { name: item.name, smiles: item.smiles, concentration: item.conc }
-          : { name: "", smiles: "", concentration: 10 },
-      },
-    ]);
+    setNodes((nds) => {
+      const id = nextUniqueId(nds);
+      return [
+        ...nds,
+        {
+          id,
+          type: "substance",
+          position: { x: 40, y: 40 + Math.min(nds.length, 6) * 60 },
+          data: item
+            ? { name: item.name, smiles: item.smiles, concentration: item.conc }
+            : { name: "", smiles: "", concentration: 10 },
+        },
+      ];
+    });
 
   const addResult = () =>
-    setNodes((nds) => [
-      ...nds,
-      {
-        id: nextId(),
-        type: "result",
-        position: { x: 500, y: 40 + Math.min(nds.length, 6) * 90 },
-        data: { region, projectId, status: "idle" },
-      },
-    ]);
+    setNodes((nds) => {
+      const id = nextUniqueId(nds);
+      return [
+        ...nds,
+        {
+          id,
+          type: "result",
+          position: { x: 500, y: 40 + Math.min(nds.length, 6) * 90 },
+          data: { region, projectId, status: "idle" },
+        },
+      ];
+    });
 
   const addModifierBySmiles = (smiles: string) => {
     const it = SUBSTANCE_LIBRARY.flatMap((g) => g.items).find((s) => s.smiles === smiles);
     if (!it) return;
-    setNodes((nds) => [
-      ...nds,
-      {
-        id: nextId(),
-        type: "modifier",
-        position: { x: 250, y: 40 + Math.min(nds.length, 6) * 60 },
-        data: { name: it.name, smiles: it.smiles, concentration: it.conc },
-      },
-    ]);
+    setNodes((nds) => {
+      const id = nextUniqueId(nds);
+      return [
+        ...nds,
+        {
+          id,
+          type: "modifier",
+          position: { x: 250, y: 40 + Math.min(nds.length, 6) * 60 },
+          data: { name: it.name, smiles: it.smiles, concentration: it.conc },
+        },
+      ];
+    });
   };
 
   // Save the current graph (every substance + modifier node) as a new formula.
@@ -690,8 +814,10 @@ function GraphInner({
         onConnect={onConnect}
         onEdgeClick={(e, edge) => setEdgeMenu({ id: edge.id, x: e.clientX, y: e.clientY })}
         onPaneClick={() => setEdgeMenu(null)}
+        onMoveEnd={(_, viewport) => setGraphViewport(viewport)}
         nodeTypes={nodeTypes}
-        fitView
+        defaultViewport={initial.viewport}
+        fitView={!snapshot}
         proOptions={{ hideAttribution: true }}
       >
         <Background color="#CBD5E1" gap={18} />
@@ -719,16 +845,30 @@ export default function FormulaGraph({
   seed = [],
   region = "face",
   projectId = null,
+  snapshot = null,
+  onSnapshotChange,
+  onFormulaChange,
   onSaveFormula,
 }: {
   seed?: FormulaItem[];
   region?: Region;
   projectId?: number | null;
+  snapshot?: FormulaGraphSnapshot | null;
+  onSnapshotChange?: (snapshot: FormulaGraphSnapshot) => void;
+  onFormulaChange?: (items: FormulaItem[]) => void;
   onSaveFormula?: (items: FormulaItem[]) => void;
 }) {
   return (
     <ReactFlowProvider>
-      <GraphInner seed={seed} region={region} projectId={projectId} onSaveFormula={onSaveFormula} />
+      <GraphInner
+        seed={seed}
+        region={region}
+        projectId={projectId}
+        snapshot={snapshot}
+        onSnapshotChange={onSnapshotChange}
+        onFormulaChange={onFormulaChange}
+        onSaveFormula={onSaveFormula}
+      />
     </ReactFlowProvider>
   );
 }

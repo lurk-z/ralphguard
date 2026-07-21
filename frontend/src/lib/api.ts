@@ -1,5 +1,32 @@
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+export class ApiError extends Error {
+  readonly status: number;
+  readonly statusText: string;
+  readonly detail: string | null;
+
+  constructor(status: number, statusText: string, detail: string | null) {
+    super(detail ? `${status} ${statusText}: ${detail}` : `${status} ${statusText}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.statusText = statusText;
+    this.detail = detail;
+  }
+}
+
+export function apiErrorMessage(cause: unknown, fallback: string): string {
+  if (cause instanceof ApiError) {
+    if (cause.status === 404) return `${fallback}: ไม่พบข้อมูลที่ร้องขอ`;
+    if (cause.status === 422 && cause.detail) return `${fallback}: ${cause.detail}`;
+    if (cause.status >= 500) return `${fallback}: เซิร์ฟเวอร์ยังไม่พร้อมใช้งาน`;
+    return `${fallback}: ${cause.detail || cause.statusText}`;
+  }
+  if (cause instanceof Error && cause.name === "AbortError") {
+    return `${fallback}: หมดเวลาการเชื่อมต่อเซิร์ฟเวอร์`;
+  }
+  return `${fallback}: ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้`;
+}
+
 export type Region = "forearm" | "hand" | "face" | "eye";
 export type ConfidenceLevel = "High" | "Medium" | "Low";
 
@@ -98,6 +125,10 @@ export type AssessmentRecord = {
 
 async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Promise<T> {
   const ctrl = new AbortController();
+  const externalSignal = init?.signal;
+  const abortFromCaller = () => ctrl.abort();
+  if (externalSignal?.aborted) ctrl.abort();
+  else externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(`${API}${path}`, {
@@ -107,12 +138,22 @@ async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Pro
     });
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`${res.status} ${res.statusText}: ${body}`);
+      let detail: string | null = body || null;
+      if (body) {
+        try {
+          const parsed = JSON.parse(body) as { detail?: unknown };
+          if (typeof parsed.detail === "string") detail = parsed.detail;
+        } catch {
+          // Keep the plain response body when the server does not return JSON.
+        }
+      }
+      throw new ApiError(res.status, res.statusText, detail);
     }
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
   } finally {
     clearTimeout(t);
+    externalSignal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
@@ -129,8 +170,8 @@ export const api = {
       body: JSON.stringify({ formula, region, project_id: projectId ?? null }),
     }),
 
-  getAssessment: (jobId: string) =>
-    http<AssessmentRecord>(`/api/assessments/${jobId}`),
+  getAssessment: (jobId: string, signal?: AbortSignal) =>
+    http<AssessmentRecord>(`/api/assessments/${jobId}`, { signal }),
 
   listAssessments: (projectId?: number | null, limit = 50) =>
     http<AssessmentSummary[]>(
@@ -159,6 +200,16 @@ export const api = {
 
   listProjectAssessments: (projectId: number) =>
     http<AssessmentSummary[]>(`/api/projects/${projectId}/assessments`),
+
+  getProjectAssessment: (
+    projectId: number,
+    assessmentId: string,
+    signal?: AbortSignal,
+  ) =>
+    http<AssessmentRecord>(
+      `/api/projects/${projectId}/assessments/${encodeURIComponent(assessmentId)}`,
+      { signal },
+    ),
 
   getModelMetrics: () => http<ModelMetricsPayload>("/api/models/metrics"),
 

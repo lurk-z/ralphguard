@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { IBM_Plex_Mono, Noto_Sans_Thai } from "next/font/google";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 // LINE Seed Sans TH — Thai + Latin body text
@@ -66,6 +67,7 @@ export default function RootLayout({
     >
       <body className="antialiased" suppressHydrationWarning>
         {children}
+        <Toaster />
       </body>
     </html>
   );

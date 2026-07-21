@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import DashboardShell from "@/components/layout/DashboardShell";
 import { api, type AssessmentResultPayload } from "@/lib/api";
+import { latestCompletedAssessment } from "@/lib/report-selection";
 
 const FaceView = dynamic(
   () => import("@/components/FaceIrritationModel").then((m) => m.FaceIrritationCanvas),
@@ -43,20 +44,29 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const projectId = Number(params.id);
   const [result, setResult] = useState<AssessmentResultPayload | null>(null);
+  const [assessmentId, setAssessmentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        if (!Number.isFinite(projectId)) throw new Error("no backend project");
-        const runs = await api.listAssessments(projectId, 1);
-        const latest = runs.find((r) => r.status === "completed") ?? runs[0];
+        if (!Number.isSafeInteger(projectId) || projectId <= 0) {
+          throw new Error("no backend project");
+        }
+        const runs = await api.listProjectAssessments(projectId);
+        const latest = latestCompletedAssessment(runs);
         if (!latest) throw new Error("no runs");
-        const record = await api.getAssessment(latest.id);
-        if (alive) setResult(record.result);
+        const record = await api.getProjectAssessment(projectId, latest.id);
+        if (alive) {
+          setResult(record.result);
+          setAssessmentId(record.id);
+        }
       } catch {
-        if (alive) setResult(null);
+        if (alive) {
+          setResult(null);
+          setAssessmentId(null);
+        }
       } finally {
         if (alive) setLoading(false);
       }
@@ -91,8 +101,12 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
           </Button>
           <Button
             className="h-11 gap-2 px-5"
-            disabled={!endpoints}
-            onClick={() => router.push(`/projects/${params.id}/report`)}
+            disabled={!endpoints || !assessmentId}
+            onClick={() =>
+              router.push(
+                `/projects/${params.id}/report?assessmentId=${encodeURIComponent(assessmentId!)}`,
+              )
+            }
           >
             <FileText className="size-4" />
             สร้าง PDF

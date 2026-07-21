@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export type ScannedItem = {
   name: string;
@@ -27,6 +27,12 @@ type Result = {
   concentration_notice_th?: string;
 };
 
+export type ScanImportContext = {
+  recognizedNoStructure: string[];
+  unmatched: string[];
+  unselected: string[];
+};
+
 type Phase = "idle" | "scanning" | "done";
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -37,7 +43,7 @@ export default function LabelScanModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onImport: (items: ScannedItem[]) => void;
+  onImport: (items: ScannedItem[], context: ScanImportContext) => void;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [preview, setPreview] = useState<string | null>(null);
@@ -45,6 +51,33 @@ export default function LabelScanModal({
   const [drafts, setDrafts] = useState<EditableItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const scanControllerRef = useRef<AbortController | null>(null);
+  const scanRequestIdRef = useRef(0);
+  const previewUrlRef = useRef<string | null>(null);
+
+  const abortActiveScan = () => {
+    scanRequestIdRef.current += 1;
+    scanControllerRef.current?.abort();
+    scanControllerRef.current = null;
+  };
+
+  useEffect(() => {
+    if (!open) {
+      scanRequestIdRef.current += 1;
+      scanControllerRef.current?.abort();
+      scanControllerRef.current = null;
+    }
+  }, [open]);
+
+  useEffect(
+    () => () => {
+      scanRequestIdRef.current += 1;
+      scanControllerRef.current?.abort();
+      scanControllerRef.current = null;
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    },
+    [],
+  );
 
   if (!open) return null;
 
@@ -53,17 +86,22 @@ export default function LabelScanModal({
     setResult(null);
     setDrafts([]);
     setError(null);
-    if (preview) URL.revokeObjectURL(preview);
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    previewUrlRef.current = null;
     setPreview(null);
   };
 
   const close = () => {
+    abortActiveScan();
     reset();
     onClose();
   };
 
   const scan = async (file: File) => {
+    abortActiveScan();
     if (file.size > 10 * 1024 * 1024) {
+      setResult(null);
+      setDrafts([]);
       setError("ไฟล์ภาพต้องมีขนาดไม่เกิน 10 MB");
       setPhase("done");
       return;
@@ -71,30 +109,38 @@ export default function LabelScanModal({
     setError(null);
     setResult(null);
     setDrafts([]);
-    setPreview((old) => {
-      if (old) URL.revokeObjectURL(old);
-      return URL.createObjectURL(file);
-    });
+    const requestId = ++scanRequestIdRef.current;
+    const controller = new AbortController();
+    scanControllerRef.current = controller;
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    previewUrlRef.current = URL.createObjectURL(file);
+    setPreview(previewUrlRef.current);
     setPhase("scanning");
     try {
       const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       const form = new FormData();
       form.append("file", file);
       const [response] = await Promise.all([
-        fetch(`${API}/api/ocr/`, { method: "POST", body: form }),
+        fetch(`${API}/api/ocr/`, { method: "POST", body: form, signal: controller.signal }),
         wait(900),
       ]);
+      if (requestId !== scanRequestIdRef.current || controller.signal.aborted) return;
       if (!response.ok) {
         const detail = await response.json().catch(() => ({}));
         throw new Error(detail?.detail || `HTTP ${response.status}`);
       }
       const data = (await response.json()) as Result;
+      if (requestId !== scanRequestIdRef.current || controller.signal.aborted) return;
       setResult(data);
       setDrafts(data.items.map((item) => ({ ...item, concentration: null, selected: true })));
     } catch (cause: any) {
+      if (cause?.name === "AbortError" || requestId !== scanRequestIdRef.current) return;
       setError(cause?.message || String(cause));
     } finally {
-      setPhase("done");
+      if (requestId === scanRequestIdRef.current && !controller.signal.aborted) {
+        scanControllerRef.current = null;
+        setPhase("done");
+      }
     }
   };
 
@@ -304,6 +350,11 @@ export default function LabelScanModal({
                     score: item.score,
                     source: item.source,
                   })),
+                  {
+                    recognizedNoStructure: result?.recognized_no_structure ?? [],
+                    unmatched: result?.unmatched ?? [],
+                    unselected: drafts.filter((item) => !item.selected).map((item) => item.name),
+                  },
                 );
                 close();
               }}

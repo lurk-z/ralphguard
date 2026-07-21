@@ -114,7 +114,11 @@ export default function HistoryPage() {
                   </td>
                   <td className="py-2 px-3">
                     <a
-                      href={`/assess?job=${r.id}`}
+                      href={
+                        r.status === "completed" && r.project_id != null
+                          ? `/projects/${r.project_id}/report?assessmentId=${encodeURIComponent(r.id)}`
+                          : `/assess?job=${encodeURIComponent(r.id)}`
+                      }
                       className="text-brand hover:underline text-xs"
                     >
                       ดูผล →

@@ -1,9 +1,9 @@
 "use client";
 
-// Project List — the shared project workspace. Loads from the API and falls
-// back to an empty state when the backend is unreachable, so it works standalone.
+// Project List — the shared project workspace backed by the project API.
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   ArrowRight,
   CalendarDays,
@@ -48,7 +48,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import DashboardShell from "@/components/layout/DashboardShell";
-import { api, type ProjectOut } from "@/lib/api";
+import { api, apiErrorMessage, type ProjectOut } from "@/lib/api";
+import { deleteProjectWorkspace } from "@/lib/project-workspace";
+
+const PROJECT_ROUTE_ERRORS: Record<string, string> = {
+  "invalid-project": "รหัสโปรเจกต์ไม่ถูกต้อง",
+  "project-not-found": "ไม่พบโปรเจกต์นี้ หรือโปรเจกต์อาจถูกลบแล้ว",
+  "project-load-failed": "เปิดโปรเจกต์ไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อเซิร์ฟเวอร์",
+};
 
 function formatDate(iso: string) {
   try {
@@ -66,6 +73,7 @@ export default function ProjectListPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectOut[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<ProjectOut | null>(null);
   const [deletingProject, setDeletingProject] = useState<ProjectOut | null>(null);
   const [editName, setEditName] = useState("");
@@ -75,18 +83,39 @@ export default function ProjectListPage() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
+    const currentUrl = new URL(window.location.href);
+    const routeError = currentUrl.searchParams.get("projectError");
+    if (routeError && PROJECT_ROUTE_ERRORS[routeError]) {
+      toast.error(PROJECT_ROUTE_ERRORS[routeError]);
+      currentUrl.searchParams.delete("projectError");
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`,
+      );
+    }
+
     let alive = true;
     api
       .listProjects()
-      .then((rows) => alive && setProjects(rows))
-      .catch(() => alive && setProjects([])) // backend down → empty
+      .then((rows) => {
+        if (!alive) return;
+        setProjects(rows);
+        setLoadError(null);
+      })
+      .catch((cause) => {
+        if (!alive) return;
+        const message = apiErrorMessage(cause, "โหลดรายการโปรเจกต์ไม่สำเร็จ");
+        setLoadError(message);
+        toast.error(message);
+      })
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
     };
   }, []);
 
-  const empty = projects.length === 0;
+  const empty = !loadError && projects.length === 0;
 
   const startEditing = (project: ProjectOut) => {
     setEditingProject(project);
@@ -122,6 +151,7 @@ export default function ProjectListPage() {
     setActionError(null);
     try {
       await api.deleteProject(deletingProject.id);
+      deleteProjectWorkspace(deletingProject.id);
       setProjects((rows) => rows.filter((row) => row.id !== deletingProject.id));
       setDeletingProject(null);
     } catch (cause) {
@@ -193,7 +223,7 @@ export default function ProjectListPage() {
           </Empty>
         )}
 
-        {!loading && !empty && (
+        {!loading && !loadError && !empty && (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((p) => (
               <Card
