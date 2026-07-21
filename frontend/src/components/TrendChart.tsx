@@ -54,7 +54,7 @@ export default function TrendChart({
           tick={{ fontSize: 10, fill: tickFill }}
         />
         <Tooltip
-          formatter={(value: number | string, name: string) => [`${Math.round(Number(value))}/100`, name]}
+          formatter={(value, name) => [`${Math.round(Number(value ?? 0))}/100`, String(name)]}
           cursor={{ stroke: dark ? "#64748b" : "#cbd5e1", strokeDasharray: "3 3" }}
           contentStyle={{
             fontSize: 11,
