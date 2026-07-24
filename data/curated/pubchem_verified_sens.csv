@@ -1,0 +1,10 @@
+smiles,name,label,source,pubchem_cid,evidence_ids,hazard_codes,source_count,source_quality,review_statuses,label_quality,sample_weight
+OCc1ccccc1,Benzyl Alcohol,1,PubChem PUG-View GHS consensus (weak label),244,"[77, 84]","[""H317""]",2,"{""regulatory"": 2}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+O=C/C=C/c1ccccc1,Cinnamaldehyde,1,PubChem PUG-View GHS consensus (weak label),637511,"[104, 105, 107, 110, 113, 116, 119]","[""H317""]",4,"{""regulatory"": 7}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+COP(=O)(OC)OC=C(Cl)Cl,Dichlorvos,1,PubChem PUG-View GHS consensus (weak label),3039,"[343, 345]","[""H317""]",2,"{""expert_curated"": 1, ""regulatory"": 1}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+C=CCc1ccc(O)c(OC)c1,Eugenol,1,PubChem PUG-View GHS consensus (weak label),3314,"[95, 97, 101, 102]","[""H317""]",3,"{""regulatory"": 4}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+C=C(C)C1CC=C(C)CC1,Limonene,1,PubChem PUG-View GHS consensus (weak label),22311,"[16, 18, 20, 23, 25]","[""H317""]",3,"{""regulatory"": 5}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+C=CC(C)(O)CCC=C(C)C,Linalool,1,PubChem PUG-View GHS consensus (weak label),6549,"[26, 27, 29, 32, 35]","[""H317""]",4,"{""regulatory"": 5}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+CCOC(=O)CC(SP(=S)(OC)OC)C(=O)OCC,Malathion,1,PubChem PUG-View GHS consensus (weak label),4004,"[371, 373]","[""H317""]",2,"{""expert_curated"": 1, ""regulatory"": 1}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+CC(C)N(C(=O)SCC(Cl)=C(Cl)Cl)C(C)C,Triallate,1,PubChem PUG-View GHS consensus (weak label),5543,"[434, 436]","[""H317""]",2,"{""expert_curated"": 1, ""regulatory"": 1}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+COP(=O)(OC)C(O)C(Cl)(Cl)Cl,Trichlorfon,1,PubChem PUG-View GHS consensus (weak label),5853,"[448, 450]","[""H317""]",2,"{""expert_curated"": 1, ""regulatory"": 1}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5

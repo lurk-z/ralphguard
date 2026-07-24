@@ -9,16 +9,17 @@
  * mirrors a REST payload (GET /api/catalog/*) so it can be swapped to a real
  * backend/DB endpoint later without touching the UI.
  */
-import type { FormulaItem, Region } from "./api";
+import type { FormulaItem, IngredientRegistryItem, Region } from "./api";
+import type { SemanticIconName } from "@/components/SemanticIcon";
 
 export type CatalogItem = { name: string; smiles: string; conc: number };
-export type CatalogGroup = { category: string; icon: string; items: CatalogItem[] };
+export type CatalogGroup = { category: string; icon: SemanticIconName; items: CatalogItem[] };
 
 // ───────────────────────── Ingredient catalog (grouped) ─────────────────────────
 export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
   {
     category: "ตัวทำละลาย / แอลกอฮอล์",
-    icon: "💧",
+    icon: "droplet",
     items: [
       { name: "Ethanol", smiles: "CCO", conc: 40 },
       { name: "Isopropanol", smiles: "CC(C)O", conc: 30 },
@@ -29,11 +30,15 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
       { name: "Pentylene Glycol", smiles: "CCCC(O)CO", conc: 4 },
       { name: "Caprylyl Glycol", smiles: "CCCCCCC(O)CO", conc: 1 },
       { name: "Ethylhexylglycerin", smiles: "CCCCC(CC)COCC(O)CO", conc: 1 },
+      { name: "Hexylene Glycol", smiles: "CC(O)CC(C)(C)O", conc: 4 },
+      { name: "1,2-Hexanediol", smiles: "CCCCC(O)CO", conc: 3 },
+      { name: "Methylpropanediol", smiles: "OCC(C)CO", conc: 4 },
+      { name: "Diethylene Glycol", smiles: "OCCOCCO", conc: 2 },
     ],
   },
   {
     category: "กรด (Acids)",
-    icon: "🧫",
+    icon: "flask",
     items: [
       { name: "Salicylic Acid", smiles: "O=C(O)c1ccccc1O", conc: 2 },
       { name: "Glycolic Acid", smiles: "OCC(=O)O", conc: 5 },
@@ -42,11 +47,16 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
       { name: "Mandelic Acid", smiles: "OC(C(=O)O)c1ccccc1", conc: 5 },
       { name: "Malic Acid", smiles: "OC(CC(=O)O)C(=O)O", conc: 3 },
       { name: "Azelaic Acid", smiles: "OC(=O)CCCCCCCC(=O)O", conc: 10 },
+      { name: "Kojic Acid", smiles: "OCC1=CC(=O)C(O)=CO1", conc: 1 },
+      { name: "Ferulic Acid", smiles: "COc1cc(/C=C/C(=O)O)ccc1O", conc: 0.5 },
+      { name: "Tartaric Acid", smiles: "OC(C(O)C(=O)O)C(=O)O", conc: 2 },
+      { name: "Tranexamic Acid", smiles: "NCC1CCC(C(=O)O)CC1", conc: 2 },
+      { name: "Gluconic Acid", smiles: "OCC(O)C(O)C(O)C(O)C(=O)O", conc: 3 },
     ],
   },
   {
     category: "สารกันเสีย (Preservatives)",
-    icon: "🛡️",
+    icon: "shield",
     items: [
       { name: "Phenoxyethanol", smiles: "OCCOc1ccccc1", conc: 1 },
       { name: "Methylparaben", smiles: "O=C(OC)c1ccc(O)cc1", conc: 0.4 },
@@ -56,11 +66,14 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
       { name: "Sorbic Acid", smiles: "CC=CC=CC(=O)O", conc: 0.2 },
       { name: "Sodium Benzoate", smiles: "O=C([O-])c1ccccc1.[Na+]", conc: 0.5 },
       { name: "Potassium Sorbate", smiles: "CC=CC=CC(=O)[O-].[K+]", conc: 0.3 },
+      { name: "Chlorphenesin", smiles: "OCC(O)COc1ccc(Cl)cc1", conc: 0.3 },
+      { name: "Triclosan", smiles: "Oc1cc(Cl)ccc1Oc1ccc(Cl)cc1Cl", conc: 0.3 },
+      { name: "Benzyl Benzoate", smiles: "O=C(OCc1ccccc1)c1ccccc1", conc: 0.5 },
     ],
   },
   {
     category: "น้ำหอม / สารก่อภูมิแพ้",
-    icon: "🌸",
+    icon: "flower",
     items: [
       { name: "Cinnamaldehyde", smiles: "O=C/C=C/c1ccccc1", conc: 1 },
       { name: "Eugenol", smiles: "C=CCc1ccc(O)c(OC)c1", conc: 1 },
@@ -70,11 +83,18 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
       { name: "Geraniol", smiles: "CC(C)=CCCC(C)=CCO", conc: 1 },
       { name: "Citral", smiles: "CC(C)=CCCC(C)=CC=O", conc: 1 },
       { name: "Coumarin", smiles: "O=c1ccc2ccccc2o1", conc: 0.5 },
+      { name: "Citronellol", smiles: "CC(CCC=C(C)C)CCO", conc: 1 },
+      { name: "Isoeugenol", smiles: "COc1cc(/C=C/C)ccc1O", conc: 1 },
+      { name: "Hydroxycitronellal", smiles: "O=CCC(C)CCCC(C)(C)O", conc: 1 },
+      { name: "Vanillin", smiles: "O=Cc1ccc(O)c(OC)c1", conc: 0.5 },
+      { name: "Menthol", smiles: "CC(C)C1CCC(C)CC1O", conc: 1 },
+      { name: "Camphor", smiles: "CC1(C)C2CCC1(C)C(=O)C2", conc: 1 },
+      { name: "Thymol", smiles: "Cc1ccc(C(C)C)cc1O", conc: 0.5 },
     ],
   },
   {
     category: "สารออกฤทธิ์ (Actives)",
-    icon: "✨",
+    icon: "sparkles",
     items: [
       { name: "Niacinamide", smiles: "O=C(N)c1cccnc1", conc: 5 },
       { name: "Caffeine", smiles: "Cn1cnc2c1c(=O)n(C)c(=O)n2C", conc: 3 },
@@ -84,37 +104,48 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
       { name: "Allantoin", smiles: "NC(=O)NC1NC(=O)NC1=O", conc: 0.5 },
       { name: "Adenosine", smiles: "Nc1ncnc2c1ncn2C1OC(CO)C(O)C1O", conc: 0.1 },
       { name: "Arbutin", smiles: "OCC1OC(Oc2ccc(O)cc2)C(O)C(O)C1O", conc: 2 },
+      { name: "Retinol (Vit A)", smiles: "OC/C=C(C)/C=C/C=C(C)/C=C/C1=C(C)CCCC1(C)C", conc: 0.1 },
+      { name: "Tocopherol (Vit E)", smiles: "CC(C)CCCC(C)CCCC(C)CCCC1(C)CCc2c(C)c(O)c(C)c(C)c2O1", conc: 0.5 },
+      { name: "Resveratrol", smiles: "Oc1ccc(/C=C/c2cc(O)cc(O)c2)cc1", conc: 0.5 },
     ],
   },
   {
     category: "สารลดแรงตึงผิว (Surfactants)",
-    icon: "🫧",
+    icon: "bubbles",
     items: [
       { name: "Sodium Lauryl Sulfate", smiles: "CCCCCCCCCCCCOS(=O)(=O)[O-].[Na+]", conc: 5 },
       { name: "Cocamidopropyl Betaine", smiles: "CCCCCCCCCCCC(=O)NCCC[N+](C)(C)CC([O-])=O", conc: 5 },
       { name: "Betaine", smiles: "C[N+](C)(C)CC(=O)[O-]", conc: 2 },
+      { name: "Sodium Laureth Sulfate", smiles: "CCCCCCCCCCCCOCCOS(=O)(=O)[O-].[Na+]", conc: 5 },
+      { name: "Decyl Glucoside", smiles: "CCCCCCCCCCOC1OC(CO)C(O)C(O)C1O", conc: 3 },
     ],
   },
   {
     category: "สารกันแดด (UV Filters)",
-    icon: "🌞",
+    icon: "sun",
     items: [
       { name: "Oxybenzone (BP-3)", smiles: "COc1ccc(C(=O)c2ccccc2)c(O)c1", conc: 3 },
       { name: "Octinoxate", smiles: "CCCCC(CC)COC(=O)/C=C/c1ccc(OC)cc1", conc: 7 },
       { name: "Avobenzone", smiles: "COc1ccc(C(=O)CC(=O)c2ccc(C(C)(C)C)cc2)cc1", conc: 3 },
       { name: "Zinc Oxide", smiles: "O=[Zn]", conc: 10 },
       { name: "Titanium Dioxide", smiles: "O=[Ti]=O", conc: 5 },
+      { name: "Octisalate", smiles: "CCCCC(CC)COC(=O)c1ccccc1O", conc: 5 },
+      { name: "Homosalate", smiles: "CC1(C)CC(OC(=O)c2ccccc2O)CC(C)(C)C1", conc: 7 },
     ],
   },
   {
     category: "อีมอลเลียนต์ / เพิ่มความชุ่มชื้น",
-    icon: "🧴",
+    icon: "spray",
     items: [
       { name: "Squalane", smiles: "CC(C)CCCC(C)CCCC(C)CCCC(C)CCCC(C)C", conc: 5 },
       { name: "Isopropyl Myristate", smiles: "CCCCCCCCCCCCCC(=O)OC(C)C", conc: 3 },
       { name: "Cetyl Alcohol", smiles: "CCCCCCCCCCCCCCCCO", conc: 3 },
       { name: "Sorbitol", smiles: "OCC(O)C(O)C(O)C(O)CO", conc: 3 },
       { name: "Sodium Lactate", smiles: "CC(O)C(=O)[O-].[Na+]", conc: 2 },
+      { name: "Isopropyl Palmitate", smiles: "CCCCCCCCCCCCCCCC(=O)OC(C)C", conc: 3 },
+      { name: "Stearyl Alcohol", smiles: "CCCCCCCCCCCCCCCCCCO", conc: 3 },
+      { name: "Glyceryl Stearate", smiles: "CCCCCCCCCCCCCCCCCC(=O)OCC(O)CO", conc: 3 },
+      { name: "Decyl Oleate", smiles: "CCCCCCCC/C=C\\CCCCCCCC(=O)OCCCCCCCCCC", conc: 3 },
     ],
   },
 ];
@@ -122,6 +153,44 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
 /** Flat lookup list (handy for a single dropdown / search). */
 export const SUBSTANCE_FLAT: (CatalogItem & { category: string })[] =
   SUBSTANCE_LIBRARY.flatMap((g) => g.items.map((it) => ({ ...it, category: g.category })));
+
+/** Merge the offline curated catalog with verified, QSAR-eligible registry rows. */
+export function catalogWithVerifiedRegistry(
+  registryItems: IngredientRegistryItem[],
+): CatalogGroup[] {
+  const seen = new Set(
+    SUBSTANCE_LIBRARY.flatMap((group) => group.items.map((item) => item.smiles)),
+  );
+  const imported = registryItems
+    .filter(
+      (item) =>
+        item.verification_status === "verified" &&
+        item.qsar_eligible &&
+        Boolean(item.canonical_smiles?.trim()),
+    )
+    .flatMap((item) => {
+      const smiles = item.canonical_smiles!.trim();
+      if (seen.has(smiles)) return [];
+      seen.add(smiles);
+      return [{
+        name: item.inci_name || item.canonical_name,
+        smiles,
+        conc: 1,
+      }];
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return imported.length
+    ? [
+        ...SUBSTANCE_LIBRARY,
+        {
+          category: "PubChem Registry - ผ่านการตรวจสอบ",
+          icon: "package",
+          items: imported,
+        },
+      ]
+    : SUBSTANCE_LIBRARY;
+}
 
 /**
  * Normalize an ingredient label for assistant/OCR lookups. Product-facing
@@ -153,7 +222,13 @@ const SUBSTANCE_NAME_ALIASES: Record<string, string> = {
 export function resolveCatalogSubstance(name: string): (CatalogItem & { category: string }) | undefined {
   const normalized = normalizeSubstanceName(name);
   if (!normalized) return undefined;
-  return SUBSTANCE_FLAT.find((item) => normalizeSubstanceName(item.name) === normalized);
+  const exact = SUBSTANCE_FLAT.find((item) => normalizeSubstanceName(item.name) === normalized);
+  if (exact) return exact;
+  // OCR and labels often omit explanatory suffixes such as "(Vit C)".
+  const withoutSuffix = normalized.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  return SUBSTANCE_FLAT.find(
+    (item) => normalizeSubstanceName(item.name).replace(/\s*\([^)]*\)\s*$/, "").trim() === withoutSuffix,
+  );
 }
 
 // ───────────────────────── Substance info (for hover tooltips) ─────────────────────────
@@ -230,7 +305,7 @@ export type RiskLevel = "low" | "mid" | "high";
 export type ProductTemplate = {
   id: string;
   name: string;
-  icon: string;
+  icon: SemanticIconName;
   desc: string;
   region: Region;
   formula: FormulaItem[];
@@ -258,7 +333,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "toner",
     risk: "mid",
     name: "โทนเนอร์เช็ดหน้า",
-    icon: "🧴",
+    icon: "spray",
     desc: "แอลกอฮอล์อ่อน + ให้ความชุ่มชื้น (ทดสอบที่ใบหน้า)",
     region: "face",
     formula: [
@@ -271,7 +346,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "aha-serum",
     risk: "high",
     name: "เซรั่มผลัดเซลล์ AHA",
-    icon: "💉",
+    icon: "syringe",
     desc: "กรด AHA + Niacinamide สูตรผลัดผิว (ทดสอบที่ใบหน้า)",
     region: "face",
     formula: [
@@ -284,7 +359,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "hand-gel",
     risk: "high",
     name: "เจลล้างมือแอลกอฮอล์",
-    icon: "🖐️",
+    icon: "hand",
     desc: "แอลกอฮอล์เข้มข้นสูง (ทดสอบที่มือ)",
     region: "hand",
     formula: [
@@ -296,7 +371,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "moisturizer",
     risk: "low",
     name: "ครีมบำรุงผิว (มอยส์เจอร์)",
-    icon: "🧕",
+    icon: "leaf",
     desc: "ให้ความชุ่มชื้น อ่อนโยน (ทดสอบที่ท่อนแขน)",
     region: "forearm",
     formula: [
@@ -310,7 +385,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "fragrance-mist",
     risk: "high",
     name: "สเปรย์น้ำหอม (Body Mist)",
-    icon: "🌸",
+    icon: "flower",
     desc: "มีสารก่อภูมิแพ้ในน้ำหอม — ดูความเสี่ยงแพ้ผิวหนัง (ท่อนแขน)",
     region: "forearm",
     formula: [
@@ -325,7 +400,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "test-low",
     risk: "low",
     name: "ทดสอบ: ความเสี่ยงต่ำ",
-    icon: "🟢",
+    icon: "check-circle",
     desc: "สารอ่อนโยน ควรได้คะแนนต่ำทุกด้าน",
     region: "face",
     formula: [
@@ -338,7 +413,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "test-mid",
     risk: "mid",
     name: "ทดสอบ: ความเสี่ยงกลาง",
-    icon: "🟡",
+    icon: "circle-alert",
     desc: "กรดอ่อน + แอลกอฮอล์ปานกลาง",
     region: "face",
     formula: [
@@ -351,7 +426,7 @@ export const PRODUCT_TEMPLATES: ProductTemplate[] = [
     id: "test-high",
     risk: "high",
     name: "ทดสอบ: ความเสี่ยงสูง",
-    icon: "🔴",
+    icon: "alert",
     desc: "สารระคาย/ก่อภูมิแพ้เข้มข้น ควรได้คะแนนสูง",
     region: "face",
     formula: [

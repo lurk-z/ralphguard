@@ -8,7 +8,7 @@
  *
  *   skin (ระคายเคืองผิว)  → redness + edema (+ peeling when severe)
  *   sens (แพ้ผิวหนัง)      → papule
- *   acute/severe          → reinforces edema (swelling)
+ *   acute                 → whole-face pallor/clammy-skin systemic proxy
  *   eye  (ระคายเคืองตา)   → per-eye redness
  *
  * Drop-in replacement for FacePaintCanvas (same props) so the assess viewport
@@ -18,6 +18,8 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { SemanticIcon } from "@/components/SemanticIcon";
+import type { PaintMaskSnapshot } from "@/lib/project-workspace";
 import {
   PaintSymptomModel,
   type PaintApi,
@@ -64,17 +66,27 @@ const regionSensitivity = (region: string) => {
 };
 
 export function SymptomFaceCanvas({
+  paintOwnerKey,
   layers = [],
   armed = true,
   background = "#F4F1EE",
   productName = "สูตรที่ประเมิน",
   eraseMode = false,
+  initialPaint = null,
+  onPaintChange,
+  occupiedPaint = [],
+  onPaintBlocked,
 }: {
+  paintOwnerKey: string;
   layers?: PaintLayer[];
   armed?: boolean;
   background?: string;
   productName?: string;
   eraseMode?: boolean;
+  initialPaint?: PaintMaskSnapshot | null;
+  onPaintChange?: (snapshot: PaintMaskSnapshot) => void;
+  occupiedPaint?: PaintMaskSnapshot[];
+  onPaintBlocked?: () => void;
 }) {
   const scoreOf = (k: string) => (layers.find((l) => l.key === k)?.score ?? 0) / 100;
   const skin = scoreOf("skin");
@@ -83,7 +95,7 @@ export function SymptomFaceCanvas({
   const acute = scoreOf("acute");
   // Visual mapping is defined only in SymptomLabModel; this assessment wrapper
   // supplies the four endpoint scores without maintaining a second recipe.
-  const { sev, eyeRed } = useMemo(
+  const { sev, eyeRed, acuteSystemic } = useMemo(
     () => mapAssessmentEndpointsToSymptoms({ skin, eye, sens, acute }),
     [skin, eye, sens, acute],
   );
@@ -170,15 +182,23 @@ export function SymptomFaceCanvas({
         <directionalLight position={[0, 2, -5]} intensity={0.6} color="#ffffff" />
         <Suspense fallback={null}>
           <PaintSymptomModel
+            paintOwnerKey={paintOwnerKey}
+            paintEnabled={armed}
             activeSymptom={dominant}
             paintSymptoms={ASSESSMENT_PAINT_SYMPTOMS}
             sev={sev}
             brushSizePct={50}
             eyeLeft={eyeRed}
             eyeRight={eyeRed}
+            acuteSystemic={acuteSystemic}
             eraseMode={eraseMode}
             apiRef={apiRef}
             onHover={handleHover}
+            initialPaint={initialPaint}
+            onPaintChange={onPaintChange}
+            occupiedPaint={occupiedPaint}
+            onPaintBlocked={onPaintBlocked}
+            cameraDistanceScale={1.15}
           />
         </Suspense>
         {/* Left-right orbit only (locked polar) to keep the face front-on. */}
@@ -192,7 +212,7 @@ export function SymptomFaceCanvas({
         />
       </Canvas>
       {armed && (
-        <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-teal-300/70 bg-slate-950/70 px-3 py-1 text-[10px] font-semibold tracking-wide text-teal-200 shadow-[0_0_18px_rgba(20,184,166,.3)] backdrop-blur">
+        <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-semibold tracking-wide text-slate-700">
           ▦ ลากบนผิวเพื่อวาง Grid Scan
         </div>
       )}
@@ -205,14 +225,17 @@ export function SymptomFaceCanvas({
             top: `min(calc(100% - 11rem), ${tip.y + 14}px)`,
           }}
         >
-          <div className="truncate text-xs font-semibold">🧴 {productName}</div>
+          <div className="flex items-center gap-1 truncate text-xs font-semibold"><SemanticIcon name="spray" className="size-3.5 shrink-0" /> {productName}</div>
           <div className="mt-0.5 flex items-center gap-1 text-[11px] text-teal-700">
             <span>ตำแหน่ง:</span>
             <span className="font-semibold">{tip.region}</span>
           </div>
           <div className="mt-1 text-[10px] text-slate-500">
-            {visibleSymptoms.length
-              ? `อาการที่แสดงตามเวลานี้: ${visibleSymptoms.map((key) => SYMPTOM_LABEL[key]).join(", ")}`
+            {visibleSymptoms.length || acuteSystemic > 0.001
+              ? `อาการที่แสดงตามเวลานี้: ${[
+                  ...visibleSymptoms.map((key) => SYMPTOM_LABEL[key]),
+                  ...(acuteSystemic > 0.001 ? ["ผิวซีด/หมองและชื้น (ภาพแทนผลเชิงระบบ)"] : []),
+                ].join(", ")}`
               : "ยังไม่แสดงอาการในช่วงเวลานี้"}
           </div>
           <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">

@@ -1,13 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { ChevronDown, Eraser, FileUp, House, Search } from "lucide-react";
+import { toast } from "sonner";
+import { SemanticIcon, type SemanticIconName } from "@/components/SemanticIcon";
 
 import {
   AssessmentRecord,
+  ApiError,
+  apiErrorMessage,
   EndpointMetric,
   FormulaItem,
+  IngredientRegistryItem,
   ModelInfoPayload,
   ModelMetricsPayload,
   ProjectOut,
@@ -19,12 +25,54 @@ import {
   SUBSTANCE_LIBRARY,
   withWaterBase,
   isWaterItem,
+  catalogWithVerifiedRegistry,
   normalizeSubstanceName,
   resolveCatalogSubstance,
+  type CatalogItem,
 } from "@/lib/catalog";
 import VoiceAssistant from "@/components/VoiceAssistant";
-import LabelScanModal from "@/components/LabelScanModal";
+import LabelScanModal, { type ScanImportContext } from "@/components/LabelScanModal";
+import SubstanceHoverCard from "@/components/SubstanceHoverCard";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { assessmentStartProblem } from "@/lib/assessment-preconditions";
+import {
+  assessmentPollDelay,
+  assessmentPollExpired,
+  assessmentPollResponseIsCurrent,
+} from "@/lib/assessment-polling";
+import {
+  assertNoDuplicateFormulaRows,
+  parseFormulaCsv,
+  type ParsedFormulaCsvRow,
+} from "@/lib/formula-csv";
+import {
+  describeOcrSkippedItems,
+  prepareOcrFormulaReplacement,
+} from "@/lib/formula-ocr";
+import { formulaGraphItemsSignature } from "@/lib/formula-graph";
+import { parseProjectRouteId } from "@/lib/project-routing";
+import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
+import {
+  loadProjectWorkspace,
+  formulaAssessmentSignature,
+  saveProjectWorkspace,
+  type FormulaAssessmentSnapshot,
+  type FormulaGraphSnapshot,
+  type PaintMaskSnapshot,
+  type ProjectWorkspaceDraft,
+  type WorkspaceFormula,
+  type WorkspaceMode,
+} from "@/lib/project-workspace";
 
 // ── 3D head (client-only). Auto-fills irritation by the result intensity. ──
 const FaceView = dynamic(
@@ -52,15 +100,23 @@ const FormulaGraph = dynamic(() => import("@/components/FormulaGraph"), {
   ),
 });
 
-type Mode = "assess" | "nodes" | "trust";
+type Mode = WorkspaceMode;
 
-const REGIONS: { value: Region; label: string; icon: string }[] = [
-  { value: "forearm", label: "ท่อนแขน", icon: "💪" },
-  { value: "hand", label: "มือ", icon: "🤚" },
-  { value: "face", label: "ใบหน้า", icon: "🙂" },
-  { value: "eye", label: "ดวงตา", icon: "👁️" },
+const REGIONS: { value: Region; label: string; icon: SemanticIconName }[] = [
+  { value: "forearm", label: "ท่อนแขน", icon: "muscle" },
+  { value: "hand", label: "มือ", icon: "hand" },
+  { value: "face", label: "ใบหน้า", icon: "scan" },
+  { value: "eye", label: "ดวงตา", icon: "eye" },
 ];
 const ENDPOINTS = ["skin", "eye", "sens", "acute"] as const;
+type AssessmentEndpoint = (typeof ENDPOINTS)[number];
+type DeveloperTestScores = Record<AssessmentEndpoint, number>;
+const DEFAULT_DEVELOPER_TEST_SCORES: DeveloperTestScores = {
+  skin: 50,
+  eye: 50,
+  sens: 50,
+  acute: 50,
+};
 const ENDPOINT_LABEL_TH: Record<string, string> = {
   skin: "ระคายเคืองผิว",
   eye: "ระคายเคืองตา",
@@ -83,11 +139,6 @@ const EP_COLOR: Record<string, string> = {
   acute: "#F59E0B", // ส้ม
 };
 
-const SAMPLE: FormulaItem[] = [
-  { name: "Ethanol", smiles: "CCO", concentration: 40 },
-  { name: "Cinnamaldehyde", smiles: "O=C/C=C/c1ccccc1", concentration: 3 },
-];
-
 const PRODUCT_TYPES = [
   "โทนเนอร์",
   "เซรั่ม / เอสเซนส์",
@@ -109,78 +160,30 @@ const WATER_BASED_TYPES = new Set([
   "ครีมกันแดด",
 ]);
 
-const CSV_HEADER_ALIASES = {
-  name: ["name", "ingredient", "inciname", "canonicalname", "substance", "สาร", "ชื่อสาร"],
-  smiles: ["smiles", "canonicalsmiles", "structure"],
-  concentration: ["concentration", "percent", "percentage", "pct", "%", "ความเข้มข้น", "เปอร์เซ็นต์"],
-};
-
-const normalizeCsvHeader = (value: string) =>
-  value.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/[%]/g, "percent").replace(/[\s_-]+/g, "");
-
-const detectCsvDelimiter = (text: string) => {
-  const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
-  const candidates = [",", ";", "\t"];
-  let quoted = false;
-  const counts = new Map(candidates.map((candidate) => [candidate, 0]));
-  for (let index = 0; index < firstLine.length; index += 1) {
-    const char = firstLine[index];
-    if (char === '"') quoted = !quoted;
-    if (!quoted && counts.has(char)) counts.set(char, (counts.get(char) ?? 0) + 1);
-  }
-  return candidates.sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0))[0];
-};
-
-const parseCsvRows = (text: string): string[][] => {
-  const delimiter = detectCsvDelimiter(text);
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let quoted = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === '"') {
-      if (quoted && text[index + 1] === '"') {
-        field += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (char === delimiter && !quoted) {
-      row.push(field.trim());
-      field = "";
-    } else if ((char === "\n" || char === "\r") && !quoted) {
-      if (char === "\r" && text[index + 1] === "\n") index += 1;
-      row.push(field.trim());
-      if (row.some(Boolean)) rows.push(row);
-      row = [];
-      field = "";
-    } else {
-      field += char;
-    }
-  }
-  if (quoted) throw new Error("CSV มีเครื่องหมายคำพูดที่ปิดไม่ครบ");
-  row.push(field.trim());
-  if (row.some(Boolean)) rows.push(row);
-  return rows;
-};
-
 export default function StudioPage() {
+  const router = useRouter();
   const [projectId, setProjectId] = useState<number | null>(null);
   const [project, setProject] = useState<ProjectOut | null>(null);
+  const [projectContextStatus, setProjectContextStatus] = useState<"loading" | "ready" | "standalone">("loading");
+  const [workspaceHydrated, setWorkspaceHydrated] = useState(false);
   const [mode, setMode] = useState<Mode>("assess");
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateRisk, setTemplateRisk] = useState<"all" | "low" | "mid" | "high">("all");
   const [eraseMode, setEraseMode] = useState(false);
   const [showTrend, setShowTrend] = useState(false);
-  const [formulaPanelOpen, setFormulaPanelOpen] = useState(true);
-  const [formulas, setFormulas] = useState<{ id: string; name: string; type?: string; items: FormulaItem[] }[]>([
-    { id: "f1", name: "สูตร A", type: "ครีม / โลชั่น", items: SAMPLE },
+  const [formulaPanelOpen, setFormulaPanelOpen] = useState(false);
+  const [formulas, setFormulas] = useState<WorkspaceFormula[]>([
+    { id: "f1", name: "สูตร A", type: "ครีม / โลชั่น", region: "face", items: [] },
   ]);
   const [activeId, setActiveId] = useState("f1");
   const [editingFormulaId, setEditingFormulaId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [formulaPendingDeletion, setFormulaPendingDeletion] = useState<WorkspaceFormula | null>(null);
+  const [recentlyCreatedFormulaId, setRecentlyCreatedFormulaId] = useState<string | null>(null);
+  const [recentlyAddedIngredient, setRecentlyAddedIngredient] = useState<{
+    formulaId: string;
+    index: number;
+  } | null>(null);
   const [draft, setDraft] = useState<{ name: string; type: string; region: Region; from: string }>({
     name: "",
     type: "ครีม / โลชั่น",
@@ -189,6 +192,17 @@ export default function StudioPage() {
   });
   const activeFormula = formulas.find((f) => f.id === activeId) ?? formulas[0];
   const formula = activeFormula?.items ?? [];
+
+  useEffect(() => {
+    if (!recentlyCreatedFormulaId) return;
+    const timeout = window.setTimeout(() => setRecentlyCreatedFormulaId(null), 700);
+    return () => window.clearTimeout(timeout);
+  }, [recentlyCreatedFormulaId]);
+  useEffect(() => {
+    if (!recentlyAddedIngredient) return;
+    const timeout = window.setTimeout(() => setRecentlyAddedIngredient(null), 700);
+    return () => window.clearTimeout(timeout);
+  }, [recentlyAddedIngredient]);
   const setFormula = (u: FormulaItem[] | ((prev: FormulaItem[]) => FormulaItem[])) =>
     setFormulas((prev) =>
       prev.map((f) =>
@@ -199,21 +213,155 @@ export default function StudioPage() {
     );
   const [region, setRegion] = useState<Region>("face");
   const [dayIdx, setDayIdx] = useState(1);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [assessment, setAssessment] = useState<AssessmentRecord | null>(null);
-  const [running, setRunning] = useState(false);
+  const [assessmentByFormulaId, setAssessmentByFormulaId] = useState<
+    Record<string, FormulaAssessmentSnapshot>
+  >({});
+  const [paintByFormulaId, setPaintByFormulaId] = useState<
+    Record<string, PaintMaskSnapshot>
+  >({});
+  const [graphByFormulaId, setGraphByFormulaId] = useState<
+    Record<string, FormulaGraphSnapshot>
+  >({});
+  const [submittingFormulaIds, setSubmittingFormulaIds] = useState<string[]>([]);
+  const assessmentGenerationByFormulaId = useRef<Record<string, number>>({});
+  const assessmentStartControllerByFormulaId = useRef<Record<string, AbortController>>({});
+  const announcedAssessmentIds = useRef(new Set<string>());
+  const announcedTimedOutJobIds = useRef(new Set<string>());
+  const pollingFailuresByJobId = useRef<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
+  // Local visual QA only. These values never enter an assessment payload or
+  // the project workspace snapshot, so they cannot replace scientific output.
+  const [developerTestEnabled, setDeveloperTestEnabled] = useState(false);
+  const [developerTestScores, setDeveloperTestScores] = useState<DeveloperTestScores>(
+    DEFAULT_DEVELOPER_TEST_SCORES,
+  );
+
+  useEffect(
+    () => () => {
+      Object.values(assessmentStartControllerByFormulaId.current).forEach((controller) =>
+        controller.abort(),
+      );
+      assessmentStartControllerByFormulaId.current = {};
+    },
+    [],
+  );
 
   // `/projects/:id/assess` redirects here with projectId so there is only one
   // real assessment workspace. Every run remains attached to that project.
   useEffect(() => {
     const raw = new URLSearchParams(window.location.search).get("projectId");
-    const id = raw ? Number(raw) : NaN;
-    if (!Number.isInteger(id) || id <= 0) return;
-    setProjectId(id);
-    api.getProject(id).then(setProject).catch((cause) => setError(`โหลดโปรเจกต์ไม่สำเร็จ: ${String(cause)}`));
-  }, []);
+    if (raw === null) {
+      setProjectContextStatus("standalone");
+      return;
+    }
+    const id = parseProjectRouteId(raw);
+    if (id === null) {
+      router.replace("/projects?projectError=invalid-project");
+      return;
+    }
 
+    let alive = true;
+    const controller = new AbortController();
+    api
+      .getProject(id, controller.signal)
+      .then((loadedProject) => {
+        if (!alive) return;
+        const savedWorkspace = loadProjectWorkspace(loadedProject.id);
+        if (savedWorkspace) {
+          setFormulas(savedWorkspace.formulas);
+          setActiveId(savedWorkspace.activeFormulaId);
+          setRegion(savedWorkspace.region);
+          setDayIdx(savedWorkspace.dayIdx);
+          setMode(savedWorkspace.mode);
+          // Always start with the formula panel closed when entering a project.
+          setFormulaPanelOpen(false);
+          setAssessmentByFormulaId(savedWorkspace.assessmentByFormulaId);
+          setPaintByFormulaId(savedWorkspace.paintByFormulaId);
+          setGraphByFormulaId(savedWorkspace.graphByFormulaId);
+        }
+        setProject(loadedProject);
+        setProjectId(loadedProject.id);
+        setWorkspaceHydrated(true);
+        setProjectContextStatus("ready");
+      })
+      .catch((cause) => {
+        if (!alive || isAbortError(cause)) return;
+        logRequestFailure("load assessment project", cause);
+        const reason = cause instanceof ApiError && cause.status === 404
+          ? "project-not-found"
+          : "project-load-failed";
+        router.replace(`/projects?projectError=${reason}`);
+      });
+
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [router]);
+
+  const workspaceDraft = useMemo<ProjectWorkspaceDraft>(
+    () => ({
+      formulas,
+      activeFormulaId: activeId,
+      region,
+      dayIdx: dayIdx === 0 || dayIdx === 2 ? dayIdx : 1,
+      mode,
+      formulaPanelOpen,
+      assessmentByFormulaId,
+      paintByFormulaId,
+      graphByFormulaId,
+    }),
+    [
+      formulas,
+      activeId,
+      region,
+      dayIdx,
+      mode,
+      formulaPanelOpen,
+      assessmentByFormulaId,
+      paintByFormulaId,
+      graphByFormulaId,
+    ],
+  );
+  const latestWorkspaceDraft = useRef(workspaceDraft);
+  latestWorkspaceDraft.current = workspaceDraft;
+
+  // Save a sanitized, project-scoped draft after meaningful workspace changes.
+  // Hydration must finish first so the default React state can never overwrite
+  // a saved workspace before it has been restored.
+  useEffect(() => {
+    if (!projectId || projectContextStatus !== "ready" || !workspaceHydrated) return;
+    const timeout = window.setTimeout(() => {
+      if (!saveProjectWorkspace(projectId, workspaceDraft)) {
+        console.warn(`Unable to persist workspace for project ${projectId}`);
+      }
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [projectId, projectContextStatus, workspaceHydrated, workspaceDraft]);
+
+  // Flush the latest draft on refresh, tab close, or client-side navigation so
+  // a change made just before leaving is not lost to the debounce window.
+  useEffect(() => {
+    if (!projectId || projectContextStatus !== "ready" || !workspaceHydrated) return;
+    const flush = () => {
+      saveProjectWorkspace(projectId, latestWorkspaceDraft.current);
+    };
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, [projectId, projectContextStatus, workspaceHydrated]);
+
+  const currentActiveInputSignature = formulaAssessmentSignature(formula, region);
+  const storedActiveAssessmentSnapshot = assessmentByFormulaId[activeId];
+  const activeAssessmentSnapshot =
+    storedActiveAssessmentSnapshot?.inputSignature === currentActiveInputSignature
+      ? storedActiveAssessmentSnapshot
+      : undefined;
+  const jobId = activeAssessmentSnapshot?.jobId ?? null;
+  const assessment = activeAssessmentSnapshot?.assessment ?? null;
+  const running = submittingFormulaIds.includes(activeId);
   const endpoints = assessment?.result?.endpoints ?? null;
   const completed = assessment?.status === "completed";
   const assessing = running || (!!jobId && !completed && assessment?.status !== "failed");
@@ -268,6 +416,23 @@ export default function StudioPage() {
     });
   }, [endpoints, dayIdx]);
 
+  const developerTestLayers = useMemo(
+    () =>
+      ENDPOINTS.map((ep) => {
+        const score = developerTestScores[ep];
+        return {
+          key: ep,
+          label: ENDPOINT_LABEL_TH[ep],
+          score,
+          color: EP_COLOR[ep],
+          band: bandOf(score),
+        };
+      }),
+    [developerTestScores],
+  );
+  const modelReady = completed || developerTestEnabled;
+  const modelLayers = developerTestEnabled ? developerTestLayers : paintLayers;
+
   // Per-substance confidence / applicability-domain (worst endpoint), keyed by SMILES.
   const subConf = useMemo(() => {
     const map = new Map<string, { level: string; inDomain: boolean; reason: string }>();
@@ -304,50 +469,268 @@ export default function StudioPage() {
     return list.length > 0 && bad >= Math.ceil(list.length / 2);
   }, [assessment]);
 
-  // Poll
-  useEffect(() => {
-    if (!jobId) return;
-    if (assessment && (completed || assessment.status === "failed")) return;
-    const tick = async () => {
-      try {
-        setAssessment(await api.getAssessment(jobId));
-      } catch (e) {
-        setError(String(e));
-      }
-    };
-    tick();
-    const id = setInterval(tick, 1500);
-    return () => clearInterval(id);
-  }, [jobId, assessment?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pendingAssessmentJobs = useMemo(
+    () =>
+      Object.entries(assessmentByFormulaId)
+        .filter(([, snapshot]) =>
+          Boolean(
+            snapshot.jobId &&
+              snapshot.assessment?.status !== "completed" &&
+              snapshot.assessment?.status !== "failed",
+          ),
+        )
+        .map(([formulaId, snapshot]) => ({
+          formulaId,
+          jobId: snapshot.jobId!,
+          startedAt: snapshot.startedAt,
+          inputSignature: snapshot.inputSignature,
+        })),
+    [assessmentByFormulaId],
+  );
+  const pendingAssessmentKey = pendingAssessmentJobs
+    .map(({ formulaId, jobId: pendingJobId, startedAt, inputSignature }) =>
+      `${formulaId}:${pendingJobId}:${startedAt}:${inputSignature}`,
+    )
+    .sort()
+    .join("|");
 
-  const runFormula = async (candidate: FormulaItem[]) => {
+  // Poll every pending formula, not only the currently selected one. Switching
+  // formula therefore cannot stop or steal another formula's assessment job.
+  useEffect(() => {
+    if (!pendingAssessmentJobs.length) return;
+    let cancelled = false;
+    let nextPoll: number | null = null;
+    const requestController = new AbortController();
+    const jobs = pendingAssessmentJobs;
+    const tick = async () => {
+      const expiredJobs = jobs.filter(({ startedAt }) =>
+        assessmentPollExpired(startedAt),
+      );
+      for (const { formulaId, jobId: expiredJobId } of expiredJobs) {
+        if (!announcedTimedOutJobIds.current.has(expiredJobId)) {
+          announcedTimedOutJobIds.current.add(expiredJobId);
+          toast.error("งานวิเคราะห์ใช้เวลานานเกินกำหนด กรุณาเริ่มทดสอบใหม่");
+        }
+        setAssessmentByFormulaId((previous) => {
+          const current = previous[formulaId];
+          if (!current || current.jobId !== expiredJobId) return previous;
+          return {
+            ...previous,
+            [formulaId]: { ...current, jobId: null },
+          };
+        });
+      }
+
+      const activeJobs = jobs.filter(({ startedAt }) =>
+        !assessmentPollExpired(startedAt),
+      );
+      await Promise.all(
+        activeJobs.map(async ({ formulaId, jobId: pendingJobId, inputSignature }) => {
+          try {
+            const record = await api.getAssessment(
+              pendingJobId,
+              requestController.signal,
+            );
+            if (cancelled) return;
+            if (
+              !assessmentPollResponseIsCurrent(
+                latestWorkspaceDraft.current.assessmentByFormulaId[formulaId],
+                pendingJobId,
+                inputSignature,
+              )
+            ) {
+              return;
+            }
+            pollingFailuresByJobId.current[pendingJobId] = 0;
+            if (
+              (record.status === "completed" || record.status === "failed") &&
+              !announcedAssessmentIds.current.has(record.id)
+            ) {
+              announcedAssessmentIds.current.add(record.id);
+              const formulaName = latestWorkspaceDraft.current.formulas.find(
+                (item) => item.id === formulaId,
+              )?.name;
+              if (record.status === "completed") {
+                toast.success(`วิเคราะห์${formulaName ? ` “${formulaName}”` : "สูตร"}เสร็จสิ้น`);
+              } else {
+                toast.error(record.error || `วิเคราะห์${formulaName ? ` “${formulaName}”` : "สูตร"}ไม่สำเร็จ`);
+              }
+            }
+            setAssessmentByFormulaId((previous) => {
+              const current = previous[formulaId];
+              if (
+                !assessmentPollResponseIsCurrent(
+                  current,
+                  pendingJobId,
+                  inputSignature,
+                )
+              ) {
+                return previous;
+              }
+              return {
+                ...previous,
+                [formulaId]: { ...current, assessment: record },
+              };
+            });
+          } catch (cause) {
+            // A route/formula change aborts the shared controller and must not
+            // count as a network failure. The HTTP helper's own 12s timeout is
+            // different: count it so repeated timeouts receive backoff.
+            if (cancelled || requestController.signal.aborted) return;
+            pollingFailuresByJobId.current[pendingJobId] =
+              (pollingFailuresByJobId.current[pendingJobId] ?? 0) + 1;
+            if (formulaId === activeId) {
+              setError(apiErrorMessage(cause, "ตรวจสอบสถานะการวิเคราะห์ไม่สำเร็จ"));
+            }
+          }
+        }),
+      );
+      if (cancelled || activeJobs.length === 0) return;
+      const highestFailureCount = activeJobs.reduce(
+        (highest, { jobId: activeJobId }) =>
+          Math.max(highest, pollingFailuresByJobId.current[activeJobId] ?? 0),
+        0,
+      );
+      nextPoll = window.setTimeout(
+        () => void tick(),
+        assessmentPollDelay(highestFailureCount),
+      );
+    };
+    void tick();
+    return () => {
+      cancelled = true;
+      requestController.abort();
+      if (nextPoll !== null) window.clearTimeout(nextPoll);
+    };
+    // The stable key changes only when the set of pending formula/job pairs changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAssessmentKey, activeId]);
+
+  const invalidateFormulaAssessment = (formulaId: string) => {
+    assessmentStartControllerByFormulaId.current[formulaId]?.abort();
+    delete assessmentStartControllerByFormulaId.current[formulaId];
+    setSubmittingFormulaIds((current) => current.filter((id) => id !== formulaId));
+    assessmentGenerationByFormulaId.current[formulaId] =
+      (assessmentGenerationByFormulaId.current[formulaId] ?? 0) + 1;
+    setAssessmentByFormulaId((previous) => {
+      if (!(formulaId in previous)) return previous;
+      const next = { ...previous };
+      delete next[formulaId];
+      return next;
+    });
+    if (formulaId === activeId) setError(null);
+  };
+
+  const runFormula = async (
+    candidate: FormulaItem[],
+    formulaId = activeId,
+    runRegion = region,
+  ) => {
     setError(null);
-    setAssessment(null);
-    setJobId(null);
-    setRunning(true);
+    const selectedFormula = formulas.find((item) => item.id === formulaId);
+    const substances = candidate.filter(
+      (item) =>
+        !isWaterItem(item) &&
+        Boolean(item.name?.trim() || item.smiles.trim()),
+    );
+    const storedSnapshot = assessmentByFormulaId[formulaId];
+    const hasPendingJob = Boolean(
+      storedSnapshot?.jobId &&
+        storedSnapshot.assessment?.status !== "completed" &&
+        storedSnapshot.assessment?.status !== "failed",
+    );
+    const problem = assessmentStartProblem({
+      projectStatus: projectContextStatus,
+      hasProjectId: projectId !== null,
+      hasSelectedFormula: Boolean(selectedFormula),
+      substances,
+      isSubmitting: submittingFormulaIds.includes(formulaId),
+      hasPendingJob,
+    });
+    if (problem) {
+      setError(problem);
+      toast.warning(problem);
+      return;
+    }
+
+    const runGeneration = assessmentGenerationByFormulaId.current[formulaId] ?? 0;
+    const controller = new AbortController();
+    assessmentStartControllerByFormulaId.current[formulaId] = controller;
+    setSubmittingFormulaIds((current) =>
+      current.includes(formulaId) ? current : [...current, formulaId],
+    );
     try {
-      const actives = candidate.filter((it) => it.smiles.trim() && it.concentration > 0 && !isWaterItem(it));
-      if (!actives.length) throw new Error("เพิ่มอย่างน้อย 1 สาร + ความเข้มข้น");
-      const activeTotal = actives.reduce((sum, item) => sum + item.concentration, 0);
-      if (activeTotal > 100.0001) throw new Error(`ผลรวมความเข้มข้นเกิน 100% (${activeTotal.toFixed(2)}%)`);
-      const validation = await Promise.all(actives.map((item) => api.validateSmiles(item.smiles)));
+      const actives = substances;
+      const validation = await Promise.all(
+        actives.map((item) => api.validateSmiles(item.smiles, controller.signal)),
+      );
       const invalidAt = validation.findIndex((item) => !item.valid);
-      if (invalidAt >= 0) throw new Error(`SMILES ของ ${actives[invalidAt].name || `สารลำดับ ${invalidAt + 1}`} ไม่ถูกต้อง`);
+      if (invalidAt >= 0) {
+        const message = `SMILES ของ ${actives[invalidAt].name || `สารลำดับ ${invalidAt + 1}`} ไม่ถูกต้อง`;
+        setError(message);
+        toast.warning(message);
+        return;
+      }
       const cleaned = withWaterBase(actives); // น้ำเป็นเบส เติมให้รวม 100%
-      const { job_id } = await api.createAssessment(cleaned, region, projectId);
-      setJobId(job_id);
-    } catch (e: any) {
-      setError(e.message ?? String(e));
+      const inputSignature = formulaAssessmentSignature(actives, runRegion);
+      const { job_id } = await api.createAssessment(
+        cleaned,
+        runRegion,
+        projectId,
+        controller.signal,
+      );
+      if ((assessmentGenerationByFormulaId.current[formulaId] ?? 0) !== runGeneration) return;
+
+      setAssessmentByFormulaId((previous) => ({
+        ...previous,
+        [formulaId]: {
+          inputSignature,
+          jobId: job_id,
+          assessment: null,
+          startedAt: new Date().toISOString(),
+        },
+      }));
+    } catch (cause: unknown) {
+      if (
+        !isAbortError(cause) &&
+        assessmentStartControllerByFormulaId.current[formulaId] === controller &&
+        latestWorkspaceDraft.current.activeFormulaId === formulaId
+      ) {
+        logRequestFailure("start assessment", cause);
+        const message = cause instanceof Error ? cause.message : String(cause);
+        setError(message);
+        toast.error(`เริ่มการวิเคราะห์ไม่สำเร็จ: ${message}`);
+      }
     } finally {
-      setRunning(false);
+      if (assessmentStartControllerByFormulaId.current[formulaId] === controller) {
+        delete assessmentStartControllerByFormulaId.current[formulaId];
+        setSubmittingFormulaIds((current) => current.filter((id) => id !== formulaId));
+      }
     }
   };
-  const run = () => runFormula(formula);
+  const run = () => {
+    // A real run always returns the viewport to scientific assessment output.
+    setDeveloperTestEnabled(false);
+    setEraseMode(false);
+    runFormula(formula);
+  };
 
-  const patchItem = (i: number, p: Partial<FormulaItem>) =>
+  const patchItem = (i: number, p: Partial<FormulaItem>) => {
+    if (p.smiles !== undefined || p.concentration !== undefined) {
+      invalidateFormulaAssessment(activeId);
+    }
     setFormula((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...p } : it)));
-  const removeItem = (i: number) => setFormula((prev) => prev.filter((_, idx) => idx !== i));
-  const addItem = () => setFormula((prev) => [...prev, { name: "", smiles: "", concentration: 10 }]);
+  };
+  const removeItem = (i: number) => {
+    invalidateFormulaAssessment(activeId);
+    setFormula((prev) => prev.filter((_, idx) => idx !== i));
+  };
+  const addItem = () => {
+    const addedIndex = formula.length;
+    invalidateFormulaAssessment(activeId);
+    setFormula((prev) => [...prev, { name: "", smiles: "", concentration: 10 }]);
+    setRecentlyAddedIngredient({ formulaId: activeId, index: addedIndex });
+  };
 
   // Create / select saved formulas
   const openCreate = () => {
@@ -361,7 +744,7 @@ export default function StudioPage() {
   };
   const createFormula = () => {
     const id = "f" + Date.now();
-    let items: FormulaItem[] = [{ name: "", smiles: "", concentration: 10 }];
+    let items: FormulaItem[] = [];
     let reg = draft.region;
     if (draft.from !== "blank") {
       const t = PRODUCT_TEMPLATES.find((x) => x.id === draft.from);
@@ -370,11 +753,10 @@ export default function StudioPage() {
         reg = t.region === "eye" ? "eye" : "face";
       }
     }
-    setFormulas((prev) => [...prev, { id, name: draft.name.trim() || "สูตรใหม่", type: draft.type, items }]);
+    setFormulas((prev) => [...prev, { id, name: draft.name.trim() || "สูตรใหม่", type: draft.type, region: reg, items }]);
     setActiveId(id);
+    setRecentlyCreatedFormulaId(id);
     setRegion(reg);
-    setAssessment(null);
-    setJobId(null);
     setShowCreate(false);
   };
   // Save the current node graph as a brand-new formula (from node mode).
@@ -383,15 +765,33 @@ export default function StudioPage() {
     if (!actives.length) return;
     const id = "f" + Date.now();
     const n = formulas.filter((f) => (f.type || "").includes("Node")).length + 1;
-    setFormulas((prev) => [...prev, { id, name: `สูตรจาก Node ${n}`, type: "จาก Node graph", items: actives }]);
+    setFormulas((prev) => [...prev, { id, name: `สูตรจาก Node ${n}`, type: "จาก Node graph", region, items: actives }]);
     setActiveId(id);
-    setAssessment(null);
-    setJobId(null);
+    setRecentlyCreatedFormulaId(id);
+  };
+  const syncFormulaFromGraph = (formulaId: string, items: FormulaItem[]) => {
+    const current = latestWorkspaceDraft.current.formulas.find(
+      (formula) => formula.id === formulaId,
+    );
+    if (!current) return;
+    if (formulaGraphItemsSignature(current.items) === formulaGraphItemsSignature(items)) {
+      return;
+    }
+    invalidateFormulaAssessment(formulaId);
+    setFormulas((previous) =>
+      previous.map((formula) =>
+        formula.id === formulaId ? { ...formula, items } : formula,
+      ),
+    );
   };
   const selectFormula = (id: string) => {
+    const selected = formulas.find((item) => item.id === id);
     setActiveId(id);
-    setAssessment(null);
-    setJobId(null);
+    if (selected) setRegion(selected.region);
+    // Selecting a formula should immediately reveal its ingredients. The
+    // viewport arrow remains available as an independent open/close control.
+    setFormulaPanelOpen(true);
+    setError(null);
   };
   const renameFormula = (id: string, name: string) =>
     setFormulas((prev) => prev.map((f) => (f.id === id ? { ...f, name } : f)));
@@ -399,10 +799,21 @@ export default function StudioPage() {
     if (formulas.length <= 1) return; // keep at least one
     const next = formulas.filter((f) => f.id !== id);
     setFormulas(next);
+    invalidateFormulaAssessment(id);
+    setPaintByFormulaId((previous) => {
+      if (!(id in previous)) return previous;
+      const nextPaint = { ...previous };
+      delete nextPaint[id];
+      return nextPaint;
+    });
+    setGraphByFormulaId((previous) => {
+      if (!(id in previous)) return previous;
+      const nextGraph = { ...previous };
+      delete nextGraph[id];
+      return nextGraph;
+    });
     if (id === activeId) {
       setActiveId(next[0].id);
-      setAssessment(null);
-      setJobId(null);
     }
   };
 
@@ -410,10 +821,13 @@ export default function StudioPage() {
   const loadTemplate = (id: string) => {
     const t = PRODUCT_TEMPLATES.find((x) => x.id === id);
     if (!t) return;
+    const nextRegion: Region = t.region === "eye" ? "eye" : "face";
+    invalidateFormulaAssessment(activeId);
     setFormula(t.formula.map((f) => ({ ...f })));
-    setRegion(t.region === "eye" ? "eye" : "face"); // model is head-only
-    setAssessment(null);
-    setJobId(null);
+    setFormulas((previous) =>
+      previous.map((item) => item.id === activeId ? { ...item, region: nextRegion } : item),
+    );
+    setRegion(nextRegion); // model is head-only
   };
 
   // Import an AI-suggested formula straight into the Formulation input.
@@ -429,9 +843,8 @@ export default function StudioPage() {
       })
       .filter((it) => it.smiles && !isWaterItem(it));
     if (!mapped.length) return;
+    invalidateFormulaAssessment(activeId);
     setFormula(mapped);
-    setAssessment(null);
-    setJobId(null);
   };
 
   // Agent actions are previewed in VoiceAssistant, then validated and applied
@@ -565,102 +978,160 @@ export default function StudioPage() {
 
     if (createdId) {
       const id = createdId;
-      setFormulas((previous) => [...previous, { id, name: renamedTo || createdName, type: "สร้างโดย AI (ยืนยันแล้ว)", items: nextFormula }]);
+      setFormulas((previous) => [...previous, { id, name: renamedTo || createdName, type: "สร้างโดย AI (ยืนยันแล้ว)", region, items: nextFormula }]);
       setActiveId(id);
     } else {
+      invalidateFormulaAssessment(activeId);
       setFormula(nextFormula);
       if (renamedTo && activeId) renameFormula(activeId, renamedTo);
     }
     if (nextMode) setMode(nextMode);
-    setAssessment(null);
-    setJobId(null);
-    if (shouldRun) await runFormula(nextFormula);
+    if (shouldRun) {
+      await runFormula(nextFormula, createdId ?? activeId, region);
+    }
   };
 
   // Add one ingredient (picked from the catalog dropdown) as a new formula row.
-  const addFromCatalog = (smiles: string) => {
-    const it = SUBSTANCE_LIBRARY.flatMap((g) => g.items).find((s) => s.smiles === smiles);
-    if (!it) return;
+  const addFromCatalog = (it: CatalogItem) => {
+    const addedIndex = formula.length;
+    invalidateFormulaAssessment(activeId);
     setFormula((prev) => [...prev, { name: it.name, smiles: it.smiles, concentration: it.conc }]);
+    setRecentlyAddedIngredient({ formulaId: activeId, index: addedIndex });
   };
 
   // OCR: read an ingredient-label photo (via the LabelScanModal popup).
   const [scanOpen, setScanOpen] = useState(false);
+  const [scanTargetFormulaId, setScanTargetFormulaId] = useState<string | null>(null);
+  const [scanTargetProjectId, setScanTargetProjectId] = useState<number | null>(null);
   const [csvBusy, setCsvBusy] = useState(false);
   const [csvStatus, setCsvStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
-  const importScannedItems = (scanned: { name: string; smiles: string; concentration: number }[]) => {
-    const items = scanned
-      .filter((it) => it.smiles && !isWaterItem(it))
-      .map((it) => ({ name: it.name, smiles: String(it.smiles), concentration: Number(it.concentration) }));
-    if (!items.length) return;
-    setFormula(items);
-    setAssessment(null);
-    setJobId(null);
+  const openLabelScan = () => {
+    setScanTargetFormulaId(activeId);
+    setScanTargetProjectId(projectId);
+    setScanOpen(true);
+  };
+  const closeLabelScan = () => {
+    setScanOpen(false);
+    setScanTargetFormulaId(null);
+    setScanTargetProjectId(null);
+  };
+  useEffect(() => {
+    if (scanOpen && scanTargetProjectId !== projectId) {
+      setScanOpen(false);
+      setScanTargetFormulaId(null);
+      setScanTargetProjectId(null);
+    }
+  }, [projectId, scanOpen, scanTargetProjectId]);
+  const importScannedItems = (
+    scanned: { name: string; smiles: string; concentration: number }[],
+    context: ScanImportContext,
+  ) => {
+    const targetFormulaId = scanTargetFormulaId;
+    if (!targetFormulaId) {
+      toast.error("ไม่พบกล่องสูตรปลายทาง กรุณาเปิด OCR ใหม่");
+      return;
+    }
+    if (scanTargetProjectId !== projectId) {
+      toast.error("โปรเจกต์เปลี่ยนระหว่างสแกน ผล OCR จึงถูกยกเลิก");
+      return;
+    }
+    if (!latestWorkspaceDraft.current.formulas.some((item) => item.id === targetFormulaId)) {
+      toast.error("กล่องสูตรที่เริ่มสแกนถูกลบแล้ว กรุณาเลือกกล่องใหม่");
+      return;
+    }
+
+    try {
+      const prepared = prepareOcrFormulaReplacement(scanned);
+      if (!prepared.items.length) {
+        throw new Error("ไม่มีสารที่มี SMILES และความเข้มข้นถูกต้องให้นำเข้า");
+      }
+      invalidateFormulaAssessment(targetFormulaId);
+      // OCR is an explicit replace operation for the formula that owned the
+      // modal when it opened. Switching cards while OCR runs cannot redirect it.
+      setFormulas((previous) =>
+        previous.map((item) =>
+          item.id === targetFormulaId ? { ...item, items: prepared.items } : item,
+        ),
+      );
+
+      const unresolved = context.recognizedNoStructure.map((name) => `${name} (ไม่มี SMILES)`);
+      const unselected = context.unselected.map((name) => `${name} (ไม่ได้เลือก)`);
+      const unmatched = context.unmatched.map((name) => `${name} (จับคู่ไม่ได้)`);
+      const skipped = describeOcrSkippedItems(prepared.skipped);
+      const notImported = [skipped, ...unresolved, ...unselected, ...unmatched].filter(Boolean);
+      toast.success(`นำเข้า ${prepared.items.length} สารแล้ว`, {
+        description: notImported.length
+          ? `ไม่ได้นำเข้า: ${notImported.join(", ")}`
+          : "แทนที่รายการเดิมในกล่องสูตรที่เริ่มสแกน",
+      });
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "นำเข้าผล OCR ไม่สำเร็จ");
+    }
+  };
+  const requestDeleteFormula = (formulaToDelete: WorkspaceFormula) => {
+    if (formulaToDelete.items.length > 0) {
+      setFormulaPendingDeletion(formulaToDelete);
+      return;
+    }
+    deleteFormula(formulaToDelete.id);
   };
 
   const importCsvFile = async (file: File) => {
+    const targetFormulaId = activeId;
     setCsvBusy(true);
     setCsvStatus(null);
     try {
       if (!file.name.toLowerCase().endsWith(".csv")) {
         throw new Error("กรุณาเลือกไฟล์นามสกุล .csv");
       }
-      const rows = parseCsvRows(await file.text());
-      if (rows.length < 2) throw new Error("CSV ต้องมีแถวหัวตารางและข้อมูลอย่างน้อย 1 แถว");
-
-      const headers = rows[0].map(normalizeCsvHeader);
-      const columnIndex = (key: keyof typeof CSV_HEADER_ALIASES) =>
-        headers.findIndex((header) => CSV_HEADER_ALIASES[key].includes(header));
-      const nameColumn = columnIndex("name");
-      const smilesColumn = columnIndex("smiles");
-      const concentrationColumn = columnIndex("concentration");
-      if (nameColumn < 0 && smilesColumn < 0) {
-        throw new Error("ไม่พบคอลัมน์ name/ingredient หรือ smiles");
-      }
-      if (concentrationColumn < 0) {
-        throw new Error("ไม่พบคอลัมน์ concentration/percent");
-      }
-
-      const parsed = rows.slice(1).map((columns, rowIndex) => {
-        const line = rowIndex + 2;
-        const rawName = nameColumn >= 0 ? String(columns[nameColumn] ?? "").trim() : "";
-        const suppliedSmiles = smilesColumn >= 0 ? String(columns[smilesColumn] ?? "").trim() : "";
-        if (!rawName && !suppliedSmiles) throw new Error(`แถว ${line}: ต้องมีชื่อสารหรือ SMILES`);
-        const rawConcentration = String(columns[concentrationColumn] ?? "").trim().replace(/%/g, "").replace(",", ".");
-        const concentration = Number(rawConcentration);
-        if (!Number.isFinite(concentration) || concentration < 0 || concentration > 100) {
-          throw new Error(`แถว ${line}: concentration ต้องเป็นตัวเลข 0–100`);
-        }
-        const catalogHit = rawName ? resolveCatalogSubstance(rawName) : undefined;
+      const parsed = parseFormulaCsv(await file.text());
+      const resolved = parsed.map((row) => {
+        const catalogHit = row.name ? resolveCatalogSubstance(row.name) : undefined;
         return {
-          line,
-          name: catalogHit?.name || rawName,
-          smiles: suppliedSmiles || catalogHit?.smiles || "",
-          suppliedSmiles,
-          concentration,
+          ...row,
+          name: catalogHit?.name || row.name,
+          smiles: row.smiles || catalogHit?.smiles || "",
+          suppliedSmiles: row.smiles,
         };
       });
 
       const validated = await Promise.all(
-        parsed.map(async (item) => {
+        resolved.map(async (item) => {
           if (!item.suppliedSmiles) return item;
           const result = await api.validateSmiles(item.suppliedSmiles);
           if (!result.valid) throw new Error(`แถว ${item.line}: SMILES ของ ${item.name || "สาร"} ไม่ถูกต้อง`);
           return { ...item, smiles: result.canonical || item.suppliedSmiles };
         }),
       );
-      const imported: FormulaItem[] = validated
+      const normalizedRows: ParsedFormulaCsvRow[] = validated.map(
+        ({ line, name, smiles, concentration }) => ({
+          line,
+          name,
+          smiles,
+          concentration,
+        }),
+      );
+      // Resolve catalog names and canonicalize supplied SMILES first, then run
+      // duplicate detection again to catch aliases such as Ethanol vs CCO.
+      assertNoDuplicateFormulaRows(normalizedRows);
+      const imported: FormulaItem[] = normalizedRows
         .map(({ name, smiles, concentration }) => ({ name, smiles, concentration }))
         .filter((item) => !isWaterItem(item));
-      if (!imported.length && !validated.some((item) => isWaterItem(item))) {
-        throw new Error("ไม่พบข้อมูลส่วนผสมที่นำเข้าได้");
+      if (!imported.length) {
+        throw new Error("CSV ต้องมีสารอย่างน้อย 1 รายการที่ไม่ใช่น้ำ");
       }
-      const total = imported.reduce((sum, item) => sum + item.concentration, 0);
-      if (total > 100.0001) throw new Error(`ผลรวม concentration เท่ากับ ${total.toFixed(2)}% ซึ่งเกิน 100%`);
+      if (!latestWorkspaceDraft.current.formulas.some((item) => item.id === targetFormulaId)) {
+        throw new Error("กล่องสูตรที่เลือกถูกลบระหว่างนำเข้า กรุณาเลือกกล่องใหม่");
+      }
 
-      setFormula(imported);
-      setAssessment(null);
-      setJobId(null);
+      invalidateFormulaAssessment(targetFormulaId);
+      // CSV import is an explicit replace operation for the formula that was
+      // selected when the upload began. It never leaks into a later selection.
+      setFormulas((previous) =>
+        previous.map((item) =>
+          item.id === targetFormulaId ? { ...item, items: imported } : item,
+        ),
+      );
       setError(null);
       const unresolved = imported.filter((item) => !item.smiles).length;
       setCsvStatus({
@@ -680,9 +1151,23 @@ export default function StudioPage() {
   const [optBusy, setOptBusy] = useState(false);
   const [optMsg, setOptMsg] = useState<string | null>(null);
   const [pendingOptimization, setPendingOptimization] = useState<FormulaItem[] | null>(null);
+  const optimizationControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    optimizationControllerRef.current?.abort();
+    optimizationControllerRef.current = null;
+    setOptBusy(false);
+    setPendingOptimization(null);
+  }, [activeId]);
+  useEffect(() => () => optimizationControllerRef.current?.abort(), []);
   const optimizeFormula = async () => {
+    if (optBusy) return;
     const actives = formula.filter((it) => it.smiles.trim() && !isWaterItem(it));
     if (!actives.length) return;
+    const targetFormulaId = activeId;
+    const targetSignature = formulaGraphItemsSignature(actives);
+    optimizationControllerRef.current?.abort();
+    const controller = new AbortController();
+    optimizationControllerRef.current = controller;
     setOptBusy(true);
     setOptMsg(null);
     setPendingOptimization(null);
@@ -701,6 +1186,7 @@ export default function StudioPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question, context: null }),
+        signal: controller.signal,
       });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
@@ -727,12 +1213,30 @@ export default function StudioPage() {
       if (items.some((item: FormulaItem) => item.concentration <= 0 || item.concentration > 100) || total > 100.0001) {
         throw new Error(`อัตราส่วนที่ AI เสนอไม่ถูกต้อง (รวม ${total.toFixed(2)}%)`);
       }
+      const currentFormula = latestWorkspaceDraft.current.formulas.find(
+        (item) => item.id === targetFormulaId,
+      );
+      if (
+        optimizationControllerRef.current !== controller ||
+        !currentFormula ||
+        formulaGraphItemsSignature(
+          currentFormula.items.filter((item) => item.smiles.trim() && !isWaterItem(item)),
+        ) !== targetSignature
+      ) {
+        return;
+      }
       setPendingOptimization(items);
       setOptMsg("AI เสนออัตราส่วนใหม่แล้ว กรุณาตรวจ Before → After ก่อนยืนยัน");
-    } catch (e: any) {
-      setOptMsg("✗ ปรับไม่สำเร็จ: " + (e?.message || String(e)));
+    } catch (cause: unknown) {
+      if (!isAbortError(cause) && optimizationControllerRef.current === controller) {
+        logRequestFailure("optimize formula", cause);
+        setOptMsg("ปรับไม่สำเร็จ: " + (cause instanceof Error ? cause.message : String(cause)));
+      }
     } finally {
-      setOptBusy(false);
+      if (optimizationControllerRef.current === controller) {
+        optimizationControllerRef.current = null;
+        setOptBusy(false);
+      }
     }
   };
 
@@ -781,7 +1285,7 @@ export default function StudioPage() {
         top.sc >= 50 ? " — ควรทบทวน/ลดความเข้มข้นของสารหลักก่อนพัฒนาต่อ" : " — อยู่ในเกณฑ์ที่จัดการได้"
       }</div>`;
     } else {
-      resultBlock = `<p class="muted">ยังไม่ได้กด ▶ Run ประเมิน — รายงานนี้แสดงเฉพาะข้อมูลสูตร</p>`;
+      resultBlock = `<p class="muted">ยังไม่ได้กด Run ประเมิน — รายงานนี้แสดงเฉพาะข้อมูลสูตร</p>`;
     }
 
     const html = `<!doctype html><html lang="th"><head><meta charset="utf-8">
@@ -792,7 +1296,7 @@ export default function StudioPage() {
   body { margin:0; font-family:'LINE Seed Sans TH','Sarabun','Segoe UI',system-ui,sans-serif; color:#0F1C1E; font-size:12px; line-height:1.5; }
   .head { display:flex; align-items:center; justify-content:space-between; border-bottom:3px solid #0D9488; padding-bottom:10px; }
   .brand { display:flex; align-items:center; gap:8px; }
-  .logo { width:30px; height:30px; border-radius:7px; background:#0D9488; color:#fff; font-weight:800; display:flex; align-items:center; justify-content:center; font-size:16px; }
+  .logo { width:30px; height:30px; border-radius:7px; display:block; object-fit:contain; }
   .brand b { font-size:18px; }
   .brand span { display:block; font-size:10px; color:#5b7075; }
   .date { font-size:10px; color:#5b7075; text-align:right; }
@@ -812,7 +1316,7 @@ export default function StudioPage() {
   .foot { margin-top:26px; border-top:1px solid #e2e8ea; padding-top:8px; font-size:9.5px; color:#8a9a9e; line-height:1.5; }
 </style></head><body>
   <div class="head">
-    <div class="brand"><div class="logo">R</div><div><b>RalphGuard</b><span>รายงานการประเมินความเสี่ยงสารเคมี (In-silico QSAR)</span></div></div>
+    <div class="brand"><img class="logo" src="/icons/logo.png" alt="RalphGuard"><div><b>RalphGuard</b><span>รายงานการประเมินความเสี่ยงสารเคมี (In-silico QSAR)</span></div></div>
     <div class="date">ออกรายงาน<br>${esc(dateStr)}</div>
   </div>
 
@@ -855,13 +1359,24 @@ export default function StudioPage() {
         setTimeout(() => iframe.remove(), 1500);
       }
     };
-    setTimeout(go, 350);
+    const logo = doc.querySelector<HTMLImageElement>(".logo");
+    if (logo && !logo.complete) {
+      const fallback = window.setTimeout(go, 1000);
+      const printWhenReady = () => {
+        window.clearTimeout(fallback);
+        window.setTimeout(go, 50);
+      };
+      logo.addEventListener("load", printWhenReady, { once: true });
+      logo.addEventListener("error", printWhenReady, { once: true });
+    } else {
+      setTimeout(go, 100);
+    }
   };
 
   return (
-    <div className="app-light flex h-screen flex-col overflow-hidden bg-background text-foreground">
+    <div className="app-light isolate flex h-screen flex-col overflow-hidden bg-background text-foreground">
       {/* Temporary assess UI preview — same RalphGuard theme, clearer workflow. */}
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-4 shadow-sm">
+      <header className="relative z-40 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-4 shadow-sm">
         {/* logo */}
         <div className="mr-1 flex items-center gap-2 pr-2">
           <img
@@ -873,13 +1388,10 @@ export default function StudioPage() {
             <span className="block font-display text-sm font-bold">Ralph<span className="text-brand">Guard</span></span>
             <span className="block text-[9px] font-medium uppercase tracking-[0.14em] text-slate-400">Assessment Studio</span>
           </div>
-          <span className="hidden rounded-full border border-primary/20 bg-accent px-2 py-0.5 text-[9px] font-semibold text-accent-foreground lg:inline">
-            UI Preview
-          </span>
         </div>
 
         <a
-          href="/"
+          href="/projects"
           className="flex h-9 items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition hover:border-primary/35 hover:bg-accent hover:text-accent-foreground"
           title="กลับหน้าแรก"
           aria-label="กลับหน้าแรก"
@@ -892,10 +1404,10 @@ export default function StudioPage() {
         <div className="flex items-center rounded-xl bg-muted p-1">
           {(
             [
-              ["assess", "ประเมิน", "🧪"],
-              ["nodes", "Nodes", "🧩"],
-              ["trust", "ความน่าเชื่อถือ", "🛡️"],
-            ] as [Mode, string, string][]
+              ["assess", "ประเมิน", "flask"],
+              ["nodes", "Nodes", "puzzle"],
+              ["trust", "ความน่าเชื่อถือ", "shield"],
+            ] as [Mode, string, SemanticIconName][]
           ).map(([m, label, icon]) => {
             const active = mode === m;
             return (
@@ -908,7 +1420,7 @@ export default function StudioPage() {
                     : "text-slate-500 hover:text-slate-800"
                 }`}
               >
-                <span className="text-sm leading-none">{icon}</span>
+                <SemanticIcon name={icon} className="size-3.5" />
                 <span className="hidden truncate sm:inline">{label}</span>
               </button>
             );
@@ -934,13 +1446,13 @@ export default function StudioPage() {
       </header>
 
       {/* ── Body ── */}
-      <div className="flex min-h-0 flex-1">
+      <div className="relative z-0 flex min-h-0 flex-1">
         {/* Icon rail */}
         <nav className="hidden w-12 shrink-0 flex-col items-center gap-1 border-r border-slate-200 bg-white py-3">
           {[
-            { m: "assess" as Mode, icon: "🗂️", title: "ไฟล์" },
-            { m: "nodes" as Mode, icon: "🧩", title: "Nodes" },
-            { m: "trust" as Mode, icon: "🛡️", title: "ความน่าเชื่อถือ" },
+            { m: "assess" as Mode, icon: "file" as SemanticIconName, title: "ไฟล์" },
+            { m: "nodes" as Mode, icon: "puzzle" as SemanticIconName, title: "Nodes" },
+            { m: "trust" as Mode, icon: "shield" as SemanticIconName, title: "ความน่าเชื่อถือ" },
           ].map((it) => (
             <button
               key={it.m}
@@ -950,7 +1462,7 @@ export default function StudioPage() {
                 mode === it.m ? "bg-teal-50 text-brand" : "text-slate-800/45 hover:bg-slate-100"
               }`}
             >
-              {it.icon}
+              <SemanticIcon name={it.icon} className="size-4" />
             </button>
           ))}
           <button
@@ -960,9 +1472,9 @@ export default function StudioPage() {
               showTemplates ? "bg-teal-50 text-brand" : "text-slate-800/45 hover:bg-slate-100"
             }`}
           >
-            🧴
+            <SemanticIcon name="spray" className="size-4" />
           </button>
-          <a href="/" title="หน้าแรก" className="mt-auto grid size-9 place-items-center rounded-lg text-slate-800/40 hover:bg-slate-100">🏠</a>
+          <a href="/projects" title="หน้าแรก" aria-label="หน้าแรก" className="mt-auto grid size-9 place-items-center rounded-lg text-slate-800/40 hover:bg-slate-100"><SemanticIcon name="home" className="size-4" /></a>
         </nav>
 
         {/* Left panel — Pages + Layers */}
@@ -983,13 +1495,27 @@ export default function StudioPage() {
                 <div
                   key={f.id}
                   onClick={() => selectFormula(f.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      selectFormula(f.id);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={f.id === activeId}
+                  aria-label={`เลือก ${f.name} และแสดงส่วนผสม`}
                   className={`group flex w-full cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-2 text-sm transition ${
                     f.id === activeId
                       ? "border-brand bg-teal-50 text-brand-dark"
                       : "border-slate-200 bg-white text-slate-800 hover:border-brand/50"
+                  } ${
+                    f.id === recentlyCreatedFormulaId
+                      ? "animate-in fade-in-0 slide-in-from-bottom-2 ring-2 ring-brand/20 duration-300 motion-reduce:animate-none"
+                      : ""
                   }`}
                 >
-                  <span>🧪</span>
+                  <SemanticIcon name="flask" className="size-4 shrink-0" />
                   {editingFormulaId === f.id ? (
                     <input
                       autoFocus
@@ -1022,20 +1548,22 @@ export default function StudioPage() {
                       setEditingFormulaId(f.id);
                     }}
                     title="แก้ชื่อสูตร"
+                    aria-label="แก้ชื่อสูตร"
                     className="grid size-4 shrink-0 place-items-center rounded text-slate-300 opacity-0 transition hover:text-brand group-hover:opacity-100"
                   >
-                    ✎
+                    <SemanticIcon name="pencil" className="size-3" />
                   </button>
                   {formulas.length > 1 && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        deleteFormula(f.id);
+                        requestDeleteFormula(f);
                       }}
                       title="ลบสูตร"
+                      aria-label="ลบสูตร"
                       className="grid size-4 shrink-0 place-items-center rounded text-slate-300 opacity-0 transition hover:bg-rose-50 hover:text-rose-500 group-hover:opacity-100"
                     >
-                      ×
+                      <SemanticIcon name="trash" className="size-3" />
                     </button>
                   )}
                 </div>
@@ -1052,7 +1580,7 @@ export default function StudioPage() {
           {showTemplates && (
             <Section title="เทมเพลตผลิตภัณฑ์">
               <div className="mb-2 flex items-center gap-2">
-                <p className="flex-1 text-[11px] text-slate-800/50">เลือกสูตรตัวอย่าง แล้วกด ▶ Run</p>
+                <p className="flex-1 text-[11px] text-slate-800/50">เลือกสูตรตัวอย่าง แล้วกด Run</p>
                 <select
                   value={templateRisk}
                   onChange={(e) => setTemplateRisk(e.target.value as "all" | "low" | "mid" | "high")}
@@ -1060,9 +1588,9 @@ export default function StudioPage() {
                   title="กรองตามระดับความเสี่ยง (สำหรับทดสอบ)"
                 >
                   <option value="all">ทุกระดับ</option>
-                  <option value="low">🟢 ต่ำ</option>
-                  <option value="mid">🟡 กลาง</option>
-                  <option value="high">🔴 สูง</option>
+                  <option value="low">ต่ำ</option>
+                  <option value="mid">กลาง</option>
+                  <option value="high">สูง</option>
                 </select>
               </div>
               <div className="space-y-1">
@@ -1073,7 +1601,7 @@ export default function StudioPage() {
                     className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left transition hover:border-brand hover:bg-teal-50"
                   >
                     <div className="flex items-center gap-1.5 text-sm">
-                      <span>{t.icon}</span>
+                      <SemanticIcon name={t.icon} className="size-4" />
                       <span className="font-medium text-slate-800">{t.name}</span>
                       <span className="ml-auto font-mono text-[10px] text-brand">{t.formula.length} สาร</span>
                     </div>
@@ -1087,14 +1615,30 @@ export default function StudioPage() {
         </aside>
 
         {/* Center canvas */}
-        <main className="relative flex min-w-0 flex-1 bg-background">
+        <main className="relative flex min-w-0 flex-1 overflow-hidden bg-background">
           {mode === "assess" && (
             <Viewport
+              panelOpen={formulaPanelOpen}
+              paintOwnerKey={`${projectId ?? "standalone"}:${activeId}`}
+              initialPaint={paintByFormulaId[activeId] ?? null}
+              occupiedPaint={Object.entries(paintByFormulaId)
+                .filter(([formulaId]) => formulaId !== activeId)
+                .map(([, snapshot]) => snapshot)}
+              onPaintChange={(snapshot) => {
+                setPaintByFormulaId((previous) => ({
+                  ...previous,
+                  [activeId]: snapshot,
+                }));
+              }}
+              onPaintBlocked={() => {
+                toast.warning("บริเวณนี้มีรอยจากกล่องสูตรอื่นแล้ว");
+              }}
               dayIdx={dayIdx}
               region={region}
-              ready={completed}
-              productName={productName}
-              layers={paintLayers}
+              ready={modelReady}
+              developerPreview={developerTestEnabled}
+              productName={developerTestEnabled ? `${productName} · ค่าทดสอบ` : productName}
+              layers={modelLayers}
               eraseMode={eraseMode}
             />
           )}
@@ -1102,9 +1646,7 @@ export default function StudioPage() {
           {/* Floating Layers panel — docked top-left inside the viewport */}
           {mode === "assess" && (
             <div
-              className={`relative order-1 h-full shrink-0 transition-[width] duration-300 ease-in-out ${
-                formulaPanelOpen ? "w-72" : "w-0"
-              }`}
+              className="pointer-events-none absolute inset-y-0 left-0 z-20 w-72"
             >
               <button
                 type="button"
@@ -1112,15 +1654,15 @@ export default function StudioPage() {
                 aria-expanded={formulaPanelOpen}
                 aria-label={formulaPanelOpen ? "ปิดส่วนผสมของสูตร" : "เปิดส่วนผสมของสูตร"}
                 title={formulaPanelOpen ? "ปิดส่วนผสมของสูตร" : "เปิดส่วนผสมของสูตร"}
-                className="absolute -left-3 top-1/2 z-30 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-slate-300 bg-white text-sm font-black text-slate-950 shadow-md transition hover:scale-105 hover:border-slate-500 focus:outline-none focus:ring-2 focus:ring-brand/40"
+                className="pointer-events-auto absolute left-2 top-1/2 z-30 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-slate-300 bg-white text-sm font-black text-slate-950 shadow-md transition hover:scale-105 hover:border-slate-500 focus:outline-none focus:ring-2 focus:ring-brand/40"
               >
                 {formulaPanelOpen ? "←" : "→"}
               </button>
 
               <div
-                className={`absolute inset-y-0 right-0 flex w-72 flex-col overflow-y-auto border-r border-slate-200 bg-white transition-all duration-300 ease-in-out ${
+                className={`absolute inset-y-0 right-0 flex w-72 flex-col overflow-y-auto border-r border-slate-200 bg-white transition-[transform,opacity] duration-300 ease-in-out motion-reduce:transition-none ${
                   formulaPanelOpen
-                    ? "translate-x-0 opacity-100"
+                    ? "pointer-events-auto translate-x-0 opacity-100"
                     : "pointer-events-none -translate-x-full opacity-0"
                 }`}
               >
@@ -1136,25 +1678,43 @@ export default function StudioPage() {
               <div className="p-4">
                 <div className="mb-2 text-[11px] font-semibold text-slate-500">สูตร (Formulation)</div>
                 <div className="space-y-1.5">
-                  <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-1.5">
+                  <SubstanceHoverCard
+                    name="Water (Aqua)"
+                    smiles="O"
+                    className="rounded-lg border border-sky-200 bg-sky-50/60 p-1.5"
+                  >
                     <div className="flex items-center gap-1 text-xs">
-                      <span className="text-sky-500">💧</span>
+                      <SemanticIcon name="droplet" className="size-3.5 text-sky-500" />
                       <span className="flex-1 font-medium text-slate-700">Water (Aqua)</span>
                       <span className="font-mono tabular-nums text-slate-600">{waterPct}</span>
                       <span className="text-[10px] text-slate-400">%</span>
                     </div>
                     <div className="pl-4 text-[9px] text-slate-400">เบส · ปรับอัตโนมัติให้รวม 100%</div>
-                  </div>
+                  </SubstanceHoverCard>
                   {waterMissing && (
-                    <div className="rounded-lg border border-amber-300 bg-amber-50 p-1.5 text-[10px] leading-snug text-amber-700">
-                      ⚠️ สูตรประเภท “{activeFormula?.type}” ปกติต้องมีน้ำเป็นเบส แต่สัดส่วนสารตอนนี้รวม ≥ 100% แล้ว
-                      จึงไม่เหลือที่ให้น้ำ — ลองลดความเข้มข้นลง
+                    <div className="flex gap-1 rounded-lg border border-amber-300 bg-amber-50 p-1.5 text-[10px] leading-snug text-amber-700">
+                      <SemanticIcon name="alert" className="mt-0.5 size-3 shrink-0" />
+                      <span>สูตรประเภท “{activeFormula?.type}” ปกติต้องมีน้ำเป็นเบส แต่สัดส่วนสารตอนนี้รวม ≥ 100% แล้ว
+                      จึงไม่เหลือที่ให้น้ำ — ลองลดความเข้มข้นลง</span>
                     </div>
                   )}
-                  {formula.map((it, i) => (
-                    <div key={i} className="rounded-lg border border-slate-200 bg-slate-100/50 p-1.5">
+                  {formula.map((it, i) => {
+                    const wasJustAdded =
+                      recentlyAddedIngredient?.formulaId === activeId &&
+                      recentlyAddedIngredient.index === i;
+                    return (
+                      <SubstanceHoverCard
+                        key={i}
+                        name={it.name}
+                        smiles={it.smiles}
+                        className={`rounded-lg border p-1.5 transition-[background-color,border-color,box-shadow] duration-300 ${
+                          wasJustAdded
+                            ? "animate-in border-brand/30 bg-teal-50/80 ring-1 ring-brand/20 fade-in-0 slide-in-from-right-2 motion-reduce:animate-none"
+                            : "border-slate-200 bg-slate-100/50"
+                        }`}
+                      >
                       <div className="flex items-center gap-1">
-                        <span className="shrink-0 text-brand">◇</span>
+                        <SemanticIcon name="circle" className="size-2.5 shrink-0 text-brand" />
                         <input
                           className="min-w-0 flex-1 bg-transparent text-xs outline-none"
                           placeholder="ชื่อสาร"
@@ -1183,7 +1743,7 @@ export default function StudioPage() {
                           }}
                         />
                         <span className="shrink-0 text-[10px] text-slate-800/40">%</span>
-                        <button onClick={() => removeItem(i)} className="shrink-0 text-slate-800/30 hover:text-rose-500">×</button>
+                        <button onClick={() => removeItem(i)} aria-label="ลบสาร" className="shrink-0 text-slate-800/30 hover:text-rose-500"><SemanticIcon name="x" className="size-3" /></button>
                       </div>
                       <input
                         className="mt-1 w-full bg-transparent font-mono text-[10px] text-slate-800/45 outline-none"
@@ -1197,12 +1757,13 @@ export default function StudioPage() {
                           <div className="mt-0.5 flex items-center gap-1 text-[9px]" title={c.reason}>
                             <span className="size-1.5 rounded-full" style={{ background: CONF_HEX[c.level] }} />
                             <span className="text-slate-400">ความเชื่อมั่น {CONF_TH[c.level] ?? c.level}</span>
-                            {!c.inDomain && <span className="font-medium text-rose-500">· ⚠ นอกขอบเขตโมเดล</span>}
+                            {!c.inDomain && <span className="inline-flex items-center gap-0.5 font-medium text-rose-500">· <SemanticIcon name="alert" className="size-2.5" /> นอกขอบเขตโมเดล</span>}
                           </div>
                         );
                       })()}
-                    </div>
-                  ))}
+                      </SubstanceHoverCard>
+                    );
+                  })}
                   <div className="flex items-center gap-2 pt-0.5">
                     <button onClick={addItem} className="text-xs font-medium text-brand hover:underline">+ เพิ่มสาร</button>
                     <span className="text-[10px] text-slate-800/30">หรือ</span>
@@ -1212,10 +1773,10 @@ export default function StudioPage() {
                   {/* Formula import tools */}
                   <div className="grid grid-cols-2 gap-2 pt-1">
                     <button
-                      onClick={() => setScanOpen(true)}
+                      onClick={openLabelScan}
                       className="rounded-lg border border-dashed border-brand/40 px-2 py-2 text-xs font-medium text-brand transition hover:bg-teal-50"
                     >
-                      📷 OCR รูปฉลาก
+                      <span className="inline-flex items-center gap-1"><SemanticIcon name="camera" className="size-3.5" /> OCR รูปฉลาก</span>
                     </button>
                     <label
                       htmlFor="formula-csv-upload"
@@ -1273,7 +1834,7 @@ export default function StudioPage() {
               <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showTrend ? "w-[420px]" : "w-0"}`}>
                 <div className="w-[420px] max-w-[calc(100vw-2rem)] rounded-l-2xl border border-r-0 border-slate-200 bg-white p-4 text-slate-800 shadow-xl">
                   <div className="mb-4 flex items-start gap-3">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-teal-50 text-lg">📈</span>
+                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-teal-50 text-lg"><SemanticIcon name="chart" className="size-4" /></span>
                     <div>
                       <div className="text-sm font-semibold">แนวโน้มความเสี่ยงตามเวลา</div>
                       <div className="mt-0.5 text-[10px] text-slate-400">เปรียบเทียบคะแนนจำลอง Day 1, Day 3 และ Day 7</div>
@@ -1283,7 +1844,7 @@ export default function StudioPage() {
                       className="ml-auto grid size-7 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
                       aria-label="ปิดกราฟแนวโน้ม"
                     >
-                      ✕
+                      <SemanticIcon name="x" className="size-4" />
                     </button>
                   </div>
                   {completed && trendData.length ? (
@@ -1349,7 +1910,7 @@ export default function StudioPage() {
                     showTrend ? "bg-brand text-white" : "bg-white text-slate-600 hover:text-brand"
                   }`}
                 >
-                  📈
+                  <SemanticIcon name="chart" className="size-4" />
                 </button>
                 <span className="pointer-events-none absolute right-full top-1/2 mr-1.5 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-800 px-2 py-1 text-[11px] text-white opacity-0 shadow transition group-hover:opacity-100">
                   กราฟแนวโน้ม
@@ -1362,39 +1923,53 @@ export default function StudioPage() {
               <div className="absolute left-4 top-3 z-10 text-xs font-semibold text-slate-800/60">
                 Assessment Node Graph <span className="font-normal text-slate-800/40">· in-silico pipeline</span>
               </div>
-              <FormulaGraph key={`${activeId}-${projectId ?? "standalone"}`} seed={formula} region={region} projectId={projectId} onSaveFormula={saveGraphAsFormula} />
+              <FormulaGraph
+                key={`${projectId ?? "standalone"}:${activeId}`}
+                seed={formula}
+                region={activeFormula?.region ?? region}
+                projectId={projectId}
+                snapshot={graphByFormulaId[activeId] ?? null}
+                onSnapshotChange={(snapshot) => {
+                  setGraphByFormulaId((previous) => ({
+                    ...previous,
+                    [activeId]: snapshot,
+                  }));
+                }}
+                onFormulaChange={(items) => syncFormulaFromGraph(activeId, items)}
+                onSaveFormula={saveGraphAsFormula}
+              />
             </div>
           )}
           {mode === "trust" && <TrustReport />}
 
-          {/* Keep the eraser discoverable; it becomes usable when paint results exist. */}
+          {/* Painting and erasing unlock only after this formula has a completed assessment. */}
           {mode === "assess" && (
             <div className="pointer-events-none absolute bottom-4 right-4 z-40 print:hidden">
               <div className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-soft backdrop-blur">
                 <button
                   type="button"
                   onClick={() => setEraseMode((value) => !value)}
-                  disabled={!completed}
-                  title={completed ? (eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบระบาย") : "ประเมินสูตรก่อนใช้ยางลบ"}
+                  disabled={!modelReady}
+                  title={!modelReady ? "ต้องประเมินสูตรหรือเปิดโหมดทดสอบก่อน" : eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบระบาย"}
                   aria-pressed={eraseMode}
                   className={`flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-semibold transition ${
                     eraseMode
                       ? "bg-slate-900 text-white shadow-sm"
-                      : "text-slate-600 hover:bg-slate-100"
-                  } disabled:cursor-not-allowed disabled:opacity-40`}
+                      : "text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  }`}
                 >
                   <Eraser className="size-4" />
                   {eraseMode ? "ลากเพื่อระบายลบ" : "ยางลบ"}
                 </button>
                 <button
+                  disabled={assessing}
                   onClick={() => {
                     setEraseMode(false); // กดประเมิน = กลับมาโหมด paint ผลลัพธ์
                     run();
                   }}
-                  disabled={assessing}
                   className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-dark disabled:cursor-wait disabled:opacity-60"
                 >
-                  {assessing ? "กำลังประเมิน…" : completed ? "↻ ประเมินอีกครั้ง" : "▶ ประเมินสูตร"}
+                  {assessing ? "กำลังประเมิน…" : <span className="inline-flex items-center gap-1"><SemanticIcon name={completed ? "refresh" : "play"} className="size-4" /> {completed ? "ประเมินอีกครั้ง" : "ประเมินสูตร"}</span>}
                 </button>
               </div>
             </div>
@@ -1441,10 +2016,111 @@ export default function StudioPage() {
               </Section>
 
               <Section title="3 · ผลการประเมิน" className="order-1">
+                <div className="mb-3 rounded-xl border border-dashed border-violet-300 bg-violet-50/70 p-2.5 print:hidden">
+                  <div className="flex items-center gap-2">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-violet-100 text-violet-700">
+                      <SemanticIcon name="flask" className="size-3.5" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11px] font-semibold text-violet-900">ทดสอบผลโดยผู้พัฒนา</div>
+                      <div className="text-[9px] leading-snug text-violet-600">ปรับเฉพาะภาพ 3D ไม่ส่ง API และไม่แก้ผลจริง</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeveloperTestEnabled((enabled) => {
+                          if (enabled) setEraseMode(false);
+                          return !enabled;
+                        });
+                      }}
+                      aria-pressed={developerTestEnabled}
+                      className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[10px] font-semibold transition ${
+                        developerTestEnabled
+                          ? "bg-violet-700 text-white hover:bg-violet-800"
+                          : "border border-violet-300 bg-white text-violet-700 hover:bg-violet-100"
+                      }`}
+                    >
+                      {developerTestEnabled ? "ปิดการทดสอบ" : "เปิดทดสอบ"}
+                    </button>
+                  </div>
+
+                  {developerTestEnabled && (
+                    <div className="mt-3 space-y-2 border-t border-violet-200 pt-2.5">
+                      <div className="flex flex-wrap gap-1">
+                        {[0, 30, 55, 85].map((score) => (
+                          <button
+                            key={score}
+                            type="button"
+                            onClick={() =>
+                              setDeveloperTestScores({ skin: score, eye: score, sens: score, acute: score })
+                            }
+                            className="rounded-md border border-violet-200 bg-white px-2 py-1 text-[9px] font-medium text-violet-700 hover:bg-violet-100"
+                          >
+                            ทุกค่า {score}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setDeveloperTestScores(DEFAULT_DEVELOPER_TEST_SCORES)}
+                          className="ml-auto rounded-md px-2 py-1 text-[9px] font-medium text-slate-500 hover:bg-white"
+                        >
+                          คืนค่า 50
+                        </button>
+                      </div>
+
+                      {ENDPOINTS.map((ep) => {
+                        const score = developerTestScores[ep];
+                        const band = bandOf(score);
+                        return (
+                          <label key={ep} className="grid grid-cols-[1fr_46px] items-center gap-x-2 gap-y-1">
+                            <span className="flex items-center justify-between text-[10px] text-slate-700">
+                              <span>{ENDPOINT_LABEL_TH[ep]}</span>
+                              <span className="font-mono font-semibold tabular-nums" style={{ color: BAND_HEX[band] }}>
+                                {score} · {BAND_LABEL[band]}
+                              </span>
+                            </span>
+                            <input
+                              aria-label={`${ENDPOINT_LABEL_TH[ep]} (0 ถึง 100)`}
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={score}
+                              onChange={(event) => {
+                                const next = Math.max(0, Math.min(100, Number(event.target.value) || 0));
+                                setDeveloperTestScores((current) => ({ ...current, [ep]: next }));
+                              }}
+                              className="row-span-2 h-8 rounded-lg border border-violet-200 bg-white px-1 text-center font-mono text-[11px] font-semibold text-violet-800 outline-none focus:border-violet-500"
+                            />
+                            <input
+                              aria-label={`เลื่อนค่า${ENDPOINT_LABEL_TH[ep]}`}
+                              type="range"
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={score}
+                              onChange={(event) =>
+                                setDeveloperTestScores((current) => ({
+                                  ...current,
+                                  [ep]: Number(event.target.value),
+                                }))
+                              }
+                              className="h-1.5 w-full cursor-pointer accent-violet-600"
+                            />
+                          </label>
+                        );
+                      })}
+
+                      <div className="rounded-lg bg-white/80 px-2 py-1.5 text-[9px] leading-snug text-violet-700">
+                        Paint บริเวณบนโมเดล แล้วเลื่อนคะแนนเพื่อดูอาการเปลี่ยนทันที ค่าพิษเฉียบพลันเป็นผลเชิงระบบ จึงไม่สร้างรอยผิวเฉพาะจุด
+                      </div>
+                    </div>
+                  )}
+                </div>
                 {error && <div className="rounded border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-600">{error}</div>}
-                {!completed && !error && (
+                {!completed && !error && !developerTestEnabled && (
                   <div className="grid place-items-center gap-2 py-6 text-center">
-                    <span className="text-2xl text-slate-800/20">◇</span>
+                    <SemanticIcon name="flask" className="size-6 text-slate-800/20" />
                     <p className="text-xs text-slate-800/50">
                       {jobId ? "กำลังประเมิน…" : "ยังไม่ได้ประเมิน"}
                       <br />เลือกสูตร + บริเวณ แล้วกด <span className="text-brand">ประเมินสูตรด้านขวาล่าง</span>
@@ -1454,9 +2130,10 @@ export default function StudioPage() {
                 {completed && endpoints && (
                   <div className="space-y-2">
                     {lowConfidence && (
-                      <div className="rounded-lg border border-rose-300 bg-rose-50 p-2 text-[11px] leading-snug text-rose-700">
-                        ⚠ ผลนี้เชื่อถือได้ต่ำ — สารส่วนใหญ่อยู่นอกขอบเขตแบบจำลอง (out-of-domain)
-                        โมเดลอาจเดาว่า “ไม่ระคาย” ทั้งที่ไม่เคยเห็นสารกลุ่มนี้ <b>อย่าตีความคะแนนต่ำว่าปลอดภัย</b>
+                      <div className="flex gap-1.5 rounded-lg border border-rose-300 bg-rose-50 p-2 text-[11px] leading-snug text-rose-700">
+                        <SemanticIcon name="alert" className="mt-0.5 size-3.5 shrink-0" />
+                        <span>ผลนี้เชื่อถือได้ต่ำ — สารส่วนใหญ่อยู่นอกขอบเขตแบบจำลอง (out-of-domain)
+                        โมเดลอาจเดาว่า “ไม่ระคาย” ทั้งที่ไม่เคยเห็นสารกลุ่มนี้ <b>อย่าตีความคะแนนต่ำว่าปลอดภัย</b></span>
                       </div>
                     )}
                     {ENDPOINTS.map((ep) => {
@@ -1504,7 +2181,7 @@ export default function StudioPage() {
                       disabled={optBusy}
                       className="w-full rounded-lg border border-brand/40 bg-teal-50 py-1.5 text-xs font-medium text-brand-dark transition hover:bg-teal-100 disabled:opacity-60"
                     >
-                      {optBusy ? "⏳ กำลังให้ AI วิเคราะห์…" : "🤖 ให้ AI เสนออัตราส่วนใหม่"}
+                      <span className="inline-flex items-center justify-center gap-1"><SemanticIcon name={optBusy ? "timer" : "bot"} className="size-3.5" /> {optBusy ? "กำลังให้ AI วิเคราะห์…" : "ให้ AI เสนออัตราส่วนใหม่"}</span>
                     </button>
                     {optMsg && <div className="mt-1 text-[10px] leading-snug text-slate-500">{optMsg}</div>}
                     {pendingOptimization && (
@@ -1524,11 +2201,10 @@ export default function StudioPage() {
                         <div className="mt-2 flex gap-1.5">
                           <button
                             onClick={() => {
+                              invalidateFormulaAssessment(activeId);
                               setFormula(pendingOptimization);
                               setPendingOptimization(null);
-                              setAssessment(null);
-                              setJobId(null);
-                              setOptMsg("✓ ยืนยันอัตราส่วนใหม่แล้ว กด Run เพื่อประเมิน");
+                              setOptMsg("ยืนยันอัตราส่วนใหม่แล้ว กด Run เพื่อประเมิน");
                             }}
                             className="flex-1 rounded bg-brand px-2 py-1 text-[10px] font-semibold text-white"
                           >
@@ -1544,9 +2220,10 @@ export default function StudioPage() {
                       </div>
                     )}
                     {formulaCoverage && formulaCoverage.coverage_percentage < 100 && (
-                      <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] leading-snug text-amber-800">
-                        ⚠ ประเมินครอบคลุม {formulaCoverage.coverage_percentage}% · ยังประเมินไม่ได้ {formulaCoverage.unresolved_ingredients} รายการ
-                        <br /><b>คะแนนนี้เป็นผลเฉพาะส่วนที่ประเมินได้ ไม่ใช่ความเสี่ยงของสูตรทั้งหมด</b>
+                      <div className="flex gap-1.5 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] leading-snug text-amber-800">
+                        <SemanticIcon name="alert" className="mt-0.5 size-3.5 shrink-0" />
+                        <span>ประเมินครอบคลุม {formulaCoverage.coverage_percentage}% · ยังประเมินไม่ได้ {formulaCoverage.unresolved_ingredients} รายการ
+                        <br /><b>คะแนนนี้เป็นผลเฉพาะส่วนที่ประเมินได้ ไม่ใช่ความเสี่ยงของสูตรทั้งหมด</b></span>
                       </div>
                     )}
                   </div>
@@ -1560,18 +2237,18 @@ export default function StudioPage() {
       {/* Create-formula modal (centered, blurred backdrop) */}
       {showCreate && (
         <div
-          className="fixed inset-0 z-50 grid place-items-center bg-slate-900/30 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 grid animate-in place-items-center bg-slate-900/30 p-4 fade-in-0 duration-200 backdrop-blur-sm motion-reduce:animate-none"
           onClick={() => setShowCreate(false)}
         >
           <div
-            className="w-[min(92vw,420px)] rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+            className="w-[min(92vw,420px)] animate-in rounded-2xl border border-slate-200 bg-white p-5 shadow-xl fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-200 motion-reduce:animate-none"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center gap-2">
-              <span className="grid size-8 place-items-center rounded-lg bg-teal-50 text-brand">🧪</span>
+              <span className="grid size-8 place-items-center rounded-lg bg-teal-50 text-brand"><SemanticIcon name="flask" className="size-4" /></span>
               <h2 className="text-base font-semibold text-slate-800">สร้างสูตรใหม่</h2>
-              <button onClick={() => setShowCreate(false)} className="ml-auto text-slate-400 hover:text-slate-700">
-                ✕
+              <button onClick={() => setShowCreate(false)} aria-label="ปิด" className="ml-auto text-slate-400 hover:text-slate-700">
+                <SemanticIcon name="x" className="size-4" />
               </button>
             </div>
 
@@ -1608,8 +2285,8 @@ export default function StudioPage() {
                   onChange={(e) => setDraft((d) => ({ ...d, region: e.target.value as Region }))}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand"
                 >
-                  <option value="face">🙂 ใบหน้า</option>
-                  <option value="eye">👁️ ดวงตา</option>
+                  <option value="face">ใบหน้า</option>
+                  <option value="eye">ดวงตา</option>
                 </select>
               </label>
 
@@ -1622,14 +2299,14 @@ export default function StudioPage() {
                 >
                   <option value="blank">สูตรเปล่า (กรอกเอง)</option>
                   {PRODUCT_TEMPLATES.map((t) => (
-                    <option key={t.id} value={t.id}>{t.icon} {t.name}</option>
+                    <option key={t.id} value={t.id}>{t.name}</option>
                   ))}
                 </select>
               </label>
 
               {draft.from === "blank" && (
                 <div className="rounded-lg border border-brand/20 bg-teal-50/60 p-3 text-[11px] leading-relaxed text-slate-600">
-                  <div className="mb-1.5 font-semibold text-brand-dark">📝 สูตรเปล่าต้องกรอกอะไรบ้าง?</div>
+                  <div className="mb-1.5 flex items-center gap-1 font-semibold text-brand-dark"><SemanticIcon name="clipboard" className="size-3.5" /> สูตรเปล่าต้องกรอกอะไรบ้าง?</div>
                   <ul className="space-y-1">
                     <li>
                       • <b>ชื่อสาร</b> — ชื่อสารเคมี/INCI เช่น Glycerin (ใช้แสดงผล ไม่บังคับ)
@@ -1668,27 +2345,105 @@ export default function StudioPage() {
         </div>
       )}
 
-      <LabelScanModal open={scanOpen} onClose={() => setScanOpen(false)} onImport={importScannedItems} />
+      <AlertDialog
+        open={Boolean(formulaPendingDeletion)}
+        onOpenChange={(open) => {
+          if (!open) setFormulaPendingDeletion(null);
+        }}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              ลบสูตร “{formulaPendingDeletion?.name}” ใช่ไหม?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              สูตรนี้มีสาร {formulaPendingDeletion?.items.length ?? 0} รายการ ผลประเมิน รอยที่ทา
+              และข้อมูลของสูตรนี้จะถูกลบทั้งหมด
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction
+              className="gap-2 bg-rose-600 text-white hover:bg-rose-700 focus-visible:ring-rose-600"
+              onClick={() => {
+                if (!formulaPendingDeletion) return;
+                deleteFormula(formulaPendingDeletion.id);
+                setFormulaPendingDeletion(null);
+              }}
+            >
+              <SemanticIcon name="trash" className="size-4" />
+              ลบสูตร
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <LabelScanModal open={scanOpen} onClose={closeLabelScan} onImport={importScannedItems} />
     </div>
   );
 }
 
-function SubstanceLibraryPicker({ onSelect }: { onSelect: (smiles: string) => void }) {
+function SubstanceLibraryPicker({ onSelect }: { onSelect: (item: CatalogItem) => void }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [registryItems, setRegistryItems] = useState<IngredientRegistryItem[]>([]);
+  const [registryLoading, setRegistryLoading] = useState(false);
+  const [registryError, setRegistryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || registryItems.length) return;
+    const controller = new AbortController();
+    let alive = true;
+    setRegistryLoading(true);
+    setRegistryError(null);
+
+    const loadVerifiedRegistry = async () => {
+      const collected: IngredientRegistryItem[] = [];
+      const pageSize = 500;
+      for (let offset = 0; ; offset += pageSize) {
+        const page = await api.listIngredientRegistry(
+          "verified",
+          pageSize,
+          offset,
+          controller.signal,
+        );
+        collected.push(...page);
+        if (page.length < pageSize) break;
+      }
+      if (alive) setRegistryItems(collected);
+    };
+
+    loadVerifiedRegistry()
+      .catch((cause) => {
+        if (!alive || isAbortError(cause)) return;
+        setRegistryError("โหลด Ingredient Registry ไม่สำเร็จ - ยังใช้คลังพื้นฐานได้");
+      })
+      .finally(() => {
+        if (alive) setRegistryLoading(false);
+      });
+
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [open, registryItems.length]);
+
+  const libraryGroups = useMemo(() => {
+    return catalogWithVerifiedRegistry(registryItems);
+  }, [registryItems]);
   const normalizedQuery = query.trim().toLowerCase();
   const filteredGroups = useMemo(
     () =>
-      SUBSTANCE_LIBRARY.map((group) => ({
+      libraryGroups.map((group) => ({
         ...group,
         items: group.items.filter((item) =>
           `${item.name} ${item.smiles} ${group.category}`.toLowerCase().includes(normalizedQuery),
         ),
       })).filter((group) => group.items.length > 0),
-    [normalizedQuery],
+    [libraryGroups, normalizedQuery],
   );
   const resultCount = filteredGroups.reduce((total, group) => total + group.items.length, 0);
-  const libraryCount = SUBSTANCE_LIBRARY.reduce((total, group) => total + group.items.length, 0);
+  const libraryCount = libraryGroups.reduce((total, group) => total + group.items.length, 0);
 
   return (
     <Popover
@@ -1705,7 +2460,7 @@ function SubstanceLibraryPicker({ onSelect }: { onSelect: (smiles: string) => vo
           aria-label="เลือกสารจากคลัง"
         >
           <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-teal-50 text-sm text-brand transition group-hover:bg-brand group-hover:text-white">
-            ◇
+            <SemanticIcon name="flask" className="size-3.5" />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[11px] font-semibold text-slate-700">เลือกจากคลังสาร</span>
@@ -1715,7 +2470,13 @@ function SubstanceLibraryPicker({ onSelect }: { onSelect: (smiles: string) => vo
         </button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" sideOffset={8} className="w-[350px] overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-2xl">
+      <PopoverContent
+        side="right"
+        align="start"
+        sideOffset={12}
+        collisionPadding={16}
+        className="w-[350px] overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-2xl"
+      >
         <div className="border-b border-slate-100 bg-gradient-to-r from-teal-50 to-white p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <div>
@@ -1736,6 +2497,20 @@ function SubstanceLibraryPicker({ onSelect }: { onSelect: (smiles: string) => vo
               className="min-w-0 flex-1 bg-transparent text-xs text-slate-700 outline-none placeholder:text-slate-400"
             />
           </label>
+          <div className="mt-2 min-h-4 text-[9px]">
+            {registryLoading ? (
+              <span className="inline-flex items-center gap-1 text-brand">
+                <span className="size-2 animate-pulse rounded-full bg-brand" />
+                กำลังโหลดสารที่ผ่านการตรวจสอบจาก Ingredient Registry…
+              </span>
+            ) : registryError ? (
+              <span className="text-amber-700">{registryError}</span>
+            ) : registryItems.length ? (
+              <span className="text-slate-500">
+                เชื่อมฐานข้อมูลแล้ว · พบ {registryItems.length.toLocaleString()} รายการที่ยืนยันตัวตน
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <div className="max-h-[360px] overflow-y-auto p-2">
@@ -1743,7 +2518,7 @@ function SubstanceLibraryPicker({ onSelect }: { onSelect: (smiles: string) => vo
             filteredGroups.map((group) => (
               <section key={group.category} className="mb-2 last:mb-0">
                 <div className="sticky top-0 z-10 flex items-center gap-1.5 bg-white/95 px-2 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-slate-400 backdrop-blur">
-                  <span>{group.icon}</span>
+                  <SemanticIcon name={group.icon} className="size-3.5" />
                   <span>{group.category}</span>
                   <span className="ml-auto font-normal tabular-nums">{group.items.length}</span>
                 </div>
@@ -1753,7 +2528,7 @@ function SubstanceLibraryPicker({ onSelect }: { onSelect: (smiles: string) => vo
                       key={`${group.category}-${item.smiles}`}
                       type="button"
                       onClick={() => {
-                        onSelect(item.smiles);
+                        onSelect(item);
                         setOpen(false);
                       }}
                       className="group/item flex w-full items-center gap-2 rounded-xl border border-transparent px-2.5 py-2 text-left transition hover:border-brand/20 hover:bg-teal-50"
@@ -1808,7 +2583,7 @@ function WorkflowChip({
               : "border border-slate-200 bg-white text-slate-400"
         }`}
       >
-        {done ? "✓" : step}
+        {done ? <SemanticIcon name="check" className="size-3" /> : step}
       </span>
       <span>{label}</span>
     </div>
@@ -1833,37 +2608,75 @@ function Section({
 }
 
 function Viewport({
+  panelOpen,
+  paintOwnerKey,
+  initialPaint,
+  occupiedPaint,
+  onPaintChange,
+  onPaintBlocked,
   dayIdx,
   region,
   ready,
+  developerPreview,
   productName,
   layers,
   eraseMode,
 }: {
+  panelOpen: boolean;
+  paintOwnerKey: string;
+  initialPaint: PaintMaskSnapshot | null;
+  occupiedPaint: PaintMaskSnapshot[];
+  onPaintChange: (snapshot: PaintMaskSnapshot) => void;
+  onPaintBlocked: () => void;
   dayIdx: number;
   region: Region;
   ready: boolean;
+  developerPreview: boolean;
   productName: string;
   layers: { key: string; label: string; score: number; color: string; band: string }[];
   eraseMode: boolean;
 }) {
   return (
     <div className="relative order-2 h-full min-w-0 flex-1">
-      <div className="relative h-full w-full bg-[repeating-conic-gradient(#F4F1EE_0%_25%,#FFFDFB_0%_50%)] bg-[length:24px_24px]">
-        <div className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-3 py-2 shadow-sm backdrop-blur">
+      <div className="relative h-full w-full bg-[#F4F1EE]">
+        <div
+          className={`absolute left-4 top-4 z-10 flex items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-3 py-2 shadow-sm backdrop-blur transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
+            panelOpen ? "translate-x-72" : "translate-x-0"
+          }`}
+        >
           <span className="grid size-6 place-items-center rounded-lg bg-teal-50 text-xs font-bold text-brand">2</span>
           <div>
-            <div className="text-[11px] font-semibold text-slate-700">ดูผลบนโมเดล</div>
-            <div className="text-[9px] text-slate-400">Day {DAY_LABELS[dayIdx]} · Paint แล้ว hover เพื่อดูตำแหน่ง</div>
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
+              ดูผลบนโมเดล
+              {developerPreview && (
+                <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[8px] font-bold text-violet-700">DEV TEST</span>
+              )}
+            </div>
+            <div className="text-[9px] text-slate-400">
+              {developerPreview
+                ? "ค่าทดสอบ · Paint แล้วปรับคะแนนด้านขวา"
+                : ready
+                  ? `Day ${DAY_LABELS[dayIdx]} · Paint แล้ว hover เพื่อดูตำแหน่ง`
+                  : "กดประเมินสูตรก่อน จึงจะ Paint บนโมเดลได้"}
+            </div>
           </div>
         </div>
-        <div className="absolute inset-0">
+        <div
+          className={`absolute inset-0 will-change-transform transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
+            panelOpen ? "translate-x-36" : "translate-x-0"
+          }`}
+        >
           <FaceView
+            paintOwnerKey={paintOwnerKey}
             layers={layers}
             armed={ready}
             productName={productName}
             eraseMode={eraseMode}
             background="#F4F1EE"
+            initialPaint={initialPaint}
+            onPaintChange={onPaintChange}
+            occupiedPaint={occupiedPaint}
+            onPaintBlocked={onPaintBlocked}
           />
         </div>
         {!ready && (
@@ -1876,7 +2689,11 @@ function Viewport({
         )}
         {/* Risk legend */}
         {ready && (
-          <div className="absolute bottom-3 left-3 flex gap-3 rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-[11px] backdrop-blur">
+          <div
+            className={`absolute bottom-3 left-3 flex gap-3 rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-[11px] backdrop-blur transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
+              panelOpen ? "translate-x-72" : "translate-x-0"
+            }`}
+          >
             {(["low", "moderate", "high", "severe"] as const).map((b) => (
               <span key={b} className="flex items-center gap-1">
                 <span className="size-2 rounded-full" style={{ background: BAND_HEX[b] }} />
@@ -1894,8 +2711,14 @@ function TrustReport() {
   const [metrics, setMetrics] = useState<ModelMetricsPayload | null>(null);
   const [info, setInfo] = useState<ModelInfoPayload | null>(null);
   useEffect(() => {
-    api.getModelMetrics().then(setMetrics).catch(() => {});
-    api.getModelInfo().then(setInfo).catch(() => {});
+    const controller = new AbortController();
+    api.getModelMetrics(controller.signal).then(setMetrics).catch((cause) => {
+      if (!isAbortError(cause)) logRequestFailure("load trust metrics", cause);
+    });
+    api.getModelInfo(controller.signal).then(setInfo).catch((cause) => {
+      if (!isAbortError(cause)) logRequestFailure("load trust model info", cause);
+    });
+    return () => controller.abort();
   }, []);
   const pct = (x: number | null | undefined) => (x == null ? "—" : x.toFixed(2));
 

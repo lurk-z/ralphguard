@@ -37,21 +37,31 @@ default branch บน GitHub ก่อน ห้ามแก้ด้วยก�
 
 ## ขั้นที่ 3: ทดสอบว่าทุกอย่างพร้อม
 
-### A) วิธีง่ายที่สุด — รันทั้งหมดด้วย Docker
+### A) วิธีแนะนำ — Backend ใน Docker + Frontend ด้วย npm
 
-```bash
-docker compose up --build
+เปิด Terminal แรกที่ root ของโปรเจกต์ แล้วรัน PostgreSQL, Redis, Backend และ Scientific Worker:
+
+```powershell
+docker compose up -d --build
 ```
 
-รอประมาณ 5-10 นาทีในการ build ครั้งแรก แล้วเปิดในเบราว์เซอร์
+Frontend ไม่ได้ติดตั้งหรือรันใน Docker ให้เปิด Terminal ที่สองแล้วรัน Next.js จากเครื่อง:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+`npm install` จำเป็นเฉพาะครั้งแรกหรือเมื่อ `package-lock.json` เปลี่ยน จากนั้นเปิดในเบราว์เซอร์:
 
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:8000
 - API docs: http://localhost:8000/docs
 
-ถ้าเปิดทั้ง 3 URL ได้ = setup สำเร็จ ✅
+ถ้าเปิดทั้ง 3 URL ได้ = setup สำเร็จ ✅ การหยุด `npm run dev` ให้กด `Ctrl+C` ใน Terminal ของ frontend
 
-### B) วิธีพัฒนา — รันแยกแต่ละ service
+### B) วิธีพัฒนา Backend/Worker แบบ local
 
 **Database + Redis (ใน Docker):**
 ```bash

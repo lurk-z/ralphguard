@@ -11,7 +11,10 @@ import { FileText, FlaskConical, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import DashboardShell from "@/components/layout/DashboardShell";
-import { api, type AssessmentResultPayload } from "@/lib/api";
+import { api, apiErrorMessage, type AssessmentResultPayload } from "@/lib/api";
+import { latestCompletedAssessment } from "@/lib/report-selection";
+import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
+import { parseProjectRouteId } from "@/lib/project-routing";
 
 const FaceView = dynamic(
   () => import("@/components/FaceIrritationModel").then((m) => m.FaceIrritationCanvas),
@@ -41,28 +44,52 @@ const ENDPOINT_ORDER = ["skin", "eye", "sens", "acute"] as const;
 
 export default function ResultsPage({ params }: { params: { id: string } }) {
   const router = useRouter();
-  const projectId = Number(params.id);
+  const projectId = parseProjectRouteId(params.id);
   const [result, setResult] = useState<AssessmentResultPayload | null>(null);
+  const [assessmentId, setAssessmentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
+    const controller = new AbortController();
     (async () => {
       try {
-        if (!Number.isFinite(projectId)) throw new Error("no backend project");
-        const runs = await api.listAssessments(projectId, 1);
-        const latest = runs.find((r) => r.status === "completed") ?? runs[0];
-        if (!latest) throw new Error("no runs");
-        const record = await api.getAssessment(latest.id);
-        if (alive) setResult(record.result);
-      } catch {
-        if (alive) setResult(null);
+        if (projectId === null) {
+          if (alive) setLoadError("รหัสโปรเจกต์ไม่ถูกต้อง");
+          return;
+        }
+        const runs = await api.listProjectAssessments(projectId, controller.signal);
+        const latest = latestCompletedAssessment(runs);
+        if (!latest) {
+          if (alive) setLoadError(null);
+          return;
+        }
+        const record = await api.getProjectAssessment(
+          projectId,
+          latest.id,
+          controller.signal,
+        );
+        if (alive) {
+          setResult(record.result);
+          setAssessmentId(record.id);
+          setLoadError(null);
+        }
+      } catch (cause) {
+        if (isAbortError(cause)) return;
+        logRequestFailure("load project results", cause);
+        if (alive) {
+          setResult(null);
+          setAssessmentId(null);
+          setLoadError(apiErrorMessage(cause, "โหลดผลการวิเคราะห์ไม่สำเร็จ"));
+        }
       } finally {
         if (alive) setLoading(false);
       }
     })();
     return () => {
       alive = false;
+      controller.abort();
     };
   }, [projectId]);
 
@@ -91,8 +118,12 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
           </Button>
           <Button
             className="h-11 gap-2 px-5"
-            disabled={!endpoints}
-            onClick={() => router.push(`/projects/${params.id}/report`)}
+            disabled={!endpoints || !assessmentId}
+            onClick={() =>
+              router.push(
+                `/projects/${params.id}/report?assessmentId=${encodeURIComponent(assessmentId!)}`,
+              )
+            }
           >
             <FileText className="size-4" />
             สร้าง PDF
@@ -132,9 +163,11 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
                 <span className="grid size-14 place-items-center rounded-2xl border border-dashed border-border bg-muted/60">
                   <FlaskConical className="size-6 text-muted-foreground" />
                 </span>
-                <h2 className="mt-4 text-base font-semibold text-foreground">ยังไม่มีผลการวิเคราะห์</h2>
+                <h2 className="mt-4 text-base font-semibold text-foreground">
+                  {loadError ? "โหลดผลการวิเคราะห์ไม่สำเร็จ" : "ยังไม่มีผลการวิเคราะห์"}
+                </h2>
                 <p className="mt-1 max-w-xs text-sm text-muted-foreground">
-                  กลับไปที่หน้าการทดลอง เพิ่มสูตร แล้วกด “เริ่มการทดลอง” เพื่อประเมินความเสี่ยง
+                  {loadError || "กลับไปที่หน้าการทดลอง เพิ่มสูตร แล้วกด “เริ่มการทดลอง” เพื่อประเมินความเสี่ยง"}
                 </p>
                 <Button
                   className="mt-5 h-11 gap-2 px-6"

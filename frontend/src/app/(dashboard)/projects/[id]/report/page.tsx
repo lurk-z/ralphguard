@@ -2,14 +2,17 @@
 
 // Report — printable A4-style document for a project's assessment. The toolbar
 // is print:hidden so window.print() (Save as PDF) outputs just the paper.
-// Renders real data when a run exists; otherwise shows sample data so the whole
-// layout is visible (UI preview).
+// A report is rendered only from a completed backend assessment. Missing or
+// unavailable data is surfaced honestly instead of being replaced by a demo.
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import Image from "next/image";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Download } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
+import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
+import { parseProjectRouteId } from "@/lib/project-routing";
 
 const BAND_HEX: Record<string, string> = {
   low: "#16A34A",
@@ -33,50 +36,50 @@ type ReportData = {
   formula: FormulaRow[];
   endpoints: EndpointRow[];
   disclaimer: string;
-  sample: boolean;
 };
 
 const DISCLAIMER =
   "ผลจากแบบจำลองคอมพิวเตอร์ (in-silico screening) เท่านั้น ไม่ใช่การทดสอบทางคลินิกหรือทดแทนการประเมินโดยผู้เชี่ยวชาญ";
 
-const SAMPLE: Omit<ReportData, "reportId" | "dateTH"> = {
-  projectName: "Hand Cream Formula Test",
-  sample: true,
-  formula: [
-    { name: "Water (Aqua)", cas: "7732-18-5", concentration: 65, role: "ตัวทำละลายหลัก" },
-    { name: "Glycerin", cas: "56-81-5", concentration: 12, role: "สารให้ความชุ่มชื้น" },
-    { name: "Cetearyl Alcohol", cas: "67762-27-0", concentration: 8, role: "สารเพิ่มความข้น" },
-    { name: "Niacinamide", cas: "98-92-0", concentration: 4, role: "สารออกฤทธิ์" },
-    { name: "Phenoxyethanol", cas: "122-99-6", concentration: 1, role: "สารกันเสีย" },
-  ],
-  endpoints: [
-    { key: "skin", label: "การระคายเคืองผิวหนัง", score: 28, band: "moderate", confidence: "Medium — อยู่ในขอบเขตการใช้งาน (in-domain)" },
-    { key: "eye", label: "การระคายเคืองดวงตา", score: 41, band: "moderate", confidence: "Medium — Tanimoto = 0.42" },
-    { key: "sens", label: "การแพ้ผิวหนัง", score: 14, band: "low", confidence: "High — โครงสร้างสอดคล้องกับผลโมเดล" },
-    { key: "acute", label: "ความเป็นพิษเฉียบพลัน", score: 9, band: "low", confidence: "High — in-domain" },
-  ],
-  disclaimer: DISCLAIMER,
-};
-
 export default function ReportPage({ params }: { params: { id: string } }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const assessmentId = searchParams.get("assessmentId")?.trim() ?? "";
   const [data, setData] = useState<ReportData | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const nowId = `RG-${params.id}-${Date.now().toString(36).toUpperCase().slice(-5)}`;
-    const dateTH = new Date().toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" });
-    const projectId = Number(params.id);
+    const projectId = parseProjectRouteId(params.id);
 
     let alive = true;
+    const controller = new AbortController();
+    setData(null);
+    setError(null);
     (async () => {
       try {
-        if (!Number.isFinite(projectId)) throw new Error("no backend project");
-        const runs = await api.listAssessments(projectId, 1);
-        const latest = runs.find((r) => r.status === "completed") ?? runs[0];
-        if (!latest) throw new Error("no runs");
-        const record = await api.getAssessment(latest.id);
+        if (projectId === null) {
+          if (alive) setError("รหัสโปรเจกต์ไม่ถูกต้อง");
+          return;
+        }
+        if (!assessmentId) {
+          if (alive) setError("ไม่พบรหัสผลประเมินสำหรับสร้างรายงาน");
+          return;
+        }
+        const [project, record] = await Promise.all([
+          api.getProject(projectId, controller.signal),
+          api.getProjectAssessment(projectId, assessmentId, controller.signal),
+        ]);
+        if (record.status !== "completed") {
+          if (alive) {
+            setError("ผลประเมินนี้ยังไม่เสร็จสมบูรณ์ จึงยังสร้างรายงานไม่ได้");
+          }
+          return;
+        }
         const eps = record.result?.endpoints;
-        if (!eps) throw new Error("no result");
+        if (!eps) {
+          if (alive) setError("ผลประเมินนี้ไม่มีข้อมูลสำหรับสร้างรายงาน");
+          return;
+        }
         const endpoints: EndpointRow[] = Object.entries(eps).map(([key, e]) => ({
           key,
           label: e.label_th,
@@ -90,24 +93,34 @@ export default function ReportPage({ params }: { params: { id: string } }) {
           concentration: f.concentration,
           role: "-",
         }));
-        if (alive)
+        const reportDate = new Date(record.completed_at || record.created_at);
+        const dateTH = reportDate.toLocaleDateString("th-TH", {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        });
+        if (alive) {
           setData({
-            projectName: `โปรเจกต์ #${params.id}`,
+            projectName: project.name,
             dateTH,
-            reportId: nowId,
-            formula: formula.length ? formula : SAMPLE.formula,
+            reportId: `RG-${params.id}-${record.id.slice(0, 8).toUpperCase()}`,
+            formula,
             endpoints,
             disclaimer: record.result?.disclaimer_th ?? DISCLAIMER,
-            sample: false,
           });
-      } catch {
-        if (alive) setData({ ...SAMPLE, reportId: nowId, dateTH });
+        }
+      } catch (cause) {
+        if (!isAbortError(cause)) {
+          logRequestFailure("load assessment report", cause);
+          if (alive) setError(apiErrorMessage(cause, "โหลดรายงานไม่สำเร็จ"));
+        }
       }
     })();
     return () => {
       alive = false;
+      controller.abort();
     };
-  }, [params.id]);
+  }, [params.id, assessmentId]);
 
   return (
     <div className="app-light min-h-screen bg-muted/40 text-foreground">
@@ -121,11 +134,6 @@ export default function ReportPage({ params }: { params: { id: string } }) {
           กลับไปหน้าผลลัพธ์
         </button>
         <div className="flex items-center gap-2">
-          {data?.sample && (
-            <span className="rounded-full bg-accent px-3 py-1 text-xs font-medium text-accent-foreground">
-              ข้อมูลตัวอย่าง
-            </span>
-          )}
           <Button className="h-10 gap-2 px-5" onClick={() => window.print()} disabled={!data}>
             <Download className="size-4" />
             ดาวน์โหลด PDF
@@ -135,14 +143,25 @@ export default function ReportPage({ params }: { params: { id: string } }) {
 
       {/* Paper */}
       <div className="mx-auto max-w-[820px] px-4 py-8 print:max-w-none print:p-0">
-        {!data ? (
+        {error ? (
+          <div className="grid min-h-[480px] place-items-center rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+            {error}
+          </div>
+        ) : !data ? (
           <div className="h-[900px] animate-pulse rounded-lg bg-card" />
         ) : (
           <article className="rounded-lg border border-border bg-white p-10 shadow-sm print:rounded-none print:border-0 print:shadow-none">
             {/* Header */}
             <header className="flex items-start justify-between border-b-2 border-primary/70 pb-5">
               <div className="flex items-center gap-3">
-                <span aria-hidden className="grid size-11 place-items-center rounded-xl border border-dashed border-border bg-muted/60" />
+                <Image
+                  src="/icons/logo.png"
+                  alt="RalphGuard"
+                  width={44}
+                  height={44}
+                  priority
+                  className="size-11 shrink-0 rounded-xl object-contain"
+                />
                 <div>
                   <div className="font-display text-xl font-bold text-foreground">RalphGuard</div>
                   <div className="text-[11px] text-muted-foreground">In-silico Chemical Risk Screening</div>

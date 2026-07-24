@@ -46,6 +46,10 @@ DATASETS = {
     "sens":  DATA / "llna_sensitization.csv",
     "acute": DATA / "catmos_acute_toxicity.csv",
 }
+CURATED_PUBCHEM_DATASETS = {
+    endpoint: BASE / "data" / "curated" / f"pubchem_verified_{endpoint}.csv"
+    for endpoint in DATASETS
+}
 ENDPOINT_NAMES = {"skin": "Skin Irritation", "eye": "Eye Irritation",
                   "sens": "Skin Sensitization", "acute": "Acute Toxicity"}
 # feature mode per endpoint (from nested-CV study)
@@ -64,13 +68,21 @@ def build_members():
     ]
 
 
-def fit_members(X, y):
+def fit_members(X, y, sample_weight=None):
     members = build_members()
     for name, m in zip(MEMBER_NAMES, members):
         if name == "HistGB":
-            m.fit(X, y, sample_weight=compute_sample_weight("balanced", y))
+            weights = compute_sample_weight("balanced", y)
+            if sample_weight is not None:
+                weights = weights * sample_weight
+            m.fit(X, y, sample_weight=weights)
+        elif name == "LogReg":
+            if sample_weight is None:
+                m.fit(X, y)
+            else:
+                m.fit(X, y, logisticregression__sample_weight=sample_weight)
         else:
-            m.fit(X, y)
+            m.fit(X, y, sample_weight=sample_weight)
     return members
 
 
@@ -93,13 +105,39 @@ def youden_threshold(y, p):
     return float(best_t)
 
 
-def load_endpoint(path, mode):
+def load_endpoint(path, mode, supplemental_path=None):
     df = pd.read_csv(path)
+    df["training_origin"] = "base"
+    df["sample_weight"] = 1.0
+    supplemental_count = 0
+    if supplemental_path and supplemental_path.exists():
+        supplemental = pd.read_csv(supplemental_path)
+        required = {"smiles", "label", "source", "evidence_ids"}
+        missing = required.difference(supplemental.columns)
+        if missing:
+            raise ValueError(
+                f"{supplemental_path.name} is not a reviewed evidence export; missing {sorted(missing)}"
+            )
+        supplemental["training_origin"] = "pubchem_reviewed"
+        if "sample_weight" not in supplemental.columns:
+            supplemental["sample_weight"] = 0.5
+        supplemental["sample_weight"] = pd.to_numeric(
+            supplemental["sample_weight"], errors="coerce"
+        ).fillna(0.5).clip(0.05, 1.0)
+        supplemental_count = len(supplemental)
+        df = pd.concat([df, supplemental], ignore_index=True, sort=False)
     df["canonical"] = df["smiles"].apply(
         lambda s: (Chem.MolToSmiles(Chem.MolFromSmiles(str(s)))
                    if Chem.MolFromSmiles(str(s)) else None))
     before = len(df)
-    df = df.dropna(subset=["canonical"]).drop_duplicates("canonical").reset_index(drop=True)
+    df = df.dropna(subset=["canonical"])
+    # Never resolve contradictory labels by row order.  Conflicting structures
+    # are excluded until their endpoint evidence is reviewed.
+    label_counts = df.groupby("canonical")["label"].nunique()
+    conflicts = set(label_counts[label_counts > 1].index)
+    if conflicts:
+        df = df[~df["canonical"].isin(conflicts)]
+    df = df.drop_duplicates("canonical").reset_index(drop=True)
     feats, morgans, y = [], [], []
     for _, r in df.iterrows():
         mol = Chem.MolFromSmiles(r["canonical"])
@@ -108,15 +146,19 @@ def load_endpoint(path, mode):
         feats.append(featurize_mol(mol, mode))
         morgans.append(morgan_bits(mol))
         y.append(int(r["label"]))
+    origins = df["training_origin"].value_counts().to_dict()
     return (np.vstack(feats).astype(float), np.vstack(morgans),
-            np.array(y), df["canonical"].tolist(), before - len(df))
+            np.array(y), df["canonical"].tolist(), before - len(df),
+            supplemental_count, len(conflicts), origins,
+            df["sample_weight"].to_numpy(dtype=float))
 
 
-def evaluate_oof(X, y):
+def evaluate_oof(X, y, sample_weight=None):
     skf = StratifiedKFold(5, shuffle=True, random_state=42)
     oof = np.zeros(len(y))
     for tr, te in skf.split(X, y):
-        members = fit_members(X[tr], y[tr])
+        fold_weight = sample_weight[tr] if sample_weight is not None else None
+        members = fit_members(X[tr], y[tr], fold_weight)
         oof[te], _ = ensemble_proba(members, X[te])
     thr = youden_threshold(y, oof)
     pred = (oof >= thr).astype(int)
@@ -138,22 +180,35 @@ def main():
     print("=" * 60)
     print("🔬 RalphGuard — QSAR Training (Ensemble v2)")
     print("=" * 60)
+    missing_raw = [path.name for path in DATASETS.values() if not path.exists()]
+    if missing_raw:
+        raise RuntimeError(
+            "Refusing to overwrite model artifacts because the base raw datasets are missing: "
+            + ", ".join(missing_raw)
+        )
     all_metrics = {}
     for ep, path in DATASETS.items():
-        if not path.exists():
-            print(f"⚠️  {path.name} not found — skip {ep}"); continue
         mode = FEATURE_MODE[ep]
         print(f"\n── {ENDPOINT_NAMES[ep]} ({ep}) | features={mode} ──")
-        X, Xmorgan, y, smiles, dropped = load_endpoint(path, mode)
+        X, Xmorgan, y, smiles, dropped, supplemental, conflicts, origins, sample_weight = load_endpoint(
+            path, mode, CURATED_PUBCHEM_DATASETS[ep]
+        )
+        if len(np.unique(y)) < 2:
+            raise ValueError(f"{ep} training data must contain both positive and negative labels")
         print(f"   compounds={len(y)} (dropped {dropped}) | "
               f"pos/neg={int(y.sum())}/{int((y==0).sum())} | dim={X.shape[1]}")
+        if supplemental:
+            print(
+                f"   reviewed PubChem rows={supplemental} | conflicts excluded={conflicts} | "
+                f"origins={origins}"
+            )
 
-        metrics, thr = evaluate_oof(X, y)
+        metrics, thr = evaluate_oof(X, y, sample_weight)
         print(f"   OOF: Acc={metrics['accuracy']} BalAcc={metrics['balanced_accuracy']} "
               f"Sens={metrics['sensitivity']} Spec={metrics['specificity']} "
               f"AUC={metrics['auc']} MCC={metrics['mcc']} | thr={metrics['threshold']}")
 
-        members = fit_members(X, y)  # final fit on all data
+        members = fit_members(X, y, sample_weight)  # final fit on all data
         bundle = {
             "format": "ensemble_v2",
             "members": members,
@@ -165,6 +220,14 @@ def main():
             "metrics": metrics,
             "endpoint": ep,
             "label": ENDPOINT_NAMES[ep],
+            "training_sources": origins,
+            "pubchem_reviewed_rows_loaded": supplemental,
+            "conflicting_structures_excluded": conflicts,
+            "training_sample_weight_summary": {
+                "min": float(sample_weight.min()),
+                "max": float(sample_weight.max()),
+                "mean": float(sample_weight.mean()),
+            },
         }
         with open(OUT / f"{ep}_model.pkl", "wb") as f:
             pickle.dump(bundle, f)

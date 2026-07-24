@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { IBM_Plex_Mono, Noto_Sans_Thai } from "next/font/google";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 // LINE Seed Sans TH — Thai + Latin body text
@@ -12,18 +13,6 @@ const lineSeedTH = localFont({
     { path: "../../public/fonts/LINESeedSansTH_W_He.woff", weight: "800", style: "normal" },
   ],
   variable: "--font-sans",
-  display: "swap",
-});
-
-// LINE Seed Sans (EN) — Latin brand/display headings
-const lineSeedEN = localFont({
-  src: [
-    { path: "../../public/fonts/LINESeedSans_W_Th.woff", weight: "100", style: "normal" },
-    { path: "../../public/fonts/LINESeedSans_W_Rg.woff", weight: "400", style: "normal" },
-    { path: "../../public/fonts/LINESeedSans_W_Bd.woff", weight: "700", style: "normal" },
-    { path: "../../public/fonts/LINESeedSans_W_He.woff", weight: "800", style: "normal" },
-  ],
-  variable: "--font-display",
   display: "swap",
 });
 
@@ -62,10 +51,11 @@ export default function RootLayout({
   return (
     <html
       lang="th"
-      className={`${lineSeedTH.variable} ${lineSeedEN.variable} ${ibmPlexMono.variable} ${notoSansThai.variable}`}
+      className={`${lineSeedTH.variable} ${ibmPlexMono.variable} ${notoSansThai.variable}`}
     >
       <body className="antialiased" suppressHydrationWarning>
         {children}
+        <Toaster />
       </body>
     </html>
   );

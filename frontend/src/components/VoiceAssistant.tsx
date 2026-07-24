@@ -7,6 +7,14 @@
  */
 import { useEffect, useRef, useState } from "react";
 
+import {
+  ASSISTANT_TYPING_INTERVAL_MS,
+  assistantThinkDelay,
+  assistantTypingFrames,
+} from "@/lib/assistant-typing";
+import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
+import { SemanticIcon } from "@/components/SemanticIcon";
+
 type Layer = {
   key: string;
   label: string;
@@ -25,6 +33,17 @@ const BAND_TH: Record<string, string> = {
 
 type FormulaItem = { name?: string; smiles: string; concentration: number };
 type AssistantAction = { type?: string; [key: string]: unknown };
+type ChatMessage = {
+  role: "user" | "ai";
+  text: string;
+  formula?: FormulaItem[];
+  actions?: AssistantAction[];
+  acted?: number;
+  typing?: boolean;
+};
+
+const wait = (milliseconds: number) =>
+  new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
 
 export default function VoiceAssistant({
   productName,
@@ -43,21 +62,37 @@ export default function VoiceAssistant({
   onImportFormula?: (items: FormulaItem[]) => void;
   onAction?: (actions: AssistantAction[]) => void | Promise<void>;
 }) {
-  const [messages, setMessages] = useState<
-    { role: "user" | "ai"; text: string; formula?: FormulaItem[]; actions?: AssistantAction[]; acted?: number }[]
-  >([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [speaking, setSpeaking] = useState(false);
   const [listening, setListening] = useState(false);
   const [voiceOn, setVoiceOn] = useState(true);
   const [thinking, setThinking] = useState(false);
+  const [typing, setTyping] = useState(false);
   const [actionBusy, setActionBusy] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const recogRef = useRef<any>(null);
+  const chatControllerRef = useRef<AbortController | null>(null);
+  const ttsControllerRef = useRef<AbortController | null>(null);
+  const typingSessionRef = useRef(0);
 
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(
+    () => () => {
+      typingSessionRef.current += 1;
+      chatControllerRef.current?.abort();
+      ttsControllerRef.current?.abort();
+      audioRef.current?.pause();
+      recogRef.current?.stop?.();
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    },
+    [],
+  );
 
   // Load & rank available voices — prefer natural / neural / online Thai voices,
   // which sound far smoother than the default local robotic one.
@@ -105,6 +140,9 @@ export default function VoiceAssistant({
 
   const speak = async (text: string) => {
     if (!voiceOn) return;
+    ttsControllerRef.current?.abort();
+    const controller = new AbortController();
+    ttsControllerRef.current = controller;
     const clean = text.replace(/\s*·\s*/g, ", ").replace(/\s+/g, " ").trim();
     // Neural TTS (Edge, via backend) → far more human than the browser voice.
     try {
@@ -112,8 +150,9 @@ export default function VoiceAssistant({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: clean }),
+        signal: controller.signal,
       });
-      if (res.ok) {
+      if (res.ok && ttsControllerRef.current === controller) {
         const url = URL.createObjectURL(await res.blob());
         audioRef.current?.pause();
         if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
@@ -127,13 +166,17 @@ export default function VoiceAssistant({
         await a.play();
         return;
       }
-    } catch {
+    } catch (cause) {
+      if (isAbortError(cause)) return;
+      logRequestFailure("assistant text to speech", cause);
       /* fall through to browser voice */
     }
-    browserSpeak(clean);
+    if (ttsControllerRef.current === controller) browserSpeak(clean);
   };
 
   const stopSpeak = () => {
+    ttsControllerRef.current?.abort();
+    ttsControllerRef.current = null;
     if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
     audioRef.current?.pause();
     setSpeaking(false);
@@ -161,10 +204,14 @@ export default function VoiceAssistant({
 
   const ask = async (q: string) => {
     const text = q.trim();
-    if (!text || thinking) return;
+    if (!text || thinking || typing) return;
+    const requestStartedAt = Date.now();
     setMessages((m) => [...m.slice(-6), { role: "user", text }]);
     setInput("");
     setThinking(true);
+    chatControllerRef.current?.abort();
+    const controller = new AbortController();
+    chatControllerRef.current = controller;
     let a = "";
     let err = "";
     try {
@@ -172,25 +219,58 @@ export default function VoiceAssistant({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: text, context: buildContext() }),
+        signal: controller.signal,
       });
       if (res.ok) a = (await res.json()).answer;
       else err = `(${res.status}) ${await res.text()}`;
-    } catch (e) {
-      err = String(e);
+    } catch (cause) {
+      if (isAbortError(cause)) return;
+      logRequestFailure("assistant chat", cause);
+      err = String(cause);
     }
-    setThinking(false);
+    if (chatControllerRef.current !== controller) return;
+    await wait(assistantThinkDelay(Date.now() - requestStartedAt));
+    if (chatControllerRef.current !== controller || controller.signal.aborted) return;
+    chatControllerRef.current = null;
     if (!a) {
       // Gemini only — no rule-based fallback. Surface the real error to debug.
-      setMessages((m) => [...m, { role: "ai", text: `⚠️ เชื่อมต่อ AI ไม่ได้ ${err}`.slice(0, 400) }]);
+      setThinking(false);
+      setMessages((m) => [...m, { role: "ai", text: `เชื่อมต่อ AI ไม่ได้ ${err}`.slice(0, 400) }]);
       return;
     }
     const { clean: c1, formula } = parseFormula(a);
     const { clean, actions } = parseActions(c1);
-    setMessages((m) => [
-      ...m,
-      { role: "ai", text: clean, formula, actions: actions as AssistantAction[] | undefined },
-    ]);
-    speak(clean); // don't read the JSON blocks aloud
+    const parsedActions = actions as AssistantAction[] | undefined;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    setThinking(false);
+
+    if (reduceMotion || !clean) {
+      setMessages((m) => [...m, { role: "ai", text: clean, formula, actions: parsedActions }]);
+      void speak(clean); // don't read the JSON blocks aloud
+      return;
+    }
+
+    const session = ++typingSessionRef.current;
+    const frames = assistantTypingFrames(clean);
+    setTyping(true);
+    setMessages((m) => [...m, { role: "ai", text: "", typing: true }]);
+
+    for (const frame of frames) {
+      await wait(ASSISTANT_TYPING_INTERVAL_MS);
+      if (typingSessionRef.current !== session) return;
+      setMessages((current) => current.map((message, index) =>
+        index === current.length - 1 && message.typing ? { ...message, text: frame } : message,
+      ));
+    }
+
+    if (typingSessionRef.current !== session) return;
+    setMessages((current) => current.map((message, index) =>
+      index === current.length - 1 && message.typing
+        ? { ...message, text: clean, formula, actions: parsedActions, typing: false }
+        : message,
+    ));
+    setTyping(false);
+    void speak(clean); // don't read the JSON blocks aloud
   };
 
   // Extract an <action>[...]</action> block (agent commands) from the reply.
@@ -300,7 +380,7 @@ export default function VoiceAssistant({
     <div className="flex h-[22rem] flex-col">
       {/* status row */}
       <div className="mb-1 flex h-4 items-center justify-end gap-2 text-[10px] text-brand">
-        {thinking ? <span>● กำลังคิด…</span> : speaking ? <span>● กำลังพูด</span> : null}
+        {thinking ? <span>● กำลังคิด…</span> : typing ? <span>● กำลังพิมพ์…</span> : speaking ? <span>● กำลังพูด</span> : null}
         <button
           onClick={() => {
             setVoiceOn((v) => !v);
@@ -308,8 +388,9 @@ export default function VoiceAssistant({
           }}
           className="text-slate-400 hover:text-brand"
           title={voiceOn ? "ปิดเสียง" : "เปิดเสียง"}
+          aria-label={voiceOn ? "ปิดเสียง" : "เปิดเสียง"}
         >
-          {voiceOn ? "🔊" : "🔇"}
+          <SemanticIcon name={voiceOn ? "volume" : "volume-off"} className="size-3.5" />
         </button>
       </div>
 
@@ -317,7 +398,7 @@ export default function VoiceAssistant({
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-2 text-center">
-            <span className="grid size-11 place-items-center rounded-xl bg-slate-100 text-lg text-slate-500">💬</span>
+            <span className="grid size-11 place-items-center rounded-xl bg-slate-100 text-lg text-slate-500"><SemanticIcon name="message" className="size-5" /></span>
             <div className="text-sm font-semibold text-slate-700">ฉันคือ AI ผู้ช่วยคุณ</div>
             <div className="text-xs text-slate-400">วันนี้จะให้ช่วยอะไรดี?</div>
             <div className="mt-2 flex flex-wrap justify-center gap-1">
@@ -341,10 +422,13 @@ export default function VoiceAssistant({
                     m.role === "user" ? "bg-brand text-white" : "bg-slate-100 text-slate-800"
                   }`}
                 >
-                  <div>{m.text}</div>
+                  <div>
+                    {m.text}
+                    {m.typing ? <span aria-hidden="true" className="ml-0.5 inline-block animate-pulse text-brand">▍</span> : null}
+                  </div>
                   {m.role === "ai" && m.acted ? (
                     <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-semibold text-brand-dark">
-                      ⚡ ทำให้แล้ว {m.acted} รายการ
+                      <SemanticIcon name="zap" className="size-3" /> ทำให้แล้ว {m.acted} รายการ
                     </div>
                   ) : null}
                   {m.role === "ai" && m.actions && m.actions.length > 0 && (
@@ -378,13 +462,13 @@ export default function VoiceAssistant({
                   )}
                   {m.role === "ai" && m.formula && m.formula.length > 0 && (
                     <div className="mt-1.5 rounded-lg border border-slate-200 bg-white p-2">
-                      <div className="mb-1 text-[10px] font-semibold text-slate-500">
-                        🧪 สูตรที่แนะนำ ({m.formula.length} สาร)
+                      <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold text-slate-500">
+                        <SemanticIcon name="flask" className="size-3" /> สูตรที่แนะนำ ({m.formula.length} สาร)
                       </div>
                       <div className="space-y-1">
                         {m.formula.map((f, j) => (
                           <div key={j} className="flex items-center gap-1 text-[11px] text-slate-700">
-                            <span className="text-brand">◇</span>
+                            <SemanticIcon name="circle" className="size-2.5 text-brand" />
                             <span className="flex-1 truncate font-medium">{f.name}</span>
                             <span className="font-mono tabular-nums text-slate-500">{f.concentration}%</span>
                           </div>
@@ -394,7 +478,7 @@ export default function VoiceAssistant({
                         onClick={() => onImportFormula?.(m.formula!)}
                         className="mt-1.5 w-full rounded-md bg-brand px-2 py-1.5 text-[10px] font-semibold text-white transition hover:bg-brand-dark"
                       >
-                        ⬇ Add to workspace
+                        <span className="inline-flex items-center justify-center gap-1"><SemanticIcon name="download" className="size-3" /> Add to workspace</span>
                       </button>
                     </div>
                   )}
@@ -421,11 +505,12 @@ export default function VoiceAssistant({
         <button
           onClick={toggleListen}
           title="พูดเพื่อถาม"
+          aria-label="พูดเพื่อถาม"
           className={`grid size-7 shrink-0 place-items-center rounded-full text-sm transition ${
             listening ? "animate-pulse bg-teal-50 text-brand" : "text-slate-400 hover:text-brand"
           }`}
         >
-          🎤
+          <SemanticIcon name="mic" className="size-4" />
         </button>
         <input
           value={input}
@@ -436,11 +521,12 @@ export default function VoiceAssistant({
         />
         <button
           onClick={() => ask(input)}
-          disabled={thinking}
+          disabled={thinking || typing}
           title="ส่ง"
+          aria-label="ส่ง"
           className="grid size-7 shrink-0 place-items-center rounded-full bg-brand text-sm text-white transition hover:bg-brand-dark disabled:opacity-50"
         >
-          ↑
+          <SemanticIcon name="arrow-up" className="size-4" />
         </button>
       </div>
     </div>

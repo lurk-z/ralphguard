@@ -24,10 +24,27 @@ import ReactFlow, {
   type Edge,
   type Node,
   type NodeProps,
+  type NodeTypes,
 } from "reactflow";
 
-import { FormulaItem, Region, api } from "../lib/api";
-import { SUBSTANCE_LIBRARY, withWaterBase, substanceInfo, type CatalogItem } from "../lib/catalog";
+import { FormulaItem, Region, api, type IngredientRegistryItem } from "../lib/api";
+import {
+  catalogWithVerifiedRegistry,
+  withWaterBase,
+  substanceInfo,
+  type CatalogItem,
+} from "../lib/catalog";
+import {
+  formulaGraphItemsSignature,
+  formulaItemsFromGraph,
+  synchronizeGraphWithFormula,
+} from "../lib/formula-graph";
+import {
+  normalizeFormulaGraphSnapshot,
+  type FormulaGraphNodeSnapshot,
+  type FormulaGraphSnapshot,
+} from "../lib/project-workspace";
+import { SemanticIcon } from "@/components/SemanticIcon";
 
 const ENDPOINTS = ["skin", "eye", "sens", "acute"] as const;
 const ENDPOINT_LABEL_TH: Record<string, string> = {
@@ -56,15 +73,18 @@ type LibItem = CatalogItem;
 // ─────────────────────────── Substance node ───────────────────────────
 type SubstanceData = { name?: string; smiles: string; concentration: number };
 
-function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
-  const { setNodes, setEdges } = useReactFlow();
+function SubstanceNode({
+  id,
+  data,
+  onRemove,
+}: NodeProps<SubstanceData> & { onRemove?: (id: string) => void }) {
+  const { setNodes } = useReactFlow();
   const patch = (p: Partial<SubstanceData>) =>
     setNodes((nds) =>
       nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...p } } : n)),
     );
   const remove = () => {
-    setNodes((nds) => nds.filter((n) => n.id !== id));
-    setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+    onRemove?.(id);
   };
 
   const [valid, setValid] = useState<null | boolean>(null);
@@ -117,7 +137,7 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
       {showInfo && (data.smiles?.trim() || data.name) && (
         <div className="nodrag nowheel absolute left-full top-0 z-30 ml-3 w-60 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-soft">
           <div className="flex items-center gap-1.5">
-            <span className="text-brand">◇</span>
+            <SemanticIcon name="circle" className="size-2.5 text-brand" />
             <span className="flex-1 truncate text-xs font-semibold text-slate-800">{data.name || "สารไม่ระบุชื่อ"}</span>
             {mw != null && <span className="font-mono text-[9px] text-slate-400">MW {mw}</span>}
           </div>
@@ -130,7 +150,7 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
             <>
               <div className="mt-1.5 text-[11px] leading-snug text-slate-700">{info.role}</div>
               <div className="mt-1 flex gap-1 text-[10px] leading-snug text-amber-700">
-                <span>⚠️</span>
+                <SemanticIcon name="alert" className="size-3 shrink-0" />
                 <span>{info.note}</span>
               </div>
             </>
@@ -143,14 +163,20 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
         </div>
       )}
       <button
-        onClick={remove}
+        type="button"
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          remove();
+        }}
+        onClick={(event) => event.stopPropagation()}
         title="ลบ node"
+        aria-label="ลบ node"
         className="nodrag nopan absolute -right-2 -top-2 z-10 grid size-5 place-items-center rounded-full border border-slate-200 bg-white text-sm leading-none text-slate-400 shadow-card transition hover:border-rose-300 hover:bg-rose-500 hover:text-white"
       >
-        ×
+        <SemanticIcon name="x" className="size-3" />
       </button>
       <div className="flex items-center justify-between rounded-t-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-800">
-        <span>🧪 สาร</span>
+        <span className="flex items-center gap-1"><SemanticIcon name="flask" className="size-3.5" /> สาร</span>
         <span className="font-mono text-[10px] text-slate-800/45">#{id}</span>
       </div>
       <div className="nodrag nowheel space-y-1.5 p-3">
@@ -189,9 +215,9 @@ function SubstanceNode({ id, data }: NodeProps<SubstanceData>) {
           <span className="text-xs text-slate-800/55">%</span>
         </div>
         {valid === true && (
-          <div className="text-[10px] text-emerald-600">✓ ถูกต้อง{mw != null ? ` · MW ${mw}` : ""}</div>
+          <div className="flex items-center gap-1 text-[10px] text-emerald-600"><SemanticIcon name="check" className="size-3" /> ถูกต้อง{mw != null ? ` · MW ${mw}` : ""}</div>
         )}
-        {valid === false && <div className="text-[10px] text-rose-500">✗ SMILES ไม่ถูกต้อง</div>}
+        {valid === false && <div className="flex items-center gap-1 text-[10px] text-rose-500"><SemanticIcon name="x-circle" className="size-3" /> SMILES ไม่ถูกต้อง</div>}
       </div>
       <Handle
         type="source"
@@ -290,8 +316,8 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
         position={Position.Left}
         className="!h-3 !w-3 !border-2 !border-white !bg-brand"
       />
-      <div className="rounded-t-lg bg-brand/10 px-3 py-1.5 text-xs font-semibold text-brand-dark">
-        🎯 ผลการประเมิน
+      <div className="flex items-center gap-1 rounded-t-lg bg-brand/10 px-3 py-1.5 text-xs font-semibold text-brand-dark">
+        <SemanticIcon name="target" className="size-3.5" /> ผลการประเมิน
       </div>
       <div className="nodrag nowheel space-y-2 p-3">
         <label className="flex items-center justify-between gap-2 text-[11px] text-slate-800/65">
@@ -312,7 +338,7 @@ function ResultNode({ id, data }: NodeProps<ResultData>) {
           disabled={busy}
           className="w-full rounded-lg bg-brand py-2 text-xs font-semibold text-white transition hover:bg-brand-dark disabled:opacity-50"
         >
-          {busy ? "กำลังประเมิน…" : "▶ ประเมิน"}
+          {busy ? "กำลังประเมิน…" : <span className="inline-flex items-center gap-1"><SemanticIcon name="play" className="size-3" /> ประเมิน</span>}
         </button>
 
         {data.status === "failed" && (
@@ -359,28 +385,37 @@ type ModifierData = {
   concentration: number;
 };
 
-function ModifierNode({ id, data }: NodeProps<ModifierData>) {
-  const { setNodes, setEdges } = useReactFlow();
+function ModifierNode({
+  id,
+  data,
+  onRemove,
+}: NodeProps<ModifierData> & { onRemove?: (id: string) => void }) {
+  const { setNodes } = useReactFlow();
   const patch = (p: Partial<ModifierData>) =>
     setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...p } } : n)));
   const remove = () => {
-    setNodes((nds) => nds.filter((n) => n.id !== id));
-    setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+    onRemove?.(id);
   };
   return (
     <div className="relative w-52 rounded-lg border-2 border-amber-300 bg-amber-50 shadow-card">
       <button
-        onClick={remove}
+        type="button"
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          remove();
+        }}
+        onClick={(event) => event.stopPropagation()}
         title="ลบ node"
+        aria-label="ลบ node"
         className="nodrag nopan absolute -right-2 -top-2 z-10 grid size-5 place-items-center rounded-full border border-slate-200 bg-white text-sm leading-none text-slate-400 shadow-card hover:border-rose-300 hover:bg-rose-500 hover:text-white"
       >
-        ×
+        <SemanticIcon name="x" className="size-3" />
       </button>
       <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-white !bg-amber-400" />
-      <div className="rounded-t-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800">🧩 สารเสริมสูตร</div>
+      <div className="flex items-center gap-1 rounded-t-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800"><SemanticIcon name="puzzle" className="size-3.5" /> สารเสริมสูตร</div>
       <div className="nodrag nowheel space-y-1.5 p-3 text-xs">
         <div className="flex items-center gap-1">
-          <span className="text-amber-600">◈</span>
+          <SemanticIcon name="circle" className="size-2.5 text-amber-600" />
           <input
             className="min-w-0 flex-1 rounded border border-amber-200 bg-white px-2 py-1 text-slate-800"
             value={data.name}
@@ -418,135 +453,260 @@ function ModifierNode({ id, data }: NodeProps<ModifierData>) {
   );
 }
 
-const nodeTypes = { substance: SubstanceNode, result: ResultNode, modifier: ModifierNode };
-
 let idCounter = 100;
 const nextId = () => String(++idCounter);
 
-const DEFAULT_SEED: FormulaItem[] = [
-  { name: "Ethanol", smiles: "CCO", concentration: 40 },
-  { name: "Aspirin", smiles: "CC(=O)Oc1ccccc1C(=O)O", concentration: 5 },
-];
+const graphNodeToFlowNode = (
+  node: FormulaGraphNodeSnapshot,
+  projectId?: number | null,
+): Node => ({
+  ...node,
+  data: node.type === "result"
+    ? { ...node.data, region: node.data.region ?? "face", projectId }
+    : node.data,
+});
 
-function buildGraph(seed: FormulaItem[], region: Region, projectId?: number | null): { nodes: Node[]; edges: Edge[] } {
-  const items = seed.length ? seed : DEFAULT_SEED;
-  const nodes: Node[] = items.map((it, i) => ({
-    id: `s${i + 1}`,
-    type: "substance",
-    position: { x: 40, y: 40 + i * 200 },
-    data: { name: it.name, smiles: it.smiles, concentration: it.concentration },
-  }));
-  const cy = 40 + Math.max(0, items.length - 1) * 100;
-  nodes.push({ id: "r1", type: "result", position: { x: 460, y: cy }, data: { region, projectId, status: "idle" } });
-  const edges: Edge[] = items.map((_, i) => ({
-    id: `e-s${i + 1}`,
-    source: `s${i + 1}`,
-    target: "r1",
-    animated: true,
-  }));
-  return { nodes, edges };
-}
+const graphSnapshotFromFlow = (
+  nodes: Node[],
+  edges: Edge[],
+  viewport: FormulaGraphSnapshot["viewport"],
+): FormulaGraphSnapshot =>
+  normalizeFormulaGraphSnapshot({
+    nodes: nodes.map((node) => ({
+      id: node.id,
+      type: node.type,
+      position: node.position,
+      data: node.data,
+    })),
+    edges: edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: edge.sourceHandle,
+      targetHandle: edge.targetHandle,
+      animated: edge.animated,
+    })),
+    viewport,
+  })!;
+
+const nextUniqueId = (nodes: Node[]) => {
+  let id = nextId();
+  const used = new Set(nodes.map((node) => node.id));
+  while (used.has(id)) id = nextId();
+  return id;
+};
 
 function GraphInner({
   seed,
   region,
   projectId,
+  snapshot,
+  onSnapshotChange,
+  onFormulaChange,
   onSaveFormula,
 }: {
   seed: FormulaItem[];
   region: Region;
   projectId?: number | null;
+  snapshot?: FormulaGraphSnapshot | null;
+  onSnapshotChange?: (snapshot: FormulaGraphSnapshot) => void;
+  onFormulaChange?: (items: FormulaItem[]) => void;
   onSaveFormula?: (items: FormulaItem[]) => void;
 }) {
-  const initial = useMemo(() => buildGraph(seed, region, projectId), []); // seed once on mount
-  const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
+  const initial = useMemo(
+    () => synchronizeGraphWithFormula(snapshot, seed, region),
+    [],
+  );
+  const [nodes, setNodes, onNodesChange] = useNodesState(
+    initial.nodes.map((node) => graphNodeToFlowNode(node, projectId)),
+  );
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges as Edge[]);
+  const [graphViewport, setGraphViewport] = useState(initial.viewport);
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  const viewportRef = useRef(graphViewport);
+  nodesRef.current = nodes;
+  edgesRef.current = edges;
+  viewportRef.current = graphViewport;
 
-  // Keep substance nodes in sync with the formula (e.g. AI reduced a concentration).
-  // Updates matching nodes' conc/name and appends substances that have no node yet,
-  // without wiping user-added modifier/result nodes.
-  const prevSeedRef = useRef<string>(JSON.stringify(seed.map((s) => [s.smiles, s.concentration])));
+  const seedSignature = formulaGraphItemsSignature(seed);
+  // The selected formula is the source of truth when its ingredients change
+  // outside node mode. Existing positions/result nodes remain attached to it.
   useEffect(() => {
-    const sig = JSON.stringify(seed.map((s) => [s.smiles, s.concentration, s.name]));
-    if (sig === prevSeedRef.current) return;
-    prevSeedRef.current = sig;
-    if (!seed.length) return;
-    setNodes((nds) => {
-      let next = nds.map((n) => {
-        if (n.type !== "substance") return n;
-        const d = n.data as SubstanceData;
-        const m = seed.find((s) => s.smiles === d.smiles);
-        return m ? { ...n, data: { ...d, concentration: m.concentration, name: m.name ?? d.name } } : n;
-      });
-      const have = new Set(
-        next.filter((n) => n.type === "substance").map((n) => (n.data as SubstanceData).smiles),
-      );
-      let base = next.filter((n) => n.type === "substance").length;
-      seed
-        .filter((s) => s.smiles && !have.has(s.smiles))
-        .forEach((s) => {
-          next = [
-            ...next,
-            {
-              id: nextId(),
-              type: "substance",
-              position: { x: 40, y: 40 + base * 200 },
-              data: { name: s.name, smiles: s.smiles, concentration: s.concentration },
-            },
-          ];
-          base += 1;
-        });
-      return next;
-    });
-  }, [seed, setNodes]);
+    const current = graphSnapshotFromFlow(
+      nodesRef.current,
+      edgesRef.current,
+      viewportRef.current,
+    );
+    if (formulaGraphItemsSignature(formulaItemsFromGraph(current)) === seedSignature) return;
+    const synced = synchronizeGraphWithFormula(current, seed, region);
+    setNodes(synced.nodes.map((node) => graphNodeToFlowNode(node, projectId)));
+    setEdges(synced.edges as Edge[]);
+    // Depend on the content signature instead of the `seed` array identity.
+    // The parent rebuilds its formula-items array while graph snapshots are
+    // being persisted; reacting to that identity-only change can restore a
+    // chemical node immediately after the user deletes it.
+  }, [projectId, region, seedSignature, setEdges, setNodes]);
+
+  const currentSnapshot = useMemo(
+    () => graphSnapshotFromFlow(nodes, edges, graphViewport),
+    [edges, graphViewport, nodes],
+  );
+  const currentFormulaItems = useMemo(
+    () => formulaItemsFromGraph(currentSnapshot),
+    [currentSnapshot],
+  );
+  const currentFormulaSignature = formulaGraphItemsSignature(currentFormulaItems);
+  const lastFormulaSignatureRef = useRef(seedSignature);
+  const onFormulaChangeRef = useRef(onFormulaChange);
+  const onSnapshotChangeRef = useRef(onSnapshotChange);
+  onFormulaChangeRef.current = onFormulaChange;
+  onSnapshotChangeRef.current = onSnapshotChange;
+
+  // Editing, adding, or deleting a chemical node updates only the selected
+  // formula. Moving nodes or changing edges never mutates formula ingredients.
+  useEffect(() => {
+    if (currentFormulaSignature === lastFormulaSignatureRef.current) return;
+    lastFormulaSignatureRef.current = currentFormulaSignature;
+    onFormulaChangeRef.current?.(currentFormulaItems);
+  }, [currentFormulaItems, currentFormulaSignature]);
+
+  const previousResultInputRef = useRef(currentFormulaSignature);
+  useEffect(() => {
+    if (currentFormulaSignature === previousResultInputRef.current) return;
+    previousResultInputRef.current = currentFormulaSignature;
+    setNodes((currentNodes) =>
+      currentNodes.map((node) =>
+        node.type === "result"
+          ? {
+              ...node,
+              data: {
+                region: (node.data as ResultData).region ?? region,
+                projectId,
+                status: "idle",
+              },
+            }
+          : node,
+      ),
+    );
+  }, [currentFormulaSignature, projectId, region, setNodes]);
+
+  const latestSnapshotRef = useRef(currentSnapshot);
+  latestSnapshotRef.current = currentSnapshot;
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      onSnapshotChangeRef.current?.(currentSnapshot);
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [currentSnapshot]);
+  useEffect(
+    () => () => {
+      onSnapshotChangeRef.current?.(latestSnapshotRef.current);
+    },
+    [],
+  );
 
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [registryItems, setRegistryItems] = useState<IngredientRegistryItem[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    let alive = true;
+    const load = async () => {
+      const collected: IngredientRegistryItem[] = [];
+      const pageSize = 500;
+      for (let offset = 0; ; offset += pageSize) {
+        const page = await api.listIngredientRegistry("verified", pageSize, offset, controller.signal);
+        collected.push(...page);
+        if (page.length < pageSize) break;
+      }
+      if (alive) setRegistryItems(collected);
+    };
+    load().catch(() => {
+      // The curated offline catalog remains usable when the API is unavailable.
+    });
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, []);
+  const substanceLibrary = useMemo(
+    () => catalogWithVerifiedRegistry(registryItems),
+    [registryItems],
+  );
   const [edgeMenu, setEdgeMenu] = useState<{ id: string; x: number; y: number } | null>(null);
-  // categories collapsed state — all open by default
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // Keep the 1,000+ PubChem rows collapsed until explicitly requested.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
+    "PubChem Registry - ผ่านการตรวจสอบ": true,
+  });
   const toggleCat = (c: string) => setCollapsed((s) => ({ ...s, [c]: !s[c] }));
 
   const onConnect = useCallback(
     (c: Connection) => setEdges((eds) => addEdge({ ...c, animated: true }, eds)),
     [setEdges],
   );
+  const removeNode = useCallback(
+    (id: string) => {
+      setNodes((currentNodes) => currentNodes.filter((node) => node.id !== id));
+      setEdges((currentEdges) =>
+        currentEdges.filter((edge) => edge.source !== id && edge.target !== id),
+      );
+    },
+    [setEdges, setNodes],
+  );
+  const nodeTypes = useMemo<NodeTypes>(
+    () => ({
+      substance: (props) => <SubstanceNode {...props} onRemove={removeNode} />,
+      result: ResultNode,
+      modifier: (props) => <ModifierNode {...props} onRemove={removeNode} />,
+    }),
+    [removeNode],
+  );
 
   const addSubstance = (item?: LibItem) =>
-    setNodes((nds) => [
-      ...nds,
-      {
-        id: nextId(),
-        type: "substance",
-        position: { x: 40, y: 40 + Math.min(nds.length, 6) * 60 },
-        data: item
-          ? { name: item.name, smiles: item.smiles, concentration: item.conc }
-          : { name: "", smiles: "", concentration: 10 },
-      },
-    ]);
+    setNodes((nds) => {
+      const id = nextUniqueId(nds);
+      return [
+        ...nds,
+        {
+          id,
+          type: "substance",
+          position: { x: 40, y: 40 + Math.min(nds.length, 6) * 60 },
+          data: item
+            ? { name: item.name, smiles: item.smiles, concentration: item.conc }
+            : { name: "", smiles: "", concentration: 10 },
+        },
+      ];
+    });
 
   const addResult = () =>
-    setNodes((nds) => [
-      ...nds,
-      {
-        id: nextId(),
-        type: "result",
-        position: { x: 500, y: 40 + Math.min(nds.length, 6) * 90 },
-        data: { region, projectId, status: "idle" },
-      },
-    ]);
+    setNodes((nds) => {
+      const id = nextUniqueId(nds);
+      return [
+        ...nds,
+        {
+          id,
+          type: "result",
+          position: { x: 500, y: 40 + Math.min(nds.length, 6) * 90 },
+          data: { region, projectId, status: "idle" },
+        },
+      ];
+    });
 
   const addModifierBySmiles = (smiles: string) => {
-    const it = SUBSTANCE_LIBRARY.flatMap((g) => g.items).find((s) => s.smiles === smiles);
+    const it = substanceLibrary.flatMap((g) => g.items).find((s) => s.smiles === smiles);
     if (!it) return;
-    setNodes((nds) => [
-      ...nds,
-      {
-        id: nextId(),
-        type: "modifier",
-        position: { x: 250, y: 40 + Math.min(nds.length, 6) * 60 },
-        data: { name: it.name, smiles: it.smiles, concentration: it.conc },
-      },
-    ]);
+    setNodes((nds) => {
+      const id = nextUniqueId(nds);
+      return [
+        ...nds,
+        {
+          id,
+          type: "modifier",
+          position: { x: 250, y: 40 + Math.min(nds.length, 6) * 60 },
+          data: { name: it.name, smiles: it.smiles, concentration: it.conc },
+        },
+      ];
+    });
   };
 
   // Save the current graph (every substance + modifier node) as a new formula.
@@ -574,7 +734,7 @@ function GraphInner({
             }`}
           >
             + เพิ่ม node สาร
-            <span className={`text-[9px] transition ${pickerOpen ? "rotate-180" : ""}`}>▾</span>
+            <SemanticIcon name="chevron-down" className={`size-3 transition ${pickerOpen ? "rotate-180" : ""}`} />
           </button>
 
           {pickerOpen && (
@@ -583,9 +743,10 @@ function GraphInner({
                 <span className="text-[11px] font-semibold text-slate-500">เลือกสารจากหมวดหมู่</span>
                 <button
                   onClick={() => setPickerOpen(false)}
+                  aria-label="ปิดรายการสาร"
                   className="text-slate-400 hover:text-slate-700"
                 >
-                  ×
+                  <SemanticIcon name="x" className="size-3.5" />
                 </button>
               </div>
 
@@ -594,10 +755,10 @@ function GraphInner({
                 onClick={() => addSubstance()}
                 className="mb-1.5 w-full rounded-lg border border-dashed border-slate-300 px-2 py-1.5 text-left text-xs text-slate-500 hover:border-brand hover:text-brand"
               >
-                ✎ สารเปล่า (กรอกเอง)
+                <span className="inline-flex items-center gap-1"><SemanticIcon name="pencil" className="size-3" /> สารเปล่า (กรอกเอง)</span>
               </button>
 
-              {SUBSTANCE_LIBRARY.map((group) => {
+              {substanceLibrary.map((group) => {
                 const open = !collapsed[group.category];
                 return (
                   <div key={group.category} className="mb-1">
@@ -605,10 +766,10 @@ function GraphInner({
                       onClick={() => toggleCat(group.category)}
                       className="flex w-full items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-200"
                     >
-                      <span>{group.icon}</span>
+                      <SemanticIcon name={group.icon} className="size-3.5" />
                       <span className="flex-1">{group.category}</span>
                       <span className="text-[9px] text-slate-400">{group.items.length}</span>
-                      <span className={`text-[9px] transition ${open ? "" : "-rotate-90"}`}>▾</span>
+                      <SemanticIcon name="chevron-down" className={`size-3 transition ${open ? "" : "-rotate-90"}`} />
                     </button>
                     {open && (
                       <div className="mt-0.5 space-y-0.5 pl-1">
@@ -619,7 +780,7 @@ function GraphInner({
                             title={it.smiles}
                             className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-slate-700 hover:bg-teal-50"
                           >
-                            <span className="text-brand">◇</span>
+                            <SemanticIcon name="circle" className="size-2.5 text-brand" />
                             <span className="flex-1 truncate">{it.name}</span>
                             <span className="font-mono text-[10px] text-slate-400">{it.conc}%</span>
                           </button>
@@ -639,7 +800,7 @@ function GraphInner({
                 onClick={addResult}
                 className="flex w-full items-center gap-2 rounded-md border border-brand/40 bg-teal-50 px-2 py-2 text-xs font-medium text-brand-dark transition hover:bg-brand hover:text-white"
               >
-                🎯 เพิ่ม node ผลการประเมิน
+                <SemanticIcon name="target" className="size-3.5" /> เพิ่ม node ผลการประเมิน
               </button>
               <p className="mt-1.5 px-1 text-[10px] leading-snug text-slate-400">
                 ต่อสารแต่ละกลุ่มไปคนละ node ผล เพื่อเทียบหลายสูตรพร้อมกัน
@@ -658,9 +819,9 @@ function GraphInner({
           title="เพิ่มสารเสริมสูตรจากคลังสารจริง"
           className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-800 shadow-card"
         >
-          <option value="">🧩 + สารเสริมสูตร…</option>
-          {SUBSTANCE_LIBRARY.map((g) => (
-            <optgroup key={g.category} label={`${g.icon} ${g.category}`}>
+          <option value="">+ สารเสริมสูตร…</option>
+          {substanceLibrary.map((g) => (
+            <optgroup key={g.category} label={g.category}>
               {g.items.map((it) => (
                 <option key={it.smiles} value={it.smiles}>{it.name}</option>
               ))}
@@ -674,7 +835,7 @@ function GraphInner({
             title="บันทึก node graph ปัจจุบันเป็นสูตรใหม่ในลิสต์ (น้ำเติมให้ครบ 100% อัตโนมัติ)"
             className="flex items-center gap-1 rounded-lg border border-brand bg-white px-3 py-1.5 text-xs font-medium text-brand shadow-card transition hover:bg-brand hover:text-white"
           >
-            💾 บันทึกเป็นสูตร
+            <SemanticIcon name="save" className="size-3.5" /> บันทึกเป็นสูตร
           </button>
         )}
 
@@ -690,8 +851,10 @@ function GraphInner({
         onConnect={onConnect}
         onEdgeClick={(e, edge) => setEdgeMenu({ id: edge.id, x: e.clientX, y: e.clientY })}
         onPaneClick={() => setEdgeMenu(null)}
+        onMoveEnd={(_, viewport) => setGraphViewport(viewport)}
         nodeTypes={nodeTypes}
-        fitView
+        defaultViewport={initial.viewport}
+        fitView={!snapshot}
         proOptions={{ hideAttribution: true }}
       >
         <Background color="#CBD5E1" gap={18} />
@@ -708,7 +871,7 @@ function GraphInner({
           }}
           className="z-50 rounded-md bg-rose-500 px-2.5 py-1 text-[11px] font-semibold text-white shadow-lg hover:bg-rose-600"
         >
-          ✕ ลบเส้นเชื่อม
+          <SemanticIcon name="link-off" className="size-3.5" /> ลบเส้นเชื่อม
         </button>
       )}
     </div>
@@ -719,16 +882,30 @@ export default function FormulaGraph({
   seed = [],
   region = "face",
   projectId = null,
+  snapshot = null,
+  onSnapshotChange,
+  onFormulaChange,
   onSaveFormula,
 }: {
   seed?: FormulaItem[];
   region?: Region;
   projectId?: number | null;
+  snapshot?: FormulaGraphSnapshot | null;
+  onSnapshotChange?: (snapshot: FormulaGraphSnapshot) => void;
+  onFormulaChange?: (items: FormulaItem[]) => void;
   onSaveFormula?: (items: FormulaItem[]) => void;
 }) {
   return (
     <ReactFlowProvider>
-      <GraphInner seed={seed} region={region} projectId={projectId} onSaveFormula={onSaveFormula} />
+      <GraphInner
+        seed={seed}
+        region={region}
+        projectId={projectId}
+        snapshot={snapshot}
+        onSnapshotChange={onSnapshotChange}
+        onFormulaChange={onFormulaChange}
+        onSaveFormula={onSaveFormula}
+      />
     </ReactFlowProvider>
   );
 }

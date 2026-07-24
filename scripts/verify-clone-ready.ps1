@@ -26,7 +26,30 @@ $requiredFiles = @(
     "backend/Dockerfile",
     "backend/alembic.ini",
     "backend/alembic/versions/20260616_0001_initial_schema.py",
-    "frontend/Dockerfile",
+    "backend/alembic/versions/20260724_0002_ingredient_registry.py",
+    "backend/alembic/versions/20260724_0003_experimental_evidence.py",
+    "backend/alembic/versions/20260724_0004_seed_verified_registry.py",
+    "backend/app/models/ingredient_registry.py",
+    "backend/app/schemas/ingredient_registry.py",
+    "backend/app/services/ingredient_registry.py",
+    "backend/app/services/pubchem_evidence.py",
+    "backend/data/ingredient_registry_seed.csv",
+    "backend/scripts/export_registry_seed.py",
+    "backend/scripts/import_global_pubchem_ghs.py",
+    "backend/tests/fixtures/garnier_bright_complete_real_label.jpg",
+    "backend/tests/test_ingredient_registry.py",
+    "backend/tests/test_pubchem_evidence.py",
+    "data/curated/pubchem_global_import_report.json",
+    "data/curated/pubchem_verified_acute.csv",
+    "data/curated/pubchem_verified_eye.csv",
+    "data/curated/pubchem_verified_manifest.json",
+    "data/curated/pubchem_verified_sens.csv",
+    "data/curated/pubchem_verified_skin.csv",
+    "docs/OCR_AI_ASSISTANT_DEVELOPMENT.md",
+    "output/pdf/RalphGuard_OCR_AI_Assistant_Development.pdf",
+    "scripts/generate_ocr_ai_pdf.py",
+    "scripts/export_verified_pubchem_training.py",
+    "scripts/import_pubchem_evidence.py",
     "frontend/package.json",
     "frontend/package-lock.json",
     "frontend/public/models/Lab_room.glb",
@@ -38,6 +61,7 @@ $requiredFiles = @(
     "frontend/public/landing/grid-scan-front.png",
     "frontend/public/landing/label-ocr-source.png",
     "frontend/public/landing/node-workspace.png",
+    "frontend/src/components/SubstanceHoverCard.tsx",
     "scientific/Dockerfile",
     "scientific/models/skin_model.pkl",
     "scientific/models/eye_model.pkl",
@@ -52,13 +76,24 @@ foreach ($path in $requiredFiles) {
         continue
     }
 
-    git ls-files --error-unmatch -- $path *> $null
-    if ($LASTEXITCODE -ne 0) {
+    $trackedPath = @(git ls-files -- $path 2>$null)
+    $normalizedPath = $path.Replace("\\", "/")
+    if ($LASTEXITCODE -ne 0 -or $trackedPath -notcontains $normalizedPath) {
         Add-CheckError "runtime file is not tracked by Git: $path"
         continue
     }
 
     Add-CheckOk $path
+}
+
+$registrySeed = "backend/data/ingredient_registry_seed.csv"
+if (Test-Path -LiteralPath $registrySeed -PathType Leaf) {
+    $seedRows = (Import-Csv -LiteralPath $registrySeed).Count
+    if ($seedRows -lt 1000) {
+        Add-CheckError "ingredient registry seed has only $seedRows rows; expected at least 1000"
+    } else {
+        Add-CheckOk "ingredient registry seed contains $seedRows verified rows"
+    }
 }
 
 $modelFiles = Get-ChildItem -LiteralPath "scientific/models" -Filter "*_model.pkl" -File

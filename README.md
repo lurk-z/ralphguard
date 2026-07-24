@@ -50,7 +50,7 @@ RalphGuard เป็นเว็บแอปพลิเคชันสำหร
 - Node.js 20+ (สำหรับ frontend dev)
 - Python 3.11+ (สำหรับ scientific dev)
 
-### Run with Docker Compose
+### Run backend services with Docker Compose and frontend with npm
 
 ```bash
 # Clone repository
@@ -63,8 +63,13 @@ cp .env.example .env
 # Windows: verify that the cloned branch includes models and UI assets
 powershell -ExecutionPolicy Bypass -File .\scripts\verify-clone-ready.ps1
 
-# Build and start all services
+# Build and start PostgreSQL, Redis, FastAPI and the scientific worker
 docker compose up --build
+
+# In a second terminal, start Next.js (the frontend is intentionally not in Docker)
+cd frontend
+npm ci
+npm run dev
 
 # Access:
 # Frontend:    http://localhost:3000
@@ -191,5 +196,5 @@ RalphGuard เป็นเครื่องมือคัดกรองคว
 Copyright © 2026 King Mongkut's University of Technology North Bangkok. All rights reserved.
 
 Software developed under NSC 2026 funding by NSTDA. See LICENSE for full terms.
-#   r a l p h g u a r d  
- "# ralphguard" 
+# ralphguard
+"# ralphguard" 

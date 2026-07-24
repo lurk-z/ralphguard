@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SemanticIcon } from "@/components/SemanticIcon";
 
 export default function SiteFooter() {
   return (
@@ -34,9 +35,10 @@ export default function SiteFooter() {
             </p>
           </div>
         </div>
-        <div className="mt-6 pt-4 border-t border-border text-[11px] text-ink2/50">
-          ⚠️ ผลจากแบบจำลองคอมพิวเตอร์ (in-silico screening) เท่านั้น — ไม่ใช่การทดสอบทางคลินิก
-          หรือทดแทนการประเมินโดยผู้เชี่ยวชาญ
+        <div className="mt-6 flex gap-1.5 border-t border-border pt-4 text-[11px] text-ink2/50">
+          <SemanticIcon name="alert" className="mt-0.5 size-3 shrink-0" />
+          <span>ผลจากแบบจำลองคอมพิวเตอร์ (in-silico screening) เท่านั้น — ไม่ใช่การทดสอบทางคลินิก
+          หรือทดแทนการประเมินโดยผู้เชี่ยวชาญ</span>
         </div>
       </div>
     </footer>

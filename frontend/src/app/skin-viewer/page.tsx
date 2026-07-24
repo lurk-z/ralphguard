@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { SemanticIcon } from "@/components/SemanticIcon";
 
 // WebGL + shader — client-only (no SSR).
 const FaceIrritationModel = dynamic(
@@ -35,8 +36,9 @@ export default function SkinViewerPage() {
 
       <FaceIrritationModel />
 
-      <p className="text-xs text-ink2/55 mt-4 pt-4 border-t border-border">
-        ⚠️ ภาพจำลองเชิงทัศน์จากคะแนนความเสี่ยง (in-silico) ไม่ใช่ภาพทางการแพทย์จริง
+      <p className="mt-4 flex items-center gap-1.5 border-t border-border pt-4 text-xs text-ink2/55">
+        <SemanticIcon name="alert" className="size-3.5 shrink-0" />
+        ภาพจำลองเชิงทัศน์จากคะแนนความเสี่ยง (in-silico) ไม่ใช่ภาพทางการแพทย์จริง
       </p>
     </main>
   );

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models import Assessment, Project
-from app.schemas.assessment import AssessmentStatus, AssessmentSummary
+from app.schemas.assessment import AssessmentResult, AssessmentStatus, AssessmentSummary
 from app.schemas.project import ProjectCreate, ProjectOut, ProjectUpdate
 
 router = APIRouter()
@@ -102,3 +102,32 @@ async def list_project_assessments(
         )
         for r in rows
     ]
+
+
+@router.get(
+    "/{project_id}/assessments/{assessment_id}",
+    response_model=AssessmentResult,
+)
+async def get_project_assessment(
+    project_id: int,
+    assessment_id: str,
+    db: Session = Depends(get_db),
+) -> AssessmentResult:
+    """Return one assessment only when it belongs to the requested project."""
+    row = db.get(Assessment, assessment_id)
+    if row is None or row.project_id != project_id:
+        # Do not reveal whether an assessment exists under another project.
+        raise HTTPException(
+            status_code=404,
+            detail=f"assessment {assessment_id} not found in project {project_id}",
+        )
+    return AssessmentResult(
+        id=row.id,
+        status=AssessmentStatus(row.status.value),
+        region=row.region,
+        formula=row.formula,
+        result=row.result,
+        error=row.error,
+        created_at=row.created_at,
+        completed_at=row.completed_at,
+    )

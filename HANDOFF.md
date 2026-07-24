@@ -76,7 +76,7 @@ RalphGuard รับ "สูตรผสมสารเคมี" (SMILES + % �
 ```
 ralphguard/
 ├── data_prep.py                 # เทรนโมเดล → scientific/models/*.pkl + validation_report.json
-├── docker-compose.yml           # postgres, redis, backend, worker, frontend
+├── docker-compose.yml           # postgres, redis, backend, worker (frontend รันด้วย npm บนเครื่อง)
 ├── data/raw/*.csv               # 4 datasets
 ├── backend/
 │   ├── requirements.txt         # rdkit==2025.3.6 (เคยพังเพราะ 2024.3.5 ถูกถอด)

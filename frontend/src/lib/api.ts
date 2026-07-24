@@ -1,5 +1,42 @@
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+export class ApiTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`Request timed out after ${timeoutMs} ms`);
+    this.name = "ApiTimeoutError";
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly statusText: string;
+  readonly detail: string | null;
+
+  constructor(status: number, statusText: string, detail: string | null) {
+    super(detail ? `${status} ${statusText}: ${detail}` : `${status} ${statusText}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.statusText = statusText;
+    this.detail = detail;
+  }
+}
+
+export function apiErrorMessage(cause: unknown, fallback: string): string {
+  if (cause instanceof ApiTimeoutError) {
+    return `${fallback}: หมดเวลาการเชื่อมต่อเซิร์ฟเวอร์`;
+  }
+  if (cause instanceof ApiError) {
+    if (cause.status === 404) return `${fallback}: ไม่พบข้อมูลที่ร้องขอ`;
+    if (cause.status === 422 && cause.detail) return `${fallback}: ${cause.detail}`;
+    if (cause.status >= 500) return `${fallback}: เซิร์ฟเวอร์ยังไม่พร้อมใช้งาน`;
+    return `${fallback}: ${cause.detail || cause.statusText}`;
+  }
+  return `${fallback}: ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้`;
+}
+
 export type Region = "forearm" | "hand" | "face" | "eye";
 export type ConfidenceLevel = "High" | "Medium" | "Low";
 
@@ -15,6 +52,50 @@ export type ValidateResult = {
   canonical?: string | null;
   descriptors?: Record<string, number> | null;
   error?: string | null;
+};
+
+export type SubstanceHazardSummary = {
+  endpoint: "skin" | "eye" | "sens" | "acute";
+  hazard_codes: string[];
+  source_count: number;
+  verification: "pending" | "consensus_verified" | "verified";
+};
+
+export type SubstanceProfile = {
+  found_in_registry: boolean;
+  canonical_name: string;
+  inci_name?: string | null;
+  pubchem_cid?: number | null;
+  canonical_smiles?: string | null;
+  molecular_formula?: string | null;
+  molecular_weight?: number | null;
+  substance_type: string;
+  structure_status: string;
+  qsar_eligible?: boolean | null;
+  assessment_method: string;
+  verification_status: string;
+  description?: string | null;
+  description_source?: string | null;
+  description_url?: string | null;
+  hazards: SubstanceHazardSummary[];
+};
+
+export type IngredientRegistryItem = {
+  id: number;
+  inci_name?: string | null;
+  canonical_name: string;
+  thai_names: string[];
+  synonyms: string[];
+  cas_number?: string | null;
+  pubchem_cid?: number | null;
+  canonical_smiles?: string | null;
+  molecular_formula?: string | null;
+  molecular_weight?: number | null;
+  substance_type: string;
+  structure_status: string;
+  qsar_eligible: boolean;
+  assessment_method: string;
+  verification_status: string;
 };
 
 export type Confidence = {
@@ -98,7 +179,15 @@ export type AssessmentRecord = {
 
 async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Promise<T> {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  const externalSignal = init?.signal;
+  let timedOut = false;
+  const abortFromCaller = () => ctrl.abort();
+  if (externalSignal?.aborted) ctrl.abort();
+  else externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
+  const t = setTimeout(() => {
+    timedOut = true;
+    ctrl.abort();
+  }, timeoutMs);
   try {
     const res = await fetch(`${API}${path}`, {
       ...init,
@@ -107,63 +196,129 @@ async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Pro
     });
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`${res.status} ${res.statusText}: ${body}`);
+      let detail: string | null = body || null;
+      if (body) {
+        try {
+          const parsed = JSON.parse(body) as { detail?: unknown };
+          if (typeof parsed.detail === "string") detail = parsed.detail;
+        } catch {
+          // Keep the plain response body when the server does not return JSON.
+        }
+      }
+      throw new ApiError(res.status, res.statusText, detail);
     }
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
+  } catch (cause) {
+    if (timedOut && !externalSignal?.aborted) throw new ApiTimeoutError(timeoutMs);
+    throw cause;
   } finally {
     clearTimeout(t);
+    externalSignal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
 export const api = {
-  validateSmiles: (smiles: string) =>
+  validateSmiles: (smiles: string, signal?: AbortSignal) =>
     http<ValidateResult>("/api/substances/validate", {
       method: "POST",
       body: JSON.stringify({ smiles }),
+      signal,
     }),
 
-  createAssessment: (formula: FormulaItem[], region: Region, projectId?: number | null) =>
+  getSubstanceProfile: (name?: string, smiles?: string, signal?: AbortSignal) => {
+    const params = new URLSearchParams();
+    if (name?.trim()) params.set("name", name.trim());
+    if (smiles?.trim()) params.set("smiles", smiles.trim());
+    return http<SubstanceProfile>(`/api/substances/profile?${params.toString()}`, { signal }, 15000);
+  },
+
+  listIngredientRegistry: (
+    verificationStatus = "verified",
+    limit = 500,
+    offset = 0,
+    signal?: AbortSignal,
+  ) => {
+    const params = new URLSearchParams({
+      verification_status: verificationStatus,
+      limit: String(limit),
+      offset: String(offset),
+    });
+    return http<IngredientRegistryItem[]>(`/api/substances/registry?${params.toString()}`, { signal }, 20000);
+  },
+
+  createAssessment: (
+    formula: FormulaItem[],
+    region: Region,
+    projectId?: number | null,
+    signal?: AbortSignal,
+  ) =>
     http<{ job_id: string; status: string }>("/api/assessments/", {
       method: "POST",
       body: JSON.stringify({ formula, region, project_id: projectId ?? null }),
+      signal,
     }),
 
-  getAssessment: (jobId: string) =>
-    http<AssessmentRecord>(`/api/assessments/${jobId}`),
+  getAssessment: (jobId: string, signal?: AbortSignal) =>
+    http<AssessmentRecord>(`/api/assessments/${jobId}`, { signal }),
 
-  listAssessments: (projectId?: number | null, limit = 50) =>
+  listAssessments: (projectId?: number | null, limit = 50, signal?: AbortSignal) =>
     http<AssessmentSummary[]>(
       `/api/assessments/?limit=${limit}` +
         (projectId != null ? `&project_id=${projectId}` : ""),
+      { signal },
     ),
 
-  listProjects: () => http<ProjectOut[]>("/api/projects/"),
+  listProjects: (signal?: AbortSignal) => http<ProjectOut[]>("/api/projects/", { signal }),
 
-  getProject: (projectId: number) => http<ProjectOut>(`/api/projects/${projectId}`),
+  getProject: (projectId: number, signal?: AbortSignal) =>
+    http<ProjectOut>(`/api/projects/${projectId}`, { signal }),
 
-  createProject: (name: string, description?: string) =>
+  createProject: (name: string, description?: string, signal?: AbortSignal) =>
     http<ProjectOut>("/api/projects/", {
       method: "POST",
       body: JSON.stringify({ name, description: description ?? null }),
+      signal,
     }),
 
-  updateProject: (projectId: number, name: string, description?: string) =>
+  updateProject: (
+    projectId: number,
+    name: string,
+    description?: string,
+    signal?: AbortSignal,
+  ) =>
     http<ProjectOut>(`/api/projects/${projectId}`, {
       method: "PATCH",
       body: JSON.stringify({ name, description: description?.trim() || null }),
+      signal,
     }),
 
-  deleteProject: (projectId: number) =>
-    http<void>(`/api/projects/${projectId}`, { method: "DELETE" }),
+  deleteProject: (projectId: number, signal?: AbortSignal) =>
+    http<void>(`/api/projects/${projectId}`, { method: "DELETE", signal }),
 
-  listProjectAssessments: (projectId: number) =>
-    http<AssessmentSummary[]>(`/api/projects/${projectId}/assessments`),
+  listProjectAssessments: (projectId: number, signal?: AbortSignal) =>
+    http<AssessmentSummary[]>(`/api/projects/${projectId}/assessments`, { signal }),
 
-  getModelMetrics: () => http<ModelMetricsPayload>("/api/models/metrics"),
+  getProjectAssessment: (
+    projectId: number,
+    assessmentId: string,
+    signal?: AbortSignal,
+  ) =>
+    http<AssessmentRecord>(
+      `/api/projects/${projectId}/assessments/${encodeURIComponent(assessmentId)}`,
+      { signal },
+    ),
 
-  getModelInfo: () => http<ModelInfoPayload>("/api/models/info"),
+  getModelMetrics: (signal?: AbortSignal) =>
+    http<ModelMetricsPayload>("/api/models/metrics", { signal }),
+
+  getModelInfo: (signal?: AbortSignal) =>
+    http<ModelInfoPayload>("/api/models/info", { signal }),
 };
+
+export function substanceDepictionUrl(smiles: string): string {
+  return `${API}/api/substances/depiction.svg?smiles=${encodeURIComponent(smiles.trim())}`;
+}
 
 export type AssessmentSummary = {
   // FastAPI serializes the `job_id` field by its alias -> "id" (by_alias=True)
