@@ -9,7 +9,7 @@
  * mirrors a REST payload (GET /api/catalog/*) so it can be swapped to a real
  * backend/DB endpoint later without touching the UI.
  */
-import type { FormulaItem, Region } from "./api";
+import type { FormulaItem, IngredientRegistryItem, Region } from "./api";
 import type { SemanticIconName } from "@/components/SemanticIcon";
 
 export type CatalogItem = { name: string; smiles: string; conc: number };
@@ -124,6 +124,44 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
 export const SUBSTANCE_FLAT: (CatalogItem & { category: string })[] =
   SUBSTANCE_LIBRARY.flatMap((g) => g.items.map((it) => ({ ...it, category: g.category })));
 
+/** Merge the offline curated catalog with verified, QSAR-eligible registry rows. */
+export function catalogWithVerifiedRegistry(
+  registryItems: IngredientRegistryItem[],
+): CatalogGroup[] {
+  const seen = new Set(
+    SUBSTANCE_LIBRARY.flatMap((group) => group.items.map((item) => item.smiles)),
+  );
+  const imported = registryItems
+    .filter(
+      (item) =>
+        item.verification_status === "verified" &&
+        item.qsar_eligible &&
+        Boolean(item.canonical_smiles?.trim()),
+    )
+    .flatMap((item) => {
+      const smiles = item.canonical_smiles!.trim();
+      if (seen.has(smiles)) return [];
+      seen.add(smiles);
+      return [{
+        name: item.inci_name || item.canonical_name,
+        smiles,
+        conc: 1,
+      }];
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return imported.length
+    ? [
+        ...SUBSTANCE_LIBRARY,
+        {
+          category: "PubChem Registry - ผ่านการตรวจสอบ",
+          icon: "package",
+          items: imported,
+        },
+      ]
+    : SUBSTANCE_LIBRARY;
+}
+
 /**
  * Normalize an ingredient label for assistant/OCR lookups. Product-facing
  * qualifiers such as "(Vit B5)" are intentionally ignored, so an assistant
@@ -154,7 +192,13 @@ const SUBSTANCE_NAME_ALIASES: Record<string, string> = {
 export function resolveCatalogSubstance(name: string): (CatalogItem & { category: string }) | undefined {
   const normalized = normalizeSubstanceName(name);
   if (!normalized) return undefined;
-  return SUBSTANCE_FLAT.find((item) => normalizeSubstanceName(item.name) === normalized);
+  const exact = SUBSTANCE_FLAT.find((item) => normalizeSubstanceName(item.name) === normalized);
+  if (exact) return exact;
+  // OCR and labels often omit explanatory suffixes such as "(Vit C)".
+  const withoutSuffix = normalized.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  return SUBSTANCE_FLAT.find(
+    (item) => normalizeSubstanceName(item.name).replace(/\s*\([^)]*\)\s*$/, "").trim() === withoutSuffix,
+  );
 }
 
 // ───────────────────────── Substance info (for hover tooltips) ─────────────────────────

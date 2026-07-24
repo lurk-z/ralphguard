@@ -1,0 +1,15 @@
+smiles,name,label,source,pubchem_cid,evidence_ids,hazard_codes,source_count,source_quality,review_statuses,label_quality,sample_weight
+COc1ccc(C(=O)c2ccccc2)c(O)c1,2-Hydroxy-4-methoxybenzophenone,1,PubChem PUG-View GHS consensus (weak label),4632,"[58, 61]","[""H315""]",2,"{""expert_curated"": 1, ""regulatory"": 1}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+O=C(O)c1ccccc1,Benzoic Acid,1,PubChem PUG-View GHS consensus (weak label),243,"[121, 124, 127]","[""H315""]",3,"{""regulatory"": 3}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+OCc1ccccc1,Benzyl Alcohol,1,PubChem PUG-View GHS consensus (weak label),244,"[82, 92]","[""H315""]",2,"{""expert_curated"": 1, ""regulatory"": 1}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+S=C=S,Carbon Disulfide,1,PubChem PUG-View GHS consensus (weak label),6348,"[490, 492]","[""H315""]",2,"{""expert_curated"": 1, ""regulatory"": 1}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+O=C/C=C/c1ccccc1,Cinnamaldehyde,1,PubChem PUG-View GHS consensus (weak label),637511,"[106, 109, 112, 115, 118]","[""H315""]",3,"{""regulatory"": 5}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+C=CCc1ccc(O)c(OC)c1,Eugenol,1,PubChem PUG-View GHS consensus (weak label),3314,"[94, 100]","[""H315""]",2,"{""regulatory"": 2}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+O=C(O)CO,Glycolic Acid,1,PubChem PUG-View GHS consensus (weak label),757,"[181, 184, 187]","[""H314""]",3,"{""expert_curated"": 1, ""regulatory"": 2}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+CC(O)C(=O)O,Lactic Acid,1,PubChem PUG-View GHS consensus (weak label),612,"[170, 172, 174, 176, 178]","[""H314"", ""H315""]",3,"{""expert_curated"": 1, ""regulatory"": 4}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+C=C(C)C1CC=C(C)CC1,Limonene,1,PubChem PUG-View GHS consensus (weak label),22311,"[15, 17, 19, 22, 24]","[""H315""]",3,"{""regulatory"": 5}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+C=CC(C)(O)CCC=C(C)C,Linalool,1,PubChem PUG-View GHS consensus (weak label),6549,"[28, 31, 34, 36]","[""H315""]",4,"{""expert_curated"": 1, ""regulatory"": 3}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+O=C(O)CC(O)C(=O)O,Malic Acid,1,PubChem PUG-View GHS consensus (weak label),525,"[149, 152, 154, 157]","[""H315""]",3,"{""expert_curated"": 1, ""regulatory"": 3}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+COP(=O)(OC)OC(Br)C(Cl)(Cl)Br,Naled,1,PubChem PUG-View GHS consensus (weak label),4420,"[391, 394]","[""H315""]",2,"{""expert_curated"": 1, ""regulatory"": 1}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+NC(=O)c1cccnc1,Nicotinamide,1,PubChem PUG-View GHS consensus (weak label),936,"[68, 70]","[""H315""]",2,"{""expert_curated"": 1, ""regulatory"": 1}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5
+CCCCOP(=O)(OCCCC)OCCCC,Tributyl Phosphate,1,PubChem PUG-View GHS consensus (weak label),31357,"[993, 995]","[""H315""]",2,"{""expert_curated"": 1, ""regulatory"": 1}","[""consensus_verified""]",regulatory_consensus_weak_label,0.5

@@ -105,6 +105,32 @@ float spots(vec3 P, float freq, float seed){
   }
   return v;
 }
+// Stable round papule domes. Severity controls BOTH how many candidate cells
+// survive and each dome's radius, keeping moderate results sparse and small.
+float papuleDomes(vec3 P, float freq, float seed, float severity){
+  vec3 p = P * freq + seed;
+  vec3 ip = floor(p);
+  vec3 fp = fract(p);
+  float sev = clamp(severity, 0.0, 1.0);
+  float growth = smoothstep(0.14, 1.0, sev);
+  float density = mix(0.09, 0.92, growth);
+  float radiusScale = mix(0.46, 1.28, growth);
+  float v = 0.0;
+  for(int i=-1;i<=1;i++)
+  for(int j=-1;j<=1;j++)
+  for(int k=-1;k<=1;k++){
+    vec3 o = vec3(float(i), float(j), float(k));
+    vec3 rnd = hash33(ip + o + seed);
+    float keep = smoothstep(1.0 - density - 0.04, 1.0 - density + 0.04, rnd.z);
+    vec3 center = o + rnd;
+    float radius = mix(0.22, 0.36, rnd.x) * radiusScale;
+    float q = clamp(length(fp - center) / max(radius, 1e-4), 0.0, 1.0);
+    // Hemispherical height: round centre with a soft circular edge.
+    float dome = pow(max(0.0, 1.0 - q * q), 1.5);
+    v = max(v, keep * dome);
+  }
+  return v;
+}
 // Worley cellular: returns nearest (F1) and 2nd-nearest (F2) feature distances.
 // Cell borders sit where F2-F1 is small -> used to draw dry-crack networks.
 vec2 worley(vec3 P, float freq, float seed){
@@ -144,17 +170,18 @@ export type AssessmentEndpointScores = {
 };
 
 /**
- * Operating cut-offs from scientific/models/validation_report.json.
+ * Visual cut-offs for the formula-level 0..100 risk bands shown by the UI.
  *
- * These are classifier decision thresholds, not clinical lesion grades. They
- * are used only to stop the 3D viewer from implying a visible reaction when an
- * endpoint is still on the model's negative side of its validated cut-off.
+ * Do not use the per-molecule classifier operating thresholds here: the value
+ * reaching this renderer is already a concentration-weighted formula score,
+ * not a raw single-molecule probability. Keeping the visual cut-off aligned
+ * with the UI prevents a "moderate" result from being silently rendered as 0.
  */
 export const ASSESSMENT_VISUAL_THRESHOLDS = {
-  skin: 0.4,
-  eye: 0.35,
-  sens: 0.3,
-  acute: 0.45,
+  skin: 0.25,
+  eye: 0.25,
+  sens: 0.25,
+  acute: 0.25,
   // Peeling is a deliberately conservative visual proxy for a strong skin
   // response. It is not a separate RalphGuard prediction endpoint.
   skinPeeling: 0.75,
@@ -164,11 +191,11 @@ function visualActivation(score: number, threshold: number): number {
   const value = Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : 0;
   if (value < threshold) return 0;
 
-  // Give a just-positive result a faint but readable signal, then scale the
-  // effect smoothly to full intensity. Below-threshold results remain exactly
-  // zero, so e.g. sens=1/100 cannot create papules.
+  // Give the first moderate band a faint but readable signal, then scale the
+  // effect smoothly to full intensity. Low-band results remain exactly zero,
+  // so e.g. sens=1/100 cannot create papules.
   const progress = (value - threshold) / (1 - threshold);
-  return Math.min(1, 0.08 + progress * 0.92);
+  return Math.min(1, 0.14 + progress * 0.86);
 }
 
 /**
@@ -177,19 +204,24 @@ function visualActivation(score: number, threshold: number): number {
  *
  * Skin irritation drives erythema and edema, matching the two visible reactions
  * graded by OECD TG 404. Sensitisation is represented by papules only as a
- * visual proxy after the model's positive cut-off. Acute toxicity is kept out
- * of the local skin shader because it is a systemic/dose endpoint rather than
- * a prediction of the lesion's appearance.
+ * visual proxy after the model's positive cut-off. Acute toxicity remains a
+ * systemic/dose endpoint; the renderer therefore uses a whole-face pallor and
+ * clammy-skin proxy instead of pretending it creates a local painted lesion.
  */
 export function mapAssessmentEndpointsToSymptoms(scores: AssessmentEndpointScores): {
   sev: Record<SkinKey, number>;
   eyeRed: number;
+  acuteSystemic: number;
 } {
   const skinReaction = visualActivation(scores.skin, ASSESSMENT_VISUAL_THRESHOLDS.skin);
   const eyeReaction = visualActivation(scores.eye, ASSESSMENT_VISUAL_THRESHOLDS.eye);
   const sensitisationReaction = visualActivation(
     scores.sens,
     ASSESSMENT_VISUAL_THRESHOLDS.sens,
+  );
+  const acuteReaction = visualActivation(
+    scores.acute,
+    ASSESSMENT_VISUAL_THRESHOLDS.acute,
   );
   const peelingReaction = visualActivation(
     scores.skin,
@@ -205,10 +237,11 @@ export function mapAssessmentEndpointsToSymptoms(scores: AssessmentEndpointScore
       peeling: Math.min(1, peelingReaction * 1.3),
       // A positive skin-irritation result includes swelling in this product's
       // visual language. Keep it subtler than erythema while using the same
-      // validated skin cut-off.
-      edema: skinReaction * 0.82,
+      // formula-risk band cut-off.
+      edema: skinReaction * 0.9,
     },
     eyeRed: eyeReaction,
+    acuteSystemic: acuteReaction,
   };
 }
 
@@ -284,6 +317,7 @@ export function PaintSymptomModel({
   brushSizePct,
   eyeLeft,
   eyeRight,
+  acuteSystemic = 0,
   apiRef,
   eraseMode = false,
   onHover,
@@ -301,6 +335,7 @@ export function PaintSymptomModel({
   brushSizePct: number;
   eyeLeft: number; // 0..1 — left-eye redness (independent of paint/Run)
   eyeRight: number; // 0..1 — right-eye redness
+  acuteSystemic?: number; // 0..1 — whole-face visual proxy, never a local lesion
   apiRef?: React.MutableRefObject<PaintApi | null>;
   eraseMode?: boolean; // when true, dragging uses a soft brush to erase every symptom layer
   onHover?: (info: PaintHoverInfo | null) => void;
@@ -335,6 +370,7 @@ export function PaintSymptomModel({
   const uEdema = useRef({ value: 0 });
   const uEyeRedL = useRef({ value: 0 });
   const uEyeRedR = useRef({ value: 0 });
+  const uAcuteSystemic = useRef({ value: 0 });
   // Timecourse changes should develop/fade on the model instead of snapping
   // between days. Props update these targets; useFrame eases live uniforms.
   const severityTargets = useRef({
@@ -344,6 +380,7 @@ export function PaintSymptomModel({
     edema: sev.edema,
     eyeLeft,
     eyeRight,
+    acuteSystemic,
   });
   // Interaction feedback is independent from predicted severity: the grid
   // remains visible even when the model score rounds to zero.
@@ -360,10 +397,12 @@ export function PaintSymptomModel({
   useEffect(() => {
     severityTargets.current.eyeLeft = eyeLeft;
     severityTargets.current.eyeRight = eyeRight;
-  }, [eyeLeft, eyeRight]);
+    severityTargets.current.acuteSystemic = acuteSystemic;
+  }, [eyeLeft, eyeRight, acuteSystemic]);
 
   const uSkinLift = useRef({ value: SKIN_LIFT });
   const uEdemaScale = useRef({ value: 0 });
+  const uPapuleScale = useRef({ value: 0 });
   // One reveal (0->1 eased after that symptom's Run) PER symptom.
   const uRevealRedness = useRef({ value: 0 });
   const uRevealPapule = useRef({ value: 0 });
@@ -381,6 +420,10 @@ export function PaintSymptomModel({
   const painting = useRef(false);
   const lastPaintUv = useRef<THREE.Vector2 | null>(null);
   const skinMesh = useRef<THREE.Mesh | null>(null);
+  // Some GLB exports split the jaw/neck from the face while reusing the same
+  // skin material. Track every such mesh so paint/erase ray hits are accepted
+  // across the full visible skin instead of only the last traversed mesh.
+  const skinMeshes = useRef<Set<THREE.Mesh>>(new Set());
   const skinBounds = useRef<THREE.Box3 | null>(null);
   const eyeMesh = useRef<THREE.Object3D | null>(null);
   const faceCalibration = useRef<{ minY: number; maxY: number; eyeY: number } | null>(null);
@@ -625,6 +668,7 @@ export function PaintSymptomModel({
 
   // Inject the mark/reveal symptom shader onto a per-instance skin material.
   useMemo(() => {
+    skinMeshes.current.clear();
     scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
@@ -711,13 +755,19 @@ roughnessFactor = mix(roughnessFactor, 0.06, _eyeWetness * 0.72);`,
       const mat = srcMat.clone();
       mesh.material = mat;
       skinMesh.current = mesh;
+      skinMeshes.current.add(mesh);
 
       mesh.geometry.computeBoundingBox();
       const bb = mesh.geometry.boundingBox!;
       skinBounds.current = bb.clone();
       // 2.4% of head height keeps a high-risk local swell readable without the
       // inflated look produced by the old 6% displacement.
-      uEdemaScale.current.value = (bb.max.y - bb.min.y) * 0.024;
+      const headHeight = bb.max.y - bb.min.y;
+      uEdemaScale.current.value = headHeight * 0.024;
+      // Papules need real silhouette displacement, not only a normal-map
+      // illusion. Keep them intentionally small: 0.35% of head height is
+      // enough to catch side lighting without resembling large blisters.
+      uPapuleScale.current.value = headHeight * 0.0035;
       // Tile repeats across the largest dimension (lower = bigger, sparser vesicles).
       uBlisterScale.current.value =
         5.5 / Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z);
@@ -744,8 +794,10 @@ roughnessFactor = mix(roughnessFactor, 0.06, _eyeWetness * 0.72);`,
         shader.uniforms.uEdema = uEdema.current;
         shader.uniforms.uEyeRedL = uEyeRedL.current;
         shader.uniforms.uEyeRedR = uEyeRedR.current;
+        shader.uniforms.uAcuteSystemic = uAcuteSystemic.current;
         shader.uniforms.uSkinLift = uSkinLift.current;
         shader.uniforms.uEdemaScale = uEdemaScale.current;
+        shader.uniforms.uPapuleScale = uPapuleScale.current;
         shader.uniforms.uBlisterTex = { value: blisterTex };
         shader.uniforms.uBlisterNormalTex = { value: blisterNormalTex };
         shader.uniforms.uBlisterScale = uBlisterScale.current;
@@ -759,9 +811,13 @@ roughnessFactor = mix(roughnessFactor, 0.06, _eyeWetness * 0.72);`,
 varying vec2 vPaintUv;
 varying vec3 vLocalPos;
 uniform sampler2D uMaskEdema;
+uniform sampler2D uMaskPapule;
 uniform float uRevealEdema;
+uniform float uRevealPapule;
 uniform float uEdema;
+uniform float uPapule;
 uniform float uEdemaScale;
+uniform float uPapuleScale;
 ${NOISE_GLSL}
 ${SPOTS_GLSL}`
           )
@@ -772,13 +828,37 @@ vPaintUv = uv;
 vLocalPos = position;
 // ─── [SX:EDEMA-VERT] — ผิวบวม: geometry swell (edema only) ───
 // Soft-graded mask edge so the swell fades out, never a sharp rim.
-float _shapeSeverity = smoothstep(0.30, 1.0, uEdema);
+// Moderate scores stay subtle, while a score around 50 now produces a
+// readable smooth lift instead of being suppressed by a second hard cut-off.
+float _shapeSeverity = smoothstep(0.18, 0.85, uEdema);
 float _m = smoothstep(0.16, 0.92, texture2D(uMaskEdema, uv).r)
          * uRevealEdema * _shapeSeverity;
 // ONE smooth continuous swell (ref photo): no lumpy mounds — only a gentle
 // large-scale variation so the surface still reads organic.
 float _h = 0.85 + 0.15 * fbm(position * 6.0);
-transformed += normal * _m * _h * uEdemaScale;`
+transformed += normal * _m * _h * uEdemaScale;
+
+// ─── [SX:PAPULE-VERT] — real round papule geometry ───
+// Use the same stable cellular field and organic clustering as the fragment
+// shader. This moves vertices along the skin normal, so the bumps retain a
+// curved silhouette when the head is viewed from the side.
+float _pPres = smoothstep(0.10, 0.88, texture2D(uMaskPapule, uv).r)
+             * uRevealPapule;
+float _pSev = clamp(uPapule, 0.0, 1.0);
+if (_pPres > 0.001 && _pSev > 0.001) {
+  vec3 _pStreakPos = position;
+  _pStreakPos.xy = mat2(0.94, -0.34, 0.34, 0.94) * _pStreakPos.xy;
+  float _pStreak = fbm(_pStreakPos * vec3(27.0, 88.0, 88.0));
+  float _pFlush = smoothstep(0.38, 0.56, _pStreak)
+                * _pPres * (0.35 + 0.65 * _pSev);
+  float _pDome = papuleDomes(position, 64.0, 19.7, _pSev);
+  float _pGateLo = mix(0.31, 0.08, _pSev);
+  float _pGateHi = mix(0.45, 0.20, _pSev);
+  float _pGate = smoothstep(_pGateLo, _pGateHi, _pFlush);
+  float _pHeight = smoothstep(0.05, 0.90, _pDome) * _pGate;
+  float _pSeverityHeight = mix(0.42, 1.0, smoothstep(0.12, 1.0, _pSev));
+  transformed += normal * _pHeight * _pSeverityHeight * uPapuleScale;
+}`
           );
 
         // ── FRAGMENT ── white cream marks → cross-fade into the symptom.
@@ -803,6 +883,7 @@ uniform float uPeeling;
 uniform float uEdema;
 uniform float uEyeRedL;
 uniform float uEyeRedR;
+uniform float uAcuteSystemic;
 uniform float uSkinLift;
 uniform sampler2D uBlisterTex;
 uniform sampler2D uBlisterNormalTex;
@@ -900,28 +981,32 @@ if (gPap > 0.001) {
 
   // Small matte papules INSIDE the flush — reuse the dome map at ~2x tiling
   // (triplanar, object space) so bumps are tiny and only live on red skin.
-  vec3 _gn = normalize(cross(dFdx(vLocalPos), dFdy(vLocalPos)));
-  vec3 _bw = abs(_gn); _bw /= (_bw.x + _bw.y + _bw.z + 1e-4);
-  float _bs = uBlisterScale * 2.1;
-  float _bh = texture2D(uBlisterTex, vLocalPos.yz * _bs).r * _bw.x
-            + texture2D(uBlisterTex, vLocalPos.zx * _bs).r * _bw.y
-            + texture2D(uBlisterTex, vLocalPos.xy * _bs).r * _bw.z;
-  // The baked tangent-space normal map adds the fine directional light response
-  // that the height silhouette alone cannot preserve. Blend all three planar
-  // projections with the same weights as the height map, then feed that detail
-  // into the derivative bump pass below.
-  vec3 _bnX = texture2D(uBlisterNormalTex, vLocalPos.yz * _bs).xyz * 2.0 - 1.0;
-  vec3 _bnY = texture2D(uBlisterNormalTex, vLocalPos.zx * _bs).xyz * 2.0 - 1.0;
-  vec3 _bnZ = texture2D(uBlisterNormalTex, vLocalPos.xy * _bs).xyz * 2.0 - 1.0;
-  vec2 _bnXY = _bnX.xy * _bw.x + _bnY.xy * _bw.y + _bnZ.xy * _bw.z;
-  float _normalDetail = dot(_bnXY, vec2(0.70710678));
-  float _pap  = smoothstep(0.48, 0.82, _bh);
-  float _gate = smoothstep(0.06, 0.22, _flush);   // bumps only where red
-  float _papv = _pap * _gate;
+  // Cellular centres stay fixed while severity increases: existing papules
+  // enlarge first and additional stable papules then fade in.
+  float _dome = papuleDomes(vLocalPos, 64.0, 19.7, _sev);
+  // Moderate scores occupy only the strongest clusters. Higher scores open
+  // progressively more of the painted region without turning it into a rash.
+  float _gateLo = mix(0.31, 0.08, _sev);
+  float _gateHi = mix(0.45, 0.20, _sev);
+  float _gate = smoothstep(_gateLo, _gateHi, _flush);
+  float _papv = smoothstep(0.05, 0.32, _dome) * _gate;
   float _papRim = max(
     0.0,
-    smoothstep(0.28, 0.54, _bh) - smoothstep(0.68, 0.90, _bh)
+    smoothstep(0.04, 0.22, _dome) - smoothstep(0.48, 0.78, _dome)
   ) * _gate;
+
+  // Keep the original blister assets only as very fine surface detail inside
+  // the procedural circular footprint; they no longer decide count or shape.
+  vec3 _gn = normalize(cross(dFdx(vLocalPos), dFdy(vLocalPos)));
+  vec3 _bw = abs(_gn); _bw /= (_bw.x + _bw.y + _bw.z + 1e-4);
+  float _microBs = uBlisterScale * 4.2;
+  float _microH = texture2D(uBlisterTex, vLocalPos.yz * _microBs).r * _bw.x
+                + texture2D(uBlisterTex, vLocalPos.zx * _microBs).r * _bw.y
+                + texture2D(uBlisterTex, vLocalPos.xy * _microBs).r * _bw.z;
+  float _microN = texture2D(uBlisterNormalTex, vLocalPos.yz * _microBs).b * _bw.x
+                + texture2D(uBlisterNormalTex, vLocalPos.zx * _microBs).b * _bw.y
+                + texture2D(uBlisterNormalTex, vLocalPos.xy * _microBs).b * _bw.z;
+  float _microDetail = clamp(_microH * 0.7 + _microN * 0.3, 0.0, 1.0);
 
   // Preserve a darker rim and a softly lit centre so papules remain readable
   // even when erythema and edema are active underneath them.
@@ -929,10 +1014,10 @@ if (gPap > 0.001) {
   _c += vec3(0.12, 0.045, 0.035) * _papv;
   _c -= vec3(0.07, 0.025, 0.02) * _papRim;
 
-  // Both maps are restricted to the actual papule footprint. Applying normal
-  // detail to the wider flush gate makes the whole painted patch look swollen.
+  // Hemispherical derivative height makes each spot a round dome. Severity
+  // scales its height as well as the radius/count controlled above.
   gBumpH += (_papv + _papRim * 0.35)
-    * (0.52 + _sev * 0.68 + clamp(_normalDetail, -1.0, 1.0) * 0.12);
+    * mix(0.24, 1.20, _sev) * mix(0.94, 1.06, _microDetail);
   gPapDot = max(gPapDot, max(_papv, _papRim * 0.55));
 }
 
@@ -1008,6 +1093,19 @@ if (_eyeScoreAtSide > 0.001) {
   _c = mix(_c, vec3(0.94, 0.25, 0.31), gEyeRim * 0.48);
 }
 
+// ═══════════════ [SX:ACUTE-SYSTEMIC] — systemic visual proxy ═══════════════
+// Acute toxicity is not a skin lesion and therefore ignores the paint masks.
+// A graded whole-face pallor/desaturation plus a subtle clammy sheen makes the
+// endpoint visible without implying that it predicts papules or erythema.
+float gAcute = clamp(uAcuteSystemic, 0.0, 1.0);
+if (gAcute > 0.001) {
+  float _acuteCurve = pow(gAcute, 0.78);
+  float _luma = dot(_c, vec3(0.299, 0.587, 0.114));
+  vec3 _pale = mix(vec3(_luma), vec3(0.72, 0.78, 0.77), 0.30);
+  _c = mix(_c, _pale, _acuteCurve * 0.62);
+  _c += vec3(0.025, 0.040, 0.038) * _acuteCurve;
+}
+
 diffuseColor.rgb = clamp(_c, 0.0, 1.0);`
           )
           .replace(
@@ -1034,7 +1132,8 @@ roughnessFactor = clamp(
   + gPapDot * 0.16
   + gFlake * 0.55
   - gTaut * (1.0 - gFlake) * 0.45
-  - gEyeRim * 0.12,
+  - gEyeRim * 0.12
+  - clamp(uAcuteSystemic, 0.0, 1.0) * 0.20,
   0.03, 1.0);`
           );
       };
@@ -1100,6 +1199,8 @@ roughnessFactor = clamp(
     uEdema.current.value += (severityTargets.current.edema - uEdema.current.value) * severityK;
     uEyeRedL.current.value += (severityTargets.current.eyeLeft - uEyeRedL.current.value) * severityK;
     uEyeRedR.current.value += (severityTargets.current.eyeRight - uEyeRedR.current.value) * severityK;
+    uAcuteSystemic.current.value +=
+      (severityTargets.current.acuteSystemic - uAcuteSystemic.current.value) * severityK;
   });
 
   const dabAt = (uv: THREE.Vector2) => {
@@ -1164,15 +1265,27 @@ roughnessFactor = clamp(
       if (eraseRef.current) {
         // A solid centre makes the erased path predictable, while the feathered
         // edge keeps a dragged stroke from looking like disconnected grid cells.
-        const g = m.ctx.createRadialGradient(px, py, 0, px, py, r);
-        g.addColorStop(0, "rgba(0,0,0,1)");
-        g.addColorStop(0.72, "rgba(0,0,0,1)");
-        g.addColorStop(1, "rgba(0,0,0,0)");
+        // Repeat the dab across texture borders. The jaw/neck UV seam often
+        // sits at U=0/1; without wrapping, half of an eraser dab was clipped.
+        const centersX = [px];
+        const centersY = [py];
+        if (px - r < 0) centersX.push(px + W);
+        if (px + r > W) centersX.push(px - W);
+        if (py - r < 0) centersY.push(py + H);
+        if (py + r > H) centersY.push(py - H);
         m.ctx.globalCompositeOperation = "destination-out";
-        m.ctx.fillStyle = g;
-        m.ctx.beginPath();
-        m.ctx.arc(px, py, r, 0, Math.PI * 2);
-        m.ctx.fill();
+        centersX.forEach((cx) => {
+          centersY.forEach((cy) => {
+            const g = m.ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+            g.addColorStop(0, "rgba(0,0,0,1)");
+            g.addColorStop(0.72, "rgba(0,0,0,1)");
+            g.addColorStop(1, "rgba(0,0,0,0)");
+            m.ctx.fillStyle = g;
+            m.ctx.beginPath();
+            m.ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            m.ctx.fill();
+          });
+        });
         m.tex.needsUpdate = true;
         return;
       }
@@ -1276,7 +1389,8 @@ roughnessFactor = clamp(
     return "ผิวหน้า";
   };
 
-  const isSkin = (o: THREE.Object3D) => o === skinMesh.current;
+  const isSkin = (o: THREE.Object3D) =>
+    o instanceof THREE.Mesh && skinMeshes.current.has(o);
 
   const setControls = (enabled: boolean) => {
     const c = getState().controls as unknown as { enabled: boolean } | null;

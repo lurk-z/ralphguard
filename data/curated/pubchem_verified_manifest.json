@@ -1,0 +1,34 @@
+{
+  "skin": {
+    "endpoint": "skin",
+    "verified_rows": 43,
+    "unique_structures": 14,
+    "skipped_conflicts": 0,
+    "skipped_ineligible": 0,
+    "file": "data\\curated\\pubchem_verified_skin.csv"
+  },
+  "eye": {
+    "endpoint": "eye",
+    "verified_rows": 73,
+    "unique_structures": 18,
+    "skipped_conflicts": 0,
+    "skipped_ineligible": 0,
+    "file": "data\\curated\\pubchem_verified_eye.csv"
+  },
+  "sens": {
+    "endpoint": "sens",
+    "verified_rows": 31,
+    "unique_structures": 9,
+    "skipped_conflicts": 0,
+    "skipped_ineligible": 0,
+    "file": "data\\curated\\pubchem_verified_sens.csv"
+  },
+  "acute": {
+    "endpoint": "acute",
+    "verified_rows": 51,
+    "unique_structures": 19,
+    "skipped_conflicts": 0,
+    "skipped_ineligible": 0,
+    "file": "data\\curated\\pubchem_verified_acute.csv"
+  }
+}

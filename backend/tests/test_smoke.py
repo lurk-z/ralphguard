@@ -19,3 +19,21 @@ def test_health():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_substance_depiction_returns_rdkit_svg():
+    response = client.get(
+        "/api/substances/depiction.svg",
+        params={"smiles": "Cn1cnc2c1c(=O)n(C)c(=O)n2C"},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert "<svg" in response.text
+
+
+def test_substance_depiction_rejects_invalid_smiles():
+    response = client.get(
+        "/api/substances/depiction.svg",
+        params={"smiles": "not-a-smiles"},
+    )
+    assert response.status_code == 422

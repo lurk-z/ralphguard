@@ -13,6 +13,7 @@ import {
   apiErrorMessage,
   EndpointMetric,
   FormulaItem,
+  IngredientRegistryItem,
   ModelInfoPayload,
   ModelMetricsPayload,
   ProjectOut,
@@ -24,11 +25,14 @@ import {
   SUBSTANCE_LIBRARY,
   withWaterBase,
   isWaterItem,
+  catalogWithVerifiedRegistry,
   normalizeSubstanceName,
   resolveCatalogSubstance,
+  type CatalogItem,
 } from "@/lib/catalog";
 import VoiceAssistant from "@/components/VoiceAssistant";
 import LabelScanModal, { type ScanImportContext } from "@/components/LabelScanModal";
+import SubstanceHoverCard from "@/components/SubstanceHoverCard";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -105,6 +109,14 @@ const REGIONS: { value: Region; label: string; icon: SemanticIconName }[] = [
   { value: "eye", label: "ดวงตา", icon: "eye" },
 ];
 const ENDPOINTS = ["skin", "eye", "sens", "acute"] as const;
+type AssessmentEndpoint = (typeof ENDPOINTS)[number];
+type DeveloperTestScores = Record<AssessmentEndpoint, number>;
+const DEFAULT_DEVELOPER_TEST_SCORES: DeveloperTestScores = {
+  skin: 50,
+  eye: 50,
+  sens: 50,
+  acute: 50,
+};
 const ENDPOINT_LABEL_TH: Record<string, string> = {
   skin: "ระคายเคืองผิว",
   eye: "ระคายเคืองตา",
@@ -217,6 +229,12 @@ export default function StudioPage() {
   const announcedTimedOutJobIds = useRef(new Set<string>());
   const pollingFailuresByJobId = useRef<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
+  // Local visual QA only. These values never enter an assessment payload or
+  // the project workspace snapshot, so they cannot replace scientific output.
+  const [developerTestEnabled, setDeveloperTestEnabled] = useState(false);
+  const [developerTestScores, setDeveloperTestScores] = useState<DeveloperTestScores>(
+    DEFAULT_DEVELOPER_TEST_SCORES,
+  );
 
   useEffect(
     () => () => {
@@ -397,6 +415,23 @@ export default function StudioPage() {
       };
     });
   }, [endpoints, dayIdx]);
+
+  const developerTestLayers = useMemo(
+    () =>
+      ENDPOINTS.map((ep) => {
+        const score = developerTestScores[ep];
+        return {
+          key: ep,
+          label: ENDPOINT_LABEL_TH[ep],
+          score,
+          color: EP_COLOR[ep],
+          band: bandOf(score),
+        };
+      }),
+    [developerTestScores],
+  );
+  const modelReady = completed || developerTestEnabled;
+  const modelLayers = developerTestEnabled ? developerTestLayers : paintLayers;
 
   // Per-substance confidence / applicability-domain (worst endpoint), keyed by SMILES.
   const subConf = useMemo(() => {
@@ -673,7 +708,12 @@ export default function StudioPage() {
       }
     }
   };
-  const run = () => runFormula(formula);
+  const run = () => {
+    // A real run always returns the viewport to scientific assessment output.
+    setDeveloperTestEnabled(false);
+    setEraseMode(false);
+    runFormula(formula);
+  };
 
   const patchItem = (i: number, p: Partial<FormulaItem>) => {
     if (p.smiles !== undefined || p.concentration !== undefined) {
@@ -952,9 +992,7 @@ export default function StudioPage() {
   };
 
   // Add one ingredient (picked from the catalog dropdown) as a new formula row.
-  const addFromCatalog = (smiles: string) => {
-    const it = SUBSTANCE_LIBRARY.flatMap((g) => g.items).find((s) => s.smiles === smiles);
-    if (!it) return;
+  const addFromCatalog = (it: CatalogItem) => {
     const addedIndex = formula.length;
     invalidateFormulaAssessment(activeId);
     setFormula((prev) => [...prev, { name: it.name, smiles: it.smiles, concentration: it.conc }]);
@@ -1597,9 +1635,10 @@ export default function StudioPage() {
               }}
               dayIdx={dayIdx}
               region={region}
-              ready={completed}
-              productName={productName}
-              layers={paintLayers}
+              ready={modelReady}
+              developerPreview={developerTestEnabled}
+              productName={developerTestEnabled ? `${productName} · ค่าทดสอบ` : productName}
+              layers={modelLayers}
               eraseMode={eraseMode}
             />
           )}
@@ -1639,7 +1678,11 @@ export default function StudioPage() {
               <div className="p-4">
                 <div className="mb-2 text-[11px] font-semibold text-slate-500">สูตร (Formulation)</div>
                 <div className="space-y-1.5">
-                  <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-1.5">
+                  <SubstanceHoverCard
+                    name="Water (Aqua)"
+                    smiles="O"
+                    className="rounded-lg border border-sky-200 bg-sky-50/60 p-1.5"
+                  >
                     <div className="flex items-center gap-1 text-xs">
                       <SemanticIcon name="droplet" className="size-3.5 text-sky-500" />
                       <span className="flex-1 font-medium text-slate-700">Water (Aqua)</span>
@@ -1647,7 +1690,7 @@ export default function StudioPage() {
                       <span className="text-[10px] text-slate-400">%</span>
                     </div>
                     <div className="pl-4 text-[9px] text-slate-400">เบส · ปรับอัตโนมัติให้รวม 100%</div>
-                  </div>
+                  </SubstanceHoverCard>
                   {waterMissing && (
                     <div className="flex gap-1 rounded-lg border border-amber-300 bg-amber-50 p-1.5 text-[10px] leading-snug text-amber-700">
                       <SemanticIcon name="alert" className="mt-0.5 size-3 shrink-0" />
@@ -1660,8 +1703,10 @@ export default function StudioPage() {
                       recentlyAddedIngredient?.formulaId === activeId &&
                       recentlyAddedIngredient.index === i;
                     return (
-                      <div
+                      <SubstanceHoverCard
                         key={i}
+                        name={it.name}
+                        smiles={it.smiles}
                         className={`rounded-lg border p-1.5 transition-[background-color,border-color,box-shadow] duration-300 ${
                           wasJustAdded
                             ? "animate-in border-brand/30 bg-teal-50/80 ring-1 ring-brand/20 fade-in-0 slide-in-from-right-2 motion-reduce:animate-none"
@@ -1716,7 +1761,7 @@ export default function StudioPage() {
                           </div>
                         );
                       })()}
-                      </div>
+                      </SubstanceHoverCard>
                     );
                   })}
                   <div className="flex items-center gap-2 pt-0.5">
@@ -1904,8 +1949,8 @@ export default function StudioPage() {
                 <button
                   type="button"
                   onClick={() => setEraseMode((value) => !value)}
-                  disabled={!completed}
-                  title={!completed ? "ต้องประเมินสูตรให้เสร็จก่อน" : eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบระบาย"}
+                  disabled={!modelReady}
+                  title={!modelReady ? "ต้องประเมินสูตรหรือเปิดโหมดทดสอบก่อน" : eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบระบาย"}
                   aria-pressed={eraseMode}
                   className={`flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-semibold transition ${
                     eraseMode
@@ -1971,8 +2016,109 @@ export default function StudioPage() {
               </Section>
 
               <Section title="3 · ผลการประเมิน" className="order-1">
+                <div className="mb-3 rounded-xl border border-dashed border-violet-300 bg-violet-50/70 p-2.5 print:hidden">
+                  <div className="flex items-center gap-2">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-violet-100 text-violet-700">
+                      <SemanticIcon name="flask" className="size-3.5" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11px] font-semibold text-violet-900">ทดสอบผลโดยผู้พัฒนา</div>
+                      <div className="text-[9px] leading-snug text-violet-600">ปรับเฉพาะภาพ 3D ไม่ส่ง API และไม่แก้ผลจริง</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeveloperTestEnabled((enabled) => {
+                          if (enabled) setEraseMode(false);
+                          return !enabled;
+                        });
+                      }}
+                      aria-pressed={developerTestEnabled}
+                      className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[10px] font-semibold transition ${
+                        developerTestEnabled
+                          ? "bg-violet-700 text-white hover:bg-violet-800"
+                          : "border border-violet-300 bg-white text-violet-700 hover:bg-violet-100"
+                      }`}
+                    >
+                      {developerTestEnabled ? "ปิดการทดสอบ" : "เปิดทดสอบ"}
+                    </button>
+                  </div>
+
+                  {developerTestEnabled && (
+                    <div className="mt-3 space-y-2 border-t border-violet-200 pt-2.5">
+                      <div className="flex flex-wrap gap-1">
+                        {[0, 30, 55, 85].map((score) => (
+                          <button
+                            key={score}
+                            type="button"
+                            onClick={() =>
+                              setDeveloperTestScores({ skin: score, eye: score, sens: score, acute: score })
+                            }
+                            className="rounded-md border border-violet-200 bg-white px-2 py-1 text-[9px] font-medium text-violet-700 hover:bg-violet-100"
+                          >
+                            ทุกค่า {score}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setDeveloperTestScores(DEFAULT_DEVELOPER_TEST_SCORES)}
+                          className="ml-auto rounded-md px-2 py-1 text-[9px] font-medium text-slate-500 hover:bg-white"
+                        >
+                          คืนค่า 50
+                        </button>
+                      </div>
+
+                      {ENDPOINTS.map((ep) => {
+                        const score = developerTestScores[ep];
+                        const band = bandOf(score);
+                        return (
+                          <label key={ep} className="grid grid-cols-[1fr_46px] items-center gap-x-2 gap-y-1">
+                            <span className="flex items-center justify-between text-[10px] text-slate-700">
+                              <span>{ENDPOINT_LABEL_TH[ep]}</span>
+                              <span className="font-mono font-semibold tabular-nums" style={{ color: BAND_HEX[band] }}>
+                                {score} · {BAND_LABEL[band]}
+                              </span>
+                            </span>
+                            <input
+                              aria-label={`${ENDPOINT_LABEL_TH[ep]} (0 ถึง 100)`}
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={score}
+                              onChange={(event) => {
+                                const next = Math.max(0, Math.min(100, Number(event.target.value) || 0));
+                                setDeveloperTestScores((current) => ({ ...current, [ep]: next }));
+                              }}
+                              className="row-span-2 h-8 rounded-lg border border-violet-200 bg-white px-1 text-center font-mono text-[11px] font-semibold text-violet-800 outline-none focus:border-violet-500"
+                            />
+                            <input
+                              aria-label={`เลื่อนค่า${ENDPOINT_LABEL_TH[ep]}`}
+                              type="range"
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={score}
+                              onChange={(event) =>
+                                setDeveloperTestScores((current) => ({
+                                  ...current,
+                                  [ep]: Number(event.target.value),
+                                }))
+                              }
+                              className="h-1.5 w-full cursor-pointer accent-violet-600"
+                            />
+                          </label>
+                        );
+                      })}
+
+                      <div className="rounded-lg bg-white/80 px-2 py-1.5 text-[9px] leading-snug text-violet-700">
+                        Paint บริเวณบนโมเดล แล้วเลื่อนคะแนนเพื่อดูอาการเปลี่ยนทันที ค่าพิษเฉียบพลันเป็นผลเชิงระบบ จึงไม่สร้างรอยผิวเฉพาะจุด
+                      </div>
+                    </div>
+                  )}
+                </div>
                 {error && <div className="rounded border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-600">{error}</div>}
-                {!completed && !error && (
+                {!completed && !error && !developerTestEnabled && (
                   <div className="grid place-items-center gap-2 py-6 text-center">
                     <SemanticIcon name="flask" className="size-6 text-slate-800/20" />
                     <p className="text-xs text-slate-800/50">
@@ -2237,22 +2383,67 @@ export default function StudioPage() {
   );
 }
 
-function SubstanceLibraryPicker({ onSelect }: { onSelect: (smiles: string) => void }) {
+function SubstanceLibraryPicker({ onSelect }: { onSelect: (item: CatalogItem) => void }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [registryItems, setRegistryItems] = useState<IngredientRegistryItem[]>([]);
+  const [registryLoading, setRegistryLoading] = useState(false);
+  const [registryError, setRegistryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || registryItems.length) return;
+    const controller = new AbortController();
+    let alive = true;
+    setRegistryLoading(true);
+    setRegistryError(null);
+
+    const loadVerifiedRegistry = async () => {
+      const collected: IngredientRegistryItem[] = [];
+      const pageSize = 500;
+      for (let offset = 0; ; offset += pageSize) {
+        const page = await api.listIngredientRegistry(
+          "verified",
+          pageSize,
+          offset,
+          controller.signal,
+        );
+        collected.push(...page);
+        if (page.length < pageSize) break;
+      }
+      if (alive) setRegistryItems(collected);
+    };
+
+    loadVerifiedRegistry()
+      .catch((cause) => {
+        if (!alive || isAbortError(cause)) return;
+        setRegistryError("โหลด Ingredient Registry ไม่สำเร็จ - ยังใช้คลังพื้นฐานได้");
+      })
+      .finally(() => {
+        if (alive) setRegistryLoading(false);
+      });
+
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [open, registryItems.length]);
+
+  const libraryGroups = useMemo(() => {
+    return catalogWithVerifiedRegistry(registryItems);
+  }, [registryItems]);
   const normalizedQuery = query.trim().toLowerCase();
   const filteredGroups = useMemo(
     () =>
-      SUBSTANCE_LIBRARY.map((group) => ({
+      libraryGroups.map((group) => ({
         ...group,
         items: group.items.filter((item) =>
           `${item.name} ${item.smiles} ${group.category}`.toLowerCase().includes(normalizedQuery),
         ),
       })).filter((group) => group.items.length > 0),
-    [normalizedQuery],
+    [libraryGroups, normalizedQuery],
   );
   const resultCount = filteredGroups.reduce((total, group) => total + group.items.length, 0);
-  const libraryCount = SUBSTANCE_LIBRARY.reduce((total, group) => total + group.items.length, 0);
+  const libraryCount = libraryGroups.reduce((total, group) => total + group.items.length, 0);
 
   return (
     <Popover
@@ -2306,6 +2497,20 @@ function SubstanceLibraryPicker({ onSelect }: { onSelect: (smiles: string) => vo
               className="min-w-0 flex-1 bg-transparent text-xs text-slate-700 outline-none placeholder:text-slate-400"
             />
           </label>
+          <div className="mt-2 min-h-4 text-[9px]">
+            {registryLoading ? (
+              <span className="inline-flex items-center gap-1 text-brand">
+                <span className="size-2 animate-pulse rounded-full bg-brand" />
+                กำลังโหลดสารที่ผ่านการตรวจสอบจาก Ingredient Registry…
+              </span>
+            ) : registryError ? (
+              <span className="text-amber-700">{registryError}</span>
+            ) : registryItems.length ? (
+              <span className="text-slate-500">
+                เชื่อมฐานข้อมูลแล้ว · พบ {registryItems.length.toLocaleString()} รายการที่ยืนยันตัวตน
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <div className="max-h-[360px] overflow-y-auto p-2">
@@ -2323,7 +2528,7 @@ function SubstanceLibraryPicker({ onSelect }: { onSelect: (smiles: string) => vo
                       key={`${group.category}-${item.smiles}`}
                       type="button"
                       onClick={() => {
-                        onSelect(item.smiles);
+                        onSelect(item);
                         setOpen(false);
                       }}
                       className="group/item flex w-full items-center gap-2 rounded-xl border border-transparent px-2.5 py-2 text-left transition hover:border-brand/20 hover:bg-teal-50"
@@ -2412,6 +2617,7 @@ function Viewport({
   dayIdx,
   region,
   ready,
+  developerPreview,
   productName,
   layers,
   eraseMode,
@@ -2425,6 +2631,7 @@ function Viewport({
   dayIdx: number;
   region: Region;
   ready: boolean;
+  developerPreview: boolean;
   productName: string;
   layers: { key: string; label: string; score: number; color: string; band: string }[];
   eraseMode: boolean;
@@ -2439,9 +2646,18 @@ function Viewport({
         >
           <span className="grid size-6 place-items-center rounded-lg bg-teal-50 text-xs font-bold text-brand">2</span>
           <div>
-            <div className="text-[11px] font-semibold text-slate-700">ดูผลบนโมเดล</div>
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
+              ดูผลบนโมเดล
+              {developerPreview && (
+                <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[8px] font-bold text-violet-700">DEV TEST</span>
+              )}
+            </div>
             <div className="text-[9px] text-slate-400">
-              {ready ? `Day ${DAY_LABELS[dayIdx]} · Paint แล้ว hover เพื่อดูตำแหน่ง` : "กดประเมินสูตรก่อน จึงจะ Paint บนโมเดลได้"}
+              {developerPreview
+                ? "ค่าทดสอบ · Paint แล้วปรับคะแนนด้านขวา"
+                : ready
+                  ? `Day ${DAY_LABELS[dayIdx]} · Paint แล้ว hover เพื่อดูตำแหน่ง`
+                  : "กดประเมินสูตรก่อน จึงจะ Paint บนโมเดลได้"}
             </div>
           </div>
         </div>

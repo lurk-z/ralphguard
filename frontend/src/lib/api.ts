@@ -54,6 +54,50 @@ export type ValidateResult = {
   error?: string | null;
 };
 
+export type SubstanceHazardSummary = {
+  endpoint: "skin" | "eye" | "sens" | "acute";
+  hazard_codes: string[];
+  source_count: number;
+  verification: "pending" | "consensus_verified" | "verified";
+};
+
+export type SubstanceProfile = {
+  found_in_registry: boolean;
+  canonical_name: string;
+  inci_name?: string | null;
+  pubchem_cid?: number | null;
+  canonical_smiles?: string | null;
+  molecular_formula?: string | null;
+  molecular_weight?: number | null;
+  substance_type: string;
+  structure_status: string;
+  qsar_eligible?: boolean | null;
+  assessment_method: string;
+  verification_status: string;
+  description?: string | null;
+  description_source?: string | null;
+  description_url?: string | null;
+  hazards: SubstanceHazardSummary[];
+};
+
+export type IngredientRegistryItem = {
+  id: number;
+  inci_name?: string | null;
+  canonical_name: string;
+  thai_names: string[];
+  synonyms: string[];
+  cas_number?: string | null;
+  pubchem_cid?: number | null;
+  canonical_smiles?: string | null;
+  molecular_formula?: string | null;
+  molecular_weight?: number | null;
+  substance_type: string;
+  structure_status: string;
+  qsar_eligible: boolean;
+  assessment_method: string;
+  verification_status: string;
+};
+
 export type Confidence = {
   level: ConfidenceLevel;
   reason_th: string;
@@ -182,6 +226,27 @@ export const api = {
       signal,
     }),
 
+  getSubstanceProfile: (name?: string, smiles?: string, signal?: AbortSignal) => {
+    const params = new URLSearchParams();
+    if (name?.trim()) params.set("name", name.trim());
+    if (smiles?.trim()) params.set("smiles", smiles.trim());
+    return http<SubstanceProfile>(`/api/substances/profile?${params.toString()}`, { signal }, 15000);
+  },
+
+  listIngredientRegistry: (
+    verificationStatus = "verified",
+    limit = 500,
+    offset = 0,
+    signal?: AbortSignal,
+  ) => {
+    const params = new URLSearchParams({
+      verification_status: verificationStatus,
+      limit: String(limit),
+      offset: String(offset),
+    });
+    return http<IngredientRegistryItem[]>(`/api/substances/registry?${params.toString()}`, { signal }, 20000);
+  },
+
   createAssessment: (
     formula: FormulaItem[],
     region: Region,
@@ -250,6 +315,10 @@ export const api = {
   getModelInfo: (signal?: AbortSignal) =>
     http<ModelInfoPayload>("/api/models/info", { signal }),
 };
+
+export function substanceDepictionUrl(smiles: string): string {
+  return `${API}/api/substances/depiction.svg?smiles=${encodeURIComponent(smiles.trim())}`;
+}
 
 export type AssessmentSummary = {
   // FastAPI serializes the `job_id` field by its alias -> "id" (by_alias=True)

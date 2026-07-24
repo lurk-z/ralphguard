@@ -8,7 +8,7 @@
  *
  *   skin (ระคายเคืองผิว)  → redness + edema (+ peeling when severe)
  *   sens (แพ้ผิวหนัง)      → papule
- *   acute                 → score/status UI only; not a local skin lesion
+ *   acute                 → whole-face pallor/clammy-skin systemic proxy
  *   eye  (ระคายเคืองตา)   → per-eye redness
  *
  * Drop-in replacement for FacePaintCanvas (same props) so the assess viewport
@@ -95,7 +95,7 @@ export function SymptomFaceCanvas({
   const acute = scoreOf("acute");
   // Visual mapping is defined only in SymptomLabModel; this assessment wrapper
   // supplies the four endpoint scores without maintaining a second recipe.
-  const { sev, eyeRed } = useMemo(
+  const { sev, eyeRed, acuteSystemic } = useMemo(
     () => mapAssessmentEndpointsToSymptoms({ skin, eye, sens, acute }),
     [skin, eye, sens, acute],
   );
@@ -190,6 +190,7 @@ export function SymptomFaceCanvas({
             brushSizePct={50}
             eyeLeft={eyeRed}
             eyeRight={eyeRed}
+            acuteSystemic={acuteSystemic}
             eraseMode={eraseMode}
             apiRef={apiRef}
             onHover={handleHover}
@@ -230,8 +231,11 @@ export function SymptomFaceCanvas({
             <span className="font-semibold">{tip.region}</span>
           </div>
           <div className="mt-1 text-[10px] text-slate-500">
-            {visibleSymptoms.length
-              ? `อาการที่แสดงตามเวลานี้: ${visibleSymptoms.map((key) => SYMPTOM_LABEL[key]).join(", ")}`
+            {visibleSymptoms.length || acuteSystemic > 0.001
+              ? `อาการที่แสดงตามเวลานี้: ${[
+                  ...visibleSymptoms.map((key) => SYMPTOM_LABEL[key]),
+                  ...(acuteSystemic > 0.001 ? ["ผิวซีด/หมองและชื้น (ภาพแทนผลเชิงระบบ)"] : []),
+                ].join(", ")}`
               : "ยังไม่แสดงอาการในช่วงเวลานี้"}
           </div>
           <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">

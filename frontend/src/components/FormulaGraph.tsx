@@ -27,8 +27,13 @@ import ReactFlow, {
   type NodeTypes,
 } from "reactflow";
 
-import { FormulaItem, Region, api } from "../lib/api";
-import { SUBSTANCE_LIBRARY, withWaterBase, substanceInfo, type CatalogItem } from "../lib/catalog";
+import { FormulaItem, Region, api, type IngredientRegistryItem } from "../lib/api";
+import {
+  catalogWithVerifiedRegistry,
+  withWaterBase,
+  substanceInfo,
+  type CatalogItem,
+} from "../lib/catalog";
 import {
   formulaGraphItemsSignature,
   formulaItemsFromGraph,
@@ -602,9 +607,37 @@ function GraphInner({
   );
 
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [registryItems, setRegistryItems] = useState<IngredientRegistryItem[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    let alive = true;
+    const load = async () => {
+      const collected: IngredientRegistryItem[] = [];
+      const pageSize = 500;
+      for (let offset = 0; ; offset += pageSize) {
+        const page = await api.listIngredientRegistry("verified", pageSize, offset, controller.signal);
+        collected.push(...page);
+        if (page.length < pageSize) break;
+      }
+      if (alive) setRegistryItems(collected);
+    };
+    load().catch(() => {
+      // The curated offline catalog remains usable when the API is unavailable.
+    });
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, []);
+  const substanceLibrary = useMemo(
+    () => catalogWithVerifiedRegistry(registryItems),
+    [registryItems],
+  );
   const [edgeMenu, setEdgeMenu] = useState<{ id: string; x: number; y: number } | null>(null);
-  // categories collapsed state — all open by default
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // Keep the 1,000+ PubChem rows collapsed until explicitly requested.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
+    "PubChem Registry - ผ่านการตรวจสอบ": true,
+  });
   const toggleCat = (c: string) => setCollapsed((s) => ({ ...s, [c]: !s[c] }));
 
   const onConnect = useCallback(
@@ -660,7 +693,7 @@ function GraphInner({
     });
 
   const addModifierBySmiles = (smiles: string) => {
-    const it = SUBSTANCE_LIBRARY.flatMap((g) => g.items).find((s) => s.smiles === smiles);
+    const it = substanceLibrary.flatMap((g) => g.items).find((s) => s.smiles === smiles);
     if (!it) return;
     setNodes((nds) => {
       const id = nextUniqueId(nds);
@@ -725,7 +758,7 @@ function GraphInner({
                 <span className="inline-flex items-center gap-1"><SemanticIcon name="pencil" className="size-3" /> สารเปล่า (กรอกเอง)</span>
               </button>
 
-              {SUBSTANCE_LIBRARY.map((group) => {
+              {substanceLibrary.map((group) => {
                 const open = !collapsed[group.category];
                 return (
                   <div key={group.category} className="mb-1">
@@ -787,7 +820,7 @@ function GraphInner({
           className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-800 shadow-card"
         >
           <option value="">+ สารเสริมสูตร…</option>
-          {SUBSTANCE_LIBRARY.map((g) => (
+          {substanceLibrary.map((g) => (
             <optgroup key={g.category} label={g.category}>
               {g.items.map((it) => (
                 <option key={it.smiles} value={it.smiles}>{it.name}</option>
