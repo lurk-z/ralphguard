@@ -770,7 +770,7 @@ roughnessFactor = mix(roughnessFactor, 0.06, _eyeWetness * 0.72);`,
       uPapuleScale.current.value = headHeight * 0.0035;
       // Tile repeats across the largest dimension (lower = bigger, sparser vesicles).
       uBlisterScale.current.value =
-        5.5 / Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z);
+        9.0 / Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z);
 
       const uMaskRedness = { value: masks.redness.tex };
       const uMaskPapule = { value: masks.papule.tex };
@@ -1099,11 +1099,11 @@ if (_eyeScoreAtSide > 0.001) {
 // endpoint visible without implying that it predicts papules or erythema.
 float gAcute = clamp(uAcuteSystemic, 0.0, 1.0);
 if (gAcute > 0.001) {
-  float _acuteCurve = pow(gAcute, 0.78);
+  float _acuteCurve = pow(gAcute, 0.72);
   float _luma = dot(_c, vec3(0.299, 0.587, 0.114));
-  vec3 _pale = mix(vec3(_luma), vec3(0.72, 0.78, 0.77), 0.30);
-  _c = mix(_c, _pale, _acuteCurve * 0.62);
-  _c += vec3(0.025, 0.040, 0.038) * _acuteCurve;
+  vec3 _pale = mix(vec3(_luma), vec3(0.70, 0.76, 0.74), 0.42);   // sickly grey-green pallor
+  _c = mix(_c, _pale, _acuteCurve * 0.85);                        // stronger, clearly visible
+  _c += vec3(0.020, 0.052, 0.046) * _acuteCurve;                  // clammy sheen
 }
 
 diffuseColor.rgb = clamp(_c, 0.0, 1.0);`

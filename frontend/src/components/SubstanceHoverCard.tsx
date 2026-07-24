@@ -174,13 +174,22 @@ export default function SubstanceHoverCard({
 
       {open && typeof document !== "undefined" &&
         createPortal(
+          <>
+            <style>{`
+              @keyframes sub-pop {
+                0% { opacity: 0; transform: scale(0.55) translateX(-10px); }
+                55% { opacity: 1; transform: scale(1.06) translateX(2px); }
+                100% { opacity: 1; transform: scale(1) translateX(0); }
+              }
+              @media (prefers-reduced-motion: reduce) { .sub-pop { animation: none !important; } }
+            `}</style>
           <aside
             ref={cardRef}
             id={tooltipId}
             role="dialog"
             aria-label={`ข้อมูลสาร ${profile?.canonical_name || name || "ไม่ระบุชื่อ"}`}
-            className="fixed z-[100] max-h-[calc(100vh-24px)] animate-in overflow-y-auto rounded-2xl border border-slate-200 bg-white p-3.5 text-left shadow-2xl fade-in-0 zoom-in-75 slide-in-from-left-2 duration-300 ease-out motion-reduce:animate-none"
-            style={position}
+            className="sub-pop fixed z-[100] max-h-[calc(100vh-24px)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-3.5 text-left shadow-2xl"
+            style={{ ...position, transformOrigin: "left center", animation: "sub-pop 0.34s cubic-bezier(0.34, 1.56, 0.64, 1) both" }}
           >
             <div className="flex items-start gap-2">
               <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-teal-50 text-brand">
@@ -297,7 +306,8 @@ export default function SubstanceHoverCard({
             <div className="mt-2.5 truncate font-mono text-[9px] text-slate-400" title={depictionSmiles || undefined}>
               SMILES: {depictionSmiles || "ไม่มีโครงสร้างเดี่ยว"}
             </div>
-          </aside>,
+          </aside>
+          </>,
           document.body,
         )}
     </>
