@@ -7,7 +7,6 @@ export type AssessmentPreconditionInput = {
   hasProjectId: boolean;
   hasSelectedFormula: boolean;
   substances: FormulaItem[];
-  hasPaint: boolean;
   isSubmitting: boolean;
   hasPendingJob: boolean;
 };
@@ -17,7 +16,6 @@ export function assessmentStartProblem({
   hasProjectId,
   hasSelectedFormula,
   substances,
-  hasPaint,
   isSubmitting,
   hasPendingJob,
 }: AssessmentPreconditionInput): string | null {
@@ -55,9 +53,6 @@ export function assessmentStartProblem({
   );
   if (total > 100.0001) {
     return `ผลรวมความเข้มข้นเกิน 100% (${total.toFixed(2)}%)`;
-  }
-  if (!hasPaint) {
-    return "กรุณาทาสูตรลงบนผิวโมเดลก่อนเริ่มทดสอบ";
   }
   if (isSubmitting || hasPendingJob) {
     return "กล่องสูตรนี้กำลังวิเคราะห์อยู่ กรุณารอผลก่อน";

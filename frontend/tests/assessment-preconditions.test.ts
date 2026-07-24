@@ -14,7 +14,6 @@ const validInput = () => ({
   hasProjectId: true,
   hasSelectedFormula: true,
   substances: [validSubstance],
-  hasPaint: true,
   isSubmitting: false,
   hasPendingJob: false,
 });
@@ -30,7 +29,6 @@ test("returns the first actionable missing precondition", () => {
       projectStatus: "standalone",
       hasProjectId: false,
       substances: [],
-      hasPaint: false,
     }) ?? "",
     /เปิดโปรเจกต์/,
   );
@@ -71,11 +69,8 @@ test("rejects missing structures and invalid concentrations", () => {
   );
 });
 
-test("requires paint and rejects duplicate work", () => {
-  assert.match(
-    assessmentStartProblem({ ...validInput(), hasPaint: false }) ?? "",
-    /ทาสูตรลงบนผิวโมเดล/,
-  );
+test("allows assessment before painting and rejects duplicate work", () => {
+  assert.equal(assessmentStartProblem(validInput()), null);
   assert.match(
     assessmentStartProblem({ ...validInput(), isSubmitting: true }) ?? "",
     /กำลังวิเคราะห์/,

@@ -183,6 +183,7 @@ export function SymptomFaceCanvas({
         <Suspense fallback={null}>
           <PaintSymptomModel
             paintOwnerKey={paintOwnerKey}
+            paintEnabled={armed}
             activeSymptom={dominant}
             paintSymptoms={ASSESSMENT_PAINT_SYMPTOMS}
             sev={sev}

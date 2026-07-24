@@ -609,7 +609,6 @@ export default function StudioPage() {
       hasProjectId: projectId !== null,
       hasSelectedFormula: Boolean(selectedFormula),
       substances,
-      hasPaint: paintByFormulaId[formulaId]?.hasPaint === true,
       isSubmitting: submittingFormulaIds.includes(formulaId),
       hasPendingJob,
     });
@@ -1898,25 +1897,27 @@ export default function StudioPage() {
           )}
           {mode === "trust" && <TrustReport />}
 
-          {/* The eraser edits the selected formula's paint mask, so it is usable before assessment too. */}
+          {/* Painting and erasing unlock only after this formula has a completed assessment. */}
           {mode === "assess" && (
             <div className="pointer-events-none absolute bottom-4 right-4 z-40 print:hidden">
               <div className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-soft backdrop-blur">
                 <button
                   type="button"
                   onClick={() => setEraseMode((value) => !value)}
-                  title={eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบระบาย"}
+                  disabled={!completed}
+                  title={!completed ? "ต้องประเมินสูตรให้เสร็จก่อน" : eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบระบาย"}
                   aria-pressed={eraseMode}
                   className={`flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-semibold transition ${
                     eraseMode
                       ? "bg-slate-900 text-white shadow-sm"
-                      : "text-slate-600 hover:bg-slate-100"
+                      : "text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
                   }`}
                 >
                   <Eraser className="size-4" />
                   {eraseMode ? "ลากเพื่อระบายลบ" : "ยางลบ"}
                 </button>
                 <button
+                  disabled={assessing}
                   onClick={() => {
                     setEraseMode(false); // กดประเมิน = กลับมาโหมด paint ผลลัพธ์
                     run();
@@ -2439,7 +2440,9 @@ function Viewport({
           <span className="grid size-6 place-items-center rounded-lg bg-teal-50 text-xs font-bold text-brand">2</span>
           <div>
             <div className="text-[11px] font-semibold text-slate-700">ดูผลบนโมเดล</div>
-            <div className="text-[9px] text-slate-400">Day {DAY_LABELS[dayIdx]} · Paint แล้ว hover เพื่อดูตำแหน่ง</div>
+            <div className="text-[9px] text-slate-400">
+              {ready ? `Day ${DAY_LABELS[dayIdx]} · Paint แล้ว hover เพื่อดูตำแหน่ง` : "กดประเมินสูตรก่อน จึงจะ Paint บนโมเดลได้"}
+            </div>
           </div>
         </div>
         <div

@@ -278,6 +278,7 @@ function useFaceCameraFit(
 
 export function PaintSymptomModel({
   paintOwnerKey = "standalone",
+  paintEnabled = true,
   activeSymptom,
   sev,
   brushSizePct,
@@ -294,6 +295,7 @@ export function PaintSymptomModel({
   cameraDistanceScale,
 }: {
   paintOwnerKey?: string;
+  paintEnabled?: boolean;
   activeSymptom: SkinKey;
   sev: Record<SkinKey, number>; // 0..1 severity PER symptom (each kept independently)
   brushSizePct: number;
@@ -1299,7 +1301,7 @@ roughnessFactor = clamp(
       <primitive
         object={scene}
         onPointerDown={(e: any) => {
-          if (!isSkin(e.object)) return;
+          if (!paintEnabled || !isSkin(e.object)) return;
           e.stopPropagation();
           onHover?.(null);
           blockedDuringStroke.current = false;
@@ -1310,6 +1312,11 @@ roughnessFactor = clamp(
         }}
         onPointerMove={(e: any) => {
           if (!isSkin(e.object)) return;
+          if (!paintEnabled) {
+            if (painting.current) stopPaint();
+            onHover?.(null);
+            return;
+          }
           if (painting.current) {
             e.stopPropagation();
             onHover?.(null);
