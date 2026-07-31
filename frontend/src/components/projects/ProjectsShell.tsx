@@ -151,7 +151,7 @@ export default function ProjectsShell({
   return (
     <div className="app-light flex min-h-dvh bg-background">
       <aside
-        className="relative hidden shrink-0 flex-col border-r bg-card xl:flex"
+        className="sticky top-0 hidden h-dvh shrink-0 self-start flex-col overflow-hidden border-r bg-card xl:flex"
         style={{ width: sidebarWidth }}
       >
         <div
