@@ -274,10 +274,21 @@ export const api = {
   getProject: (projectId: number, signal?: AbortSignal) =>
     http<ProjectOut>(`/api/projects/${projectId}`, { signal }),
 
-  createProject: (name: string, description?: string, signal?: AbortSignal) =>
+  createProject: (
+    name: string,
+    description?: string,
+    colorKey: ProjectColorKey = "teal",
+    iconKey: ProjectIconKey = "flask",
+    signal?: AbortSignal,
+  ) =>
     http<ProjectOut>("/api/projects/", {
       method: "POST",
-      body: JSON.stringify({ name, description: description ?? null }),
+      body: JSON.stringify({
+        name,
+        description: description ?? null,
+        color_key: colorKey,
+        icon_key: iconKey,
+      }),
       signal,
     }),
 
@@ -285,16 +296,29 @@ export const api = {
     projectId: number,
     name: string,
     description?: string,
+    colorKey?: ProjectColorKey,
+    iconKey?: ProjectIconKey,
     signal?: AbortSignal,
   ) =>
     http<ProjectOut>(`/api/projects/${projectId}`, {
       method: "PATCH",
-      body: JSON.stringify({ name, description: description?.trim() || null }),
+      body: JSON.stringify({
+        name,
+        description: description?.trim() || null,
+        color_key: colorKey,
+        icon_key: iconKey,
+      }),
       signal,
     }),
 
   deleteProject: (projectId: number, signal?: AbortSignal) =>
     http<void>(`/api/projects/${projectId}`, { method: "DELETE", signal }),
+
+  restoreProject: (projectId: number, signal?: AbortSignal) =>
+    http<ProjectOut>(`/api/projects/${projectId}/restore`, {
+      method: "POST",
+      signal,
+    }),
 
   listProjectAssessments: (projectId: number, signal?: AbortSignal) =>
     http<AssessmentSummary[]>(`/api/projects/${projectId}/assessments`, { signal }),
@@ -331,11 +355,38 @@ export type AssessmentSummary = {
   completed_at: string | null;
 };
 
+export type ProjectColorKey =
+  | "teal"
+  | "cyan"
+  | "blue"
+  | "indigo"
+  | "violet"
+  | "emerald"
+  | "amber"
+  | "slate"
+  | "rose"
+  | "orange";
+
+export type ProjectIconKey =
+  | "flask"
+  | "beaker"
+  | "test-tube"
+  | "microscope"
+  | "shield"
+  | "droplets"
+  | "atom"
+  | "leaf"
+  | "heart-pulse"
+  | "clipboard-check";
+
 export type ProjectOut = {
   id: number;
   name: string;
   description: string | null;
+  color_key: ProjectColorKey;
+  icon_key: ProjectIconKey;
   created_at: string;
+  updated_at: string;
 };
 
 export type EndpointMetric = {

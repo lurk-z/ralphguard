@@ -4,14 +4,19 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.projects import get_project_assessment
+from app.models import Assessment, Project
 
 
 class FakeSession:
     def __init__(self, assessment):
         self.assessment = assessment
 
-    def get(self, model, assessment_id):
-        return self.assessment
+    def get(self, model, row_id):
+        if model is Project:
+            return SimpleNamespace(id=row_id, deleted_at=None)
+        if model is Assessment:
+            return self.assessment
+        return None
 
 
 @pytest.mark.asyncio
