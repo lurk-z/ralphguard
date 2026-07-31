@@ -81,6 +81,7 @@ const PROJECT_ROUTE_ERRORS: Record<string, string> = {
 };
 
 const PROJECT_COUNT_STORAGE_KEY = "ralphguard:projects:last-known-count";
+const LAST_OPENED_PROJECT_STORAGE_KEY = "ralphguard:projects:last-opened-id";
 const PROJECTS_PER_PAGE = 9;
 
 const PROJECT_TOAST_CLASSNAMES = {
@@ -153,6 +154,9 @@ export default function ProjectListPage() {
   const [layoutMode, setLayoutMode] = useState<ProjectLayoutMode>("grid");
   const [currentPage, setCurrentPage] = useState(1);
   const [knownProjectCount, setKnownProjectCount] = useState(0);
+  const [lastOpenedProjectId, setLastOpenedProjectId] = useState<number | null>(
+    null,
+  );
 
   const loadControllerRef = useRef<AbortController | null>(null);
   const formControllerRef = useRef<AbortController | null>(null);
@@ -169,6 +173,13 @@ export default function ProjectListPage() {
     );
     if (Number.isSafeInteger(storedCount) && storedCount > 0) {
       setKnownProjectCount(storedCount);
+    }
+
+    const storedProjectId = Number(
+      window.localStorage.getItem(LAST_OPENED_PROJECT_STORAGE_KEY),
+    );
+    if (Number.isSafeInteger(storedProjectId) && storedProjectId > 0) {
+      setLastOpenedProjectId(storedProjectId);
     }
   }, []);
 
@@ -242,11 +253,14 @@ export default function ProjectListPage() {
       : [...projects];
 
     return filtered.sort((left, right) => {
+      if (left.id === lastOpenedProjectId) return -1;
+      if (right.id === lastOpenedProjectId) return 1;
+
       const leftTime = new Date(left.updated_at || left.created_at).getTime();
       const rightTime = new Date(right.updated_at || right.created_at).getTime();
       return rightTime - leftTime;
     });
-  }, [projects, query]);
+  }, [lastOpenedProjectId, projects, query]);
 
   const totalPages = Math.max(
     1,
@@ -532,6 +546,11 @@ export default function ProjectListPage() {
 
   const openProject = (project: ProjectOut) => {
     if (openingProject) return;
+    setLastOpenedProjectId(project.id);
+    window.localStorage.setItem(
+      LAST_OPENED_PROJECT_STORAGE_KEY,
+      String(project.id),
+    );
     setOpeningProject(project);
     router.push(`/projects/${project.id}/assess`);
   };
