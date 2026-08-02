@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Eraser, FileUp, House, Search } from "lucide-react";
+import { ChevronDown, Eraser, FileUp, Search } from "lucide-react";
 import { toast } from "sonner";
 import { SemanticIcon, type SemanticIconName } from "@/components/SemanticIcon";
 
@@ -44,6 +44,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   assessmentStartProblem,
   formulaReadinessProblem,
@@ -163,8 +169,19 @@ const WATER_BASED_TYPES = new Set([
   "ครีมกันแดด",
 ]);
 
+const LEFT_SIDEBAR_DEFAULT_WIDTH = 300;
+const LEFT_SIDEBAR_MIN_WIDTH = 260;
+const LEFT_SIDEBAR_MAX_WIDTH = 420;
+
+const clampLeftSidebarWidth = (width: number) =>
+  Math.min(LEFT_SIDEBAR_MAX_WIDTH, Math.max(LEFT_SIDEBAR_MIN_WIDTH, width));
+
 export default function StudioPage() {
   const router = useRouter();
+  const workspaceShellRef = useRef<HTMLDivElement>(null);
+  const leftSidebarWidthRef = useRef(LEFT_SIDEBAR_DEFAULT_WIDTH);
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH);
+  const [isLeftSidebarResizing, setIsLeftSidebarResizing] = useState(false);
   const [projectId, setProjectId] = useState<number | null>(null);
   const [project, setProject] = useState<ProjectOut | null>(null);
   const [projectContextStatus, setProjectContextStatus] = useState<"loading" | "ready" | "standalone">("loading");
@@ -1401,35 +1418,146 @@ export default function StudioPage() {
     }
   };
 
+  const applyLeftSidebarWidth = (width: number) => {
+    const nextWidth = clampLeftSidebarWidth(width);
+    leftSidebarWidthRef.current = nextWidth;
+    workspaceShellRef.current?.style.setProperty("--left-sidebar-width", `${nextWidth}px`);
+    return nextWidth;
+  };
+
+  const beginLeftSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const pointerId = event.pointerId;
+    const startX = event.clientX;
+    const startWidth = leftSidebarWidthRef.current;
+    let nextWidth = startWidth;
+    let animationFrame = 0;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+
+    handle.setPointerCapture(pointerId);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    setIsLeftSidebarResizing(true);
+
+    const renderWidth = () => {
+      animationFrame = 0;
+      applyLeftSidebarWidth(nextWidth);
+    };
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      nextWidth = clampLeftSidebarWidth(startWidth + moveEvent.clientX - startX);
+      if (!animationFrame) animationFrame = window.requestAnimationFrame(renderWidth);
+    };
+
+    const finishResize = () => {
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      nextWidth = applyLeftSidebarWidth(nextWidth);
+      setLeftSidebarWidth(nextWidth);
+      setIsLeftSidebarResizing(false);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", finishResize);
+      window.removeEventListener("pointercancel", finishResize);
+      if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", finishResize);
+    window.addEventListener("pointercancel", finishResize);
+  };
+
+  const resizeLeftSidebarWithKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    let nextWidth: number | null = null;
+    const step = event.shiftKey ? 24 : 12;
+
+    if (event.key === "ArrowLeft") nextWidth = leftSidebarWidthRef.current - step;
+    if (event.key === "ArrowRight") nextWidth = leftSidebarWidthRef.current + step;
+    if (event.key === "Home") nextWidth = LEFT_SIDEBAR_MIN_WIDTH;
+    if (event.key === "End") nextWidth = LEFT_SIDEBAR_MAX_WIDTH;
+    if (nextWidth === null) return;
+
+    event.preventDefault();
+    nextWidth = applyLeftSidebarWidth(nextWidth);
+    setLeftSidebarWidth(nextWidth);
+  };
+
   return (
-    <div className="app-light isolate flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      {/* Temporary assess UI preview — same RalphGuard theme, clearer workflow. */}
-      <header className="relative z-40 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-4 shadow-sm">
-        {/* logo */}
-        <div className="mr-1 flex items-center gap-2 pr-2">
-          <img
-            src="/icons/logo.png"
-            alt="RalphGuard Logo"
-            className="size-8 rounded-xl object-contain overflow-hidden shadow-sm"
-          />
-          <div className="leading-tight">
-            <span className="block font-display text-sm font-bold">Ralph<span className="text-brand">Guard</span></span>
-            <span className="block text-[9px] font-medium uppercase tracking-[0.14em] text-slate-400">Assessment Studio</span>
-          </div>
-        </div>
+    <div
+      ref={workspaceShellRef}
+      className={`app-light relative isolate grid h-screen grid-rows-[3.5rem_minmax(0,1fr)] overflow-hidden bg-background text-foreground ${
+        isLeftSidebarResizing ? "select-none" : ""
+      }`}
+      style={
+        {
+          "--left-sidebar-width": `${leftSidebarWidth}px`,
+          gridTemplateColumns: "var(--left-sidebar-width) minmax(0,1fr) 20rem",
+        } as React.CSSProperties
+      }
+    >
+      {/* Left sidebar header */}
+      <div className="relative z-40 col-start-1 row-start-1 flex items-center border-r border-border bg-card px-4">
+        <TooltipProvider delayDuration={450}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a
+                href="/projects"
+                aria-label="กลับไปหน้าโปรเจกต์ทั้งหมด"
+                className="flex min-w-0 items-center gap-2 rounded-xl px-1.5 py-1 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                <img
+                  src="/icons/logo.png"
+                  alt=""
+                  aria-hidden="true"
+                  className="size-8 object-contain"
+                />
+                <div className="min-w-0 leading-none">
+                  <div className="truncate text-sm font-semibold text-slate-800">
+                    Ralph<span className="text-brand">Guard</span>
+                  </div>
+                  <div className="mt-1 truncate text-[9px] font-medium uppercase tracking-[0.12em] text-slate-400">
+                    Assessment Studio
+                  </div>
+                </div>
+              </a>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">กลับไปหน้าโปรเจกต์ทั้งหมด</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
 
-        <a
-          href="/projects"
-          className="flex h-9 items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition hover:border-primary/35 hover:bg-accent hover:text-accent-foreground"
-          title="กลับหน้าแรก"
-          aria-label="กลับหน้าแรก"
-        >
-          <House className="size-4" />
-          <span className="hidden lg:inline">หน้าแรก</span>
-        </a>
+      <div
+        role="separator"
+        aria-label="ปรับความกว้างแถบสูตร"
+        aria-orientation="vertical"
+        aria-valuemin={LEFT_SIDEBAR_MIN_WIDTH}
+        aria-valuemax={LEFT_SIDEBAR_MAX_WIDTH}
+        aria-valuenow={leftSidebarWidth}
+        tabIndex={0}
+        title="ลากเพื่อปรับความกว้างแถบสูตร"
+        onPointerDown={beginLeftSidebarResize}
+        onKeyDown={resizeLeftSidebarWithKeyboard}
+        className="group absolute inset-y-0 z-50 w-2 -translate-x-1/2 touch-none cursor-col-resize focus-visible:outline-none"
+        style={{ left: "var(--left-sidebar-width)" }}
+      >
+        <span
+          aria-hidden="true"
+          className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-150 ${
+            isLeftSidebarResizing
+              ? "bg-brand"
+              : "bg-transparent group-hover:bg-brand/60 group-focus-visible:bg-brand"
+          }`}
+        />
+      </div>
 
-        {/* tabs */}
-        <div className="flex items-center rounded-xl bg-muted p-1">
+      {/* Main content top app bar */}
+      <header className="sticky top-0 z-40 col-start-2 row-start-1 flex min-w-0 items-center border-b border-border bg-card px-4 shadow-sm">
+        {/* Primary modes stay visually centered regardless of left/right actions. */}
+        <div className="absolute left-1/2 top-1/2 flex max-w-[calc(100%-8rem)] -translate-x-1/2 -translate-y-1/2 items-center rounded-xl bg-muted p-1">
           {(
             [
               ["assess", "ประเมิน", "flask"],
@@ -1454,31 +1582,17 @@ export default function StudioPage() {
             );
           })}
         </div>
-
-        {mode === "assess" && (
-          <div className="ml-2 hidden items-center gap-1.5 xl:flex">
-            <WorkflowChip step="1" label="สูตร" done={Boolean(activeFormula)} active={!activeFormula} />
-            <span className="h-px w-2 bg-slate-200" />
-            <WorkflowChip step="2" label="สาร" done={formulaReady} active={Boolean(activeFormula) && !formulaReady} />
-            <span className="h-px w-2 bg-slate-200" />
-            <WorkflowChip step="3" label="ทาโมเดล" done={hasActivePaint} active={formulaReady && !hasActivePaint} />
-            <span className="h-px w-2 bg-slate-200" />
-            <WorkflowChip step="4" label={assessing ? "กำลังประเมิน" : "ประเมิน"} done={completed} active={hasActivePaint && !completed} />
-            <span className="h-px w-2 bg-slate-200" />
-            <WorkflowChip step="5" label="ผลลัพธ์" done={completed} active={completed} />
-          </div>
-        )}
-
-        {/* right actions */}
-        <div className="ml-auto flex items-center gap-2">
-          <button onClick={exportPdf} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-brand hover:text-brand" title="ส่งออกรายงาน PDF จากข้อมูลการประเมิน">
-            PDF
-          </button>
-        </div>
       </header>
 
-      {/* ── Body ── */}
-      <div className="relative z-0 flex min-h-0 flex-1">
+      {/* Right sidebar header */}
+      <div className="relative z-40 col-start-3 row-start-1 flex items-center justify-end border-l border-border bg-card px-4">
+        <button onClick={exportPdf} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-brand hover:text-brand" title="ส่งออกรายงาน PDF จากข้อมูลการประเมิน">
+          PDF
+        </button>
+      </div>
+
+      {/* Three independent columns */}
+      <div className="contents">
         {/* Icon rail */}
         <nav className="hidden w-12 shrink-0 flex-col items-center gap-1 border-r border-slate-200 bg-white py-3">
           {[
@@ -1510,17 +1624,7 @@ export default function StudioPage() {
         </nav>
 
         {/* Left panel — Pages + Layers */}
-        <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-border bg-card">
-          <div className="border-b border-slate-200 px-4 py-3">
-            <div className="font-display text-sm font-semibold">การประเมินสารเคมี</div>
-            {project && (
-              <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-400">
-                <span className="size-1.5 rounded-full bg-emerald-500" />
-                <span className="truncate">บันทึกผลใน {project.name}</span>
-              </div>
-            )}
-          </div>
-
+        <aside className="col-start-1 row-start-2 flex h-full min-h-0 w-full flex-col overflow-y-auto border-r border-border bg-card">
           <Section title="สูตรที่สร้าง">
             <div className="space-y-1">
               {formulas.map((f) => (
@@ -1647,7 +1751,7 @@ export default function StudioPage() {
         </aside>
 
         {/* Center canvas */}
-        <main className="relative flex min-w-0 flex-1 overflow-hidden bg-background">
+        <main className="relative col-start-2 row-start-2 flex min-h-0 min-w-0 overflow-hidden bg-background">
           {mode === "assess" && (
             <Viewport
               panelOpen={formulaPanelOpen}
@@ -2013,7 +2117,7 @@ export default function StudioPage() {
         </main>
 
         {/* Right inspector */}
-        <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-l border-border bg-card">
+        <aside className="col-start-3 row-start-2 flex h-full min-h-0 w-full flex-col overflow-y-auto border-l border-border bg-card">
           {mode === "trust" ? (
             <div className="p-4 text-xs leading-relaxed text-slate-800/55">
               เลือก <b>Pages › ประเมินความเสี่ยง</b> เพื่อแก้สูตรและดูผลบนหุ่น 3D
@@ -2599,35 +2703,6 @@ function SubstanceLibraryPicker({ onSelect }: { onSelect: (item: CatalogItem) =>
         </div>
       </PopoverContent>
     </Popover>
-  );
-}
-
-function WorkflowChip({
-  step,
-  label,
-  done,
-  active,
-}: {
-  step: string;
-  label: string;
-  done: boolean;
-  active: boolean;
-}) {
-  return (
-    <div className={`flex items-center gap-1.5 text-[10px] ${active ? "font-semibold text-brand-dark" : "text-slate-400"}`}>
-      <span
-        className={`grid size-5 place-items-center rounded-full text-[9px] font-bold ${
-          done
-            ? "bg-brand text-white"
-            : active
-              ? "border border-brand bg-teal-50 text-brand"
-              : "border border-slate-200 bg-white text-slate-400"
-        }`}
-      >
-        {done ? <SemanticIcon name="check" className="size-3" /> : step}
-      </span>
-      <span>{label}</span>
-    </div>
   );
 }
 
