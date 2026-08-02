@@ -44,7 +44,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { assessmentStartProblem } from "@/lib/assessment-preconditions";
+import {
+  assessmentStartProblem,
+  formulaReadinessProblem,
+} from "@/lib/assessment-preconditions";
 import {
   assessmentPollDelay,
   assessmentPollExpired,
@@ -353,6 +356,25 @@ export default function StudioPage() {
     };
   }, [projectId, projectContextStatus, workspaceHydrated]);
 
+  const activeSubstances = useMemo(
+    () =>
+      formula.filter(
+        (item) =>
+          !isWaterItem(item) &&
+          Boolean(item.name?.trim() || item.smiles.trim()),
+      ),
+    [formula],
+  );
+  const formulaReadinessIssue = formulaReadinessProblem({
+    projectStatus: projectContextStatus,
+    hasProjectId: projectId !== null,
+    hasSelectedFormula: Boolean(activeFormula),
+    substances: activeSubstances,
+  });
+  const formulaReady = formulaReadinessIssue === null;
+  const activePaintSnapshot = paintByFormulaId[activeId];
+  const hasActivePaint = activePaintSnapshot?.hasPaint === true;
+
   const currentActiveInputSignature = formulaAssessmentSignature(formula, region);
   const storedActiveAssessmentSnapshot = assessmentByFormulaId[activeId];
   const activeAssessmentSnapshot =
@@ -430,8 +452,13 @@ export default function StudioPage() {
       }),
     [developerTestScores],
   );
-  const modelReady = completed || developerTestEnabled;
+  const resultReady = completed || developerTestEnabled;
+  const paintReady = formulaReady || developerTestEnabled;
   const modelLayers = developerTestEnabled ? developerTestLayers : paintLayers;
+
+  useEffect(() => {
+    if (!hasActivePaint) setEraseMode(false);
+  }, [activeId, hasActivePaint]);
 
   // Per-substance confidence / applicability-domain (worst endpoint), keyed by SMILES.
   const subConf = useMemo(() => {
@@ -644,6 +671,7 @@ export default function StudioPage() {
       hasProjectId: projectId !== null,
       hasSelectedFormula: Boolean(selectedFormula),
       substances,
+      hasPaint: paintByFormulaId[formulaId]?.hasPaint === true,
       isSubmitting: submittingFormulaIds.includes(formulaId),
       hasPendingJob,
     });
@@ -1429,11 +1457,15 @@ export default function StudioPage() {
 
         {mode === "assess" && (
           <div className="ml-2 hidden items-center gap-1.5 xl:flex">
-            <WorkflowChip step="1" label="เตรียมสูตร" done={formula.length > 0} active={!jobId} />
-            <span className="h-px w-4 bg-slate-200" />
-            <WorkflowChip step="2" label={assessing ? "กำลังประเมิน" : "ประเมิน"} done={completed} active={assessing} />
-            <span className="h-px w-4 bg-slate-200" />
-            <WorkflowChip step="3" label="ดูผลลัพธ์" done={completed} active={completed} />
+            <WorkflowChip step="1" label="สูตร" done={Boolean(activeFormula)} active={!activeFormula} />
+            <span className="h-px w-2 bg-slate-200" />
+            <WorkflowChip step="2" label="สาร" done={formulaReady} active={Boolean(activeFormula) && !formulaReady} />
+            <span className="h-px w-2 bg-slate-200" />
+            <WorkflowChip step="3" label="ทาโมเดล" done={hasActivePaint} active={formulaReady && !hasActivePaint} />
+            <span className="h-px w-2 bg-slate-200" />
+            <WorkflowChip step="4" label={assessing ? "กำลังประเมิน" : "ประเมิน"} done={completed} active={hasActivePaint && !completed} />
+            <span className="h-px w-2 bg-slate-200" />
+            <WorkflowChip step="5" label="ผลลัพธ์" done={completed} active={completed} />
           </div>
         )}
 
@@ -1635,7 +1667,11 @@ export default function StudioPage() {
               }}
               dayIdx={dayIdx}
               region={region}
-              ready={modelReady}
+              paintReady={paintReady}
+              resultReady={resultReady}
+              hasPaint={hasActivePaint}
+              assessing={assessing}
+              readinessIssue={formulaReadinessIssue}
               developerPreview={developerTestEnabled}
               productName={developerTestEnabled ? `${productName} · ค่าทดสอบ` : productName}
               layers={modelLayers}
@@ -1942,15 +1978,15 @@ export default function StudioPage() {
           )}
           {mode === "trust" && <TrustReport />}
 
-          {/* Painting and erasing unlock only after this formula has a completed assessment. */}
+          {/* Paint follows formula readiness; assessment follows paint ownership. */}
           {mode === "assess" && (
             <div className="pointer-events-none absolute bottom-4 right-4 z-40 print:hidden">
               <div className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-soft backdrop-blur">
                 <button
                   type="button"
                   onClick={() => setEraseMode((value) => !value)}
-                  disabled={!modelReady}
-                  title={!modelReady ? "ต้องประเมินสูตรหรือเปิดโหมดทดสอบก่อน" : eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบระบาย"}
+                  disabled={!hasActivePaint}
+                  title={!hasActivePaint ? "สูตรที่เลือกยังไม่มีรอยทา" : eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบระบาย"}
                   aria-pressed={eraseMode}
                   className={`flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-semibold transition ${
                     eraseMode
@@ -2015,7 +2051,7 @@ export default function StudioPage() {
                 />
               </Section>
 
-              <Section title="3 · ผลการประเมิน" className="order-1">
+              <Section title="5 · ผลการประเมิน" className="order-1">
                 <div className="mb-3 rounded-xl border border-dashed border-violet-300 bg-violet-50/70 p-2.5 print:hidden">
                   <div className="flex items-center gap-2">
                     <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-violet-100 text-violet-700">
@@ -2112,7 +2148,7 @@ export default function StudioPage() {
                       })}
 
                       <div className="rounded-lg bg-white/80 px-2 py-1.5 text-[9px] leading-snug text-violet-700">
-                        Paint บริเวณบนโมเดล แล้วเลื่อนคะแนนเพื่อดูอาการเปลี่ยนทันที ค่าพิษเฉียบพลันเป็นผลเชิงระบบ จึงไม่สร้างรอยผิวเฉพาะจุด
+                        ทาบริเวณบนโมเดล แล้วเลื่อนคะแนนเพื่อดูอาการเปลี่ยนทันที ค่าพิษเฉียบพลันเป็นผลเชิงระบบ จึงไม่สร้างรอยผิวเฉพาะจุด
                       </div>
                     </div>
                   )}
@@ -2123,7 +2159,12 @@ export default function StudioPage() {
                     <SemanticIcon name="flask" className="size-6 text-slate-800/20" />
                     <p className="text-xs text-slate-800/50">
                       {jobId ? "กำลังประเมิน…" : "ยังไม่ได้ประเมิน"}
-                      <br />เลือกสูตร + บริเวณ แล้วกด <span className="text-brand">ประเมินสูตรด้านขวาล่าง</span>
+                      <br />
+                      {hasActivePaint ? (
+                        <>รอยทาพร้อมแล้ว กด <span className="text-brand">ประเมินสูตรด้านขวาล่าง</span></>
+                      ) : (
+                        <>เตรียมสูตร แล้วทาครีมลงบนผิวโมเดลก่อน</>
+                      )}
                     </p>
                   </div>
                 )}
@@ -2616,7 +2657,11 @@ function Viewport({
   onPaintBlocked,
   dayIdx,
   region,
-  ready,
+  paintReady,
+  resultReady,
+  hasPaint,
+  assessing,
+  readinessIssue,
   developerPreview,
   productName,
   layers,
@@ -2630,7 +2675,11 @@ function Viewport({
   onPaintBlocked: () => void;
   dayIdx: number;
   region: Region;
-  ready: boolean;
+  paintReady: boolean;
+  resultReady: boolean;
+  hasPaint: boolean;
+  assessing: boolean;
+  readinessIssue: string | null;
   developerPreview: boolean;
   productName: string;
   layers: { key: string; label: string; score: number; color: string; band: string }[];
@@ -2644,20 +2693,26 @@ function Viewport({
             panelOpen ? "translate-x-72" : "translate-x-0"
           }`}
         >
-          <span className="grid size-6 place-items-center rounded-lg bg-teal-50 text-xs font-bold text-brand">2</span>
-          <div>
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
-              ดูผลบนโมเดล
+            <span className="grid size-6 place-items-center rounded-lg bg-teal-50 text-xs font-bold text-brand">3</span>
+            <div>
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
+              ทาบนโมเดล
               {developerPreview && (
                 <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[8px] font-bold text-violet-700">DEV TEST</span>
               )}
             </div>
             <div className="text-[9px] text-slate-400">
               {developerPreview
-                ? "ค่าทดสอบ · Paint แล้วปรับคะแนนด้านขวา"
-                : ready
-                  ? `Day ${DAY_LABELS[dayIdx]} · Paint แล้ว hover เพื่อดูตำแหน่ง`
-                  : "กดประเมินสูตรก่อน จึงจะ Paint บนโมเดลได้"}
+                ? "ค่าทดสอบ · ทาแล้วปรับคะแนนด้านขวา"
+                : resultReady
+                  ? `Day ${DAY_LABELS[dayIdx]} · ทาแล้วชี้ค้างเพื่อดูตำแหน่ง`
+                  : assessing
+                    ? "กำลังวิเคราะห์สูตร · รอยทาจะยังอยู่บนโมเดล"
+                    : hasPaint
+                      ? "รอยทาพร้อมแล้ว · กดประเมินสูตรเพื่อดูผล"
+                      : paintReady
+                        ? "ลากบนผิวเพื่อทาครีม แล้วจึงเริ่มประเมิน"
+                        : readinessIssue ?? "เตรียมสูตรให้พร้อมก่อนทาบนโมเดล"}
             </div>
           </div>
         </div>
@@ -2669,7 +2724,8 @@ function Viewport({
           <FaceView
             paintOwnerKey={paintOwnerKey}
             layers={layers}
-            armed={ready}
+            armed={paintReady}
+            revealResults={resultReady}
             productName={productName}
             eraseMode={eraseMode}
             background="#F4F1EE"
@@ -2679,16 +2735,32 @@ function Viewport({
             onPaintBlocked={onPaintBlocked}
           />
         </div>
-        {!ready && (
+        {!resultReady && (
           <div className="pointer-events-none absolute right-4 top-4 z-10 rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-right shadow-sm backdrop-blur">
-            <div className="text-[11px] font-semibold text-slate-600">พร้อมประเมินสูตร</div>
+            <div className="text-[11px] font-semibold text-slate-600">
+              {assessing
+                ? "กำลังวิเคราะห์สูตร"
+                : hasPaint
+                  ? "พร้อมประเมินสูตร"
+                  : paintReady
+                    ? "พร้อมทาบนโมเดล"
+                    : "เตรียมสูตรก่อนทดสอบ"}
+            </div>
             <div className="mt-0.5 text-[9px] text-slate-400">
-              บริเวณ <span className="font-medium text-brand">{REGIONS.find((r) => r.value === region)?.label}</span> · กด “ประเมินสูตร” ด้านขวาล่าง
+              {assessing ? (
+                <>กรุณารอผลจาก Backend โดยไม่ต้องทาซ้ำ</>
+              ) : hasPaint ? (
+                <>บริเวณ <span className="font-medium text-brand">{REGIONS.find((r) => r.value === region)?.label}</span> · กด “ประเมินสูตร” ด้านขวาล่าง</>
+              ) : paintReady ? (
+                <>บริเวณ <span className="font-medium text-brand">{REGIONS.find((r) => r.value === region)?.label}</span> · ลากบนผิวเพื่อวางรอยครีม</>
+              ) : (
+                <>{readinessIssue ?? "เพิ่มสารและตรวจสัดส่วนให้พร้อม"}</>
+              )}
             </div>
           </div>
         )}
         {/* Risk legend */}
-        {ready && (
+        {resultReady && (
           <div
             className={`absolute bottom-3 left-3 flex gap-3 rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-[11px] backdrop-blur transition-transform duration-300 ease-in-out motion-reduce:transition-none ${
               panelOpen ? "translate-x-72" : "translate-x-0"

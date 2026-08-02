@@ -69,6 +69,7 @@ export function SymptomFaceCanvas({
   paintOwnerKey,
   layers = [],
   armed = true,
+  revealResults = false,
   background = "#F4F1EE",
   productName = "สูตรที่ประเมิน",
   eraseMode = false,
@@ -80,6 +81,7 @@ export function SymptomFaceCanvas({
   paintOwnerKey: string;
   layers?: PaintLayer[];
   armed?: boolean;
+  revealResults?: boolean;
   background?: string;
   productName?: string;
   eraseMode?: boolean;
@@ -155,13 +157,16 @@ export function SymptomFaceCanvas({
     },
     [],
   );
-  // When armed (assessment done) just ENABLE reveal — nothing shows until the
-  // user paints; painted spots then develop the mapped symptom immediately.
+  // Painting is armed as soon as the formula is scientifically ready. Before
+  // assessment the endpoint severities are zero, so only the white exposure
+  // layer appears; completed results reveal symptoms over the same masks.
   useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => apiRef.current?.run(), 80);
+    const t = setTimeout(() => {
+      if (revealResults) apiRef.current?.run();
+      else apiRef.current?.conceal();
+    }, 80);
     return () => clearTimeout(t);
-  }, [armed, skin, eye, sens, acute]);
+  }, [revealResults, skin, eye, sens, acute]);
 
   return (
     <div className="relative h-full w-full">
@@ -212,8 +217,9 @@ export function SymptomFaceCanvas({
         />
       </Canvas>
       {armed && (
-        <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-semibold tracking-wide text-slate-700">
-          ▦ ลากบนผิวเพื่อวาง Grid Scan
+        <div className="pointer-events-none absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-semibold tracking-wide text-slate-700">
+          <SemanticIcon name="scan" className="size-3" />
+          <span>ลากบนผิวเพื่อวาง Grid Scan</span>
         </div>
       )}
 

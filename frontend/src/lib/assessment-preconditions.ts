@@ -2,23 +2,31 @@ import type { FormulaItem } from "@/lib/api";
 
 export type ProjectContextStatus = "loading" | "ready" | "standalone";
 
-export type AssessmentPreconditionInput = {
+export type FormulaReadinessInput = {
   projectStatus: ProjectContextStatus;
   hasProjectId: boolean;
   hasSelectedFormula: boolean;
   substances: FormulaItem[];
+};
+
+export type AssessmentPreconditionInput = FormulaReadinessInput & {
+  hasPaint: boolean;
   isSubmitting: boolean;
   hasPendingJob: boolean;
 };
 
-export function assessmentStartProblem({
+/**
+ * Shared scientific input gate for both painting and assessment.
+ *
+ * Painting will use this contract before it is unlocked in the new workflow;
+ * assessment adds paint ownership and duplicate-job checks on top in A1.
+ */
+export function formulaReadinessProblem({
   projectStatus,
   hasProjectId,
   hasSelectedFormula,
   substances,
-  isSubmitting,
-  hasPendingJob,
-}: AssessmentPreconditionInput): string | null {
+}: FormulaReadinessInput): string | null {
   if (projectStatus === "loading") {
     return "กำลังตรวจสอบข้อมูลโปรเจกต์ กรุณารอสักครู่";
   }
@@ -53,6 +61,17 @@ export function assessmentStartProblem({
   );
   if (total > 100.0001) {
     return `ผลรวมความเข้มข้นเกิน 100% (${total.toFixed(2)}%)`;
+  }
+  return null;
+}
+
+export function assessmentStartProblem(input: AssessmentPreconditionInput): string | null {
+  const formulaProblem = formulaReadinessProblem(input);
+  if (formulaProblem) return formulaProblem;
+
+  const { hasPaint, isSubmitting, hasPendingJob } = input;
+  if (!hasPaint) {
+    return "กรุณาทาครีมลงบนผิวโมเดลก่อนเริ่มประเมิน";
   }
   if (isSubmitting || hasPendingJob) {
     return "กล่องสูตรนี้กำลังวิเคราะห์อยู่ กรุณารอผลก่อน";

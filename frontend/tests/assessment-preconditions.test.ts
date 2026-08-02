@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { assessmentStartProblem } from "../src/lib/assessment-preconditions.ts";
+import {
+  assessmentStartProblem,
+  formulaReadinessProblem,
+} from "../src/lib/assessment-preconditions.ts";
 
 const validSubstance = {
   name: "Ethanol",
@@ -14,12 +17,35 @@ const validInput = () => ({
   hasProjectId: true,
   hasSelectedFormula: true,
   substances: [validSubstance],
+  hasPaint: true,
   isSubmitting: false,
   hasPendingJob: false,
 });
 
 test("accepts a complete assessment start state", () => {
   assert.equal(assessmentStartProblem(validInput()), null);
+});
+
+test("uses one ordered formula-readiness contract before painting or assessment", () => {
+  assert.equal(formulaReadinessProblem(validInput()), null);
+  assert.match(
+    formulaReadinessProblem({
+      ...validInput(),
+      projectStatus: "standalone",
+      hasProjectId: false,
+      hasSelectedFormula: false,
+      substances: [],
+    }) ?? "",
+    /เปิดโปรเจกต์/,
+  );
+  assert.match(
+    formulaReadinessProblem({ ...validInput(), hasSelectedFormula: false }) ?? "",
+    /เลือกกล่องสูตร/,
+  );
+  assert.match(
+    formulaReadinessProblem({ ...validInput(), substances: [] }) ?? "",
+    /เพิ่มสาร/,
+  );
 });
 
 test("returns the first actionable missing precondition", () => {
@@ -69,8 +95,7 @@ test("rejects missing structures and invalid concentrations", () => {
   );
 });
 
-test("allows assessment before painting and rejects duplicate work", () => {
-  assert.equal(assessmentStartProblem(validInput()), null);
+test("rejects duplicate assessment work after formula validation", () => {
   assert.match(
     assessmentStartProblem({ ...validInput(), isSubmitting: true }) ?? "",
     /กำลังวิเคราะห์/,
@@ -78,5 +103,12 @@ test("allows assessment before painting and rejects duplicate work", () => {
   assert.match(
     assessmentStartProblem({ ...validInput(), hasPendingJob: true }) ?? "",
     /กำลังวิเคราะห์/,
+  );
+});
+
+test("requires paint from the selected formula before assessment", () => {
+  assert.match(
+    assessmentStartProblem({ ...validInput(), hasPaint: false }) ?? "",
+    /ทาครีมลงบนผิวโมเดล/,
   );
 });

@@ -151,6 +151,7 @@ vec2 worley(vec3 P, float freq, float seed){
 
 export type PaintApi = {
   clear: () => void;
+  conceal: () => void;
   run: () => void;
   fillAll: () => void;
   snapshot: () => PaintMaskSnapshot;
@@ -1158,6 +1159,11 @@ roughnessFactor = clamp(
           revealRefs[k].current.value = 0;
         });
         notifyPaintChange();
+      },
+      conceal: () => {
+        SKIN_KEYS.forEach((k) => {
+          revealTargets.current[k] = 0;
+        });
       },
       run: () => {
         // One press reveals every painted symptom (empty masks show nothing).
