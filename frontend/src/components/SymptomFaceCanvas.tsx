@@ -65,6 +65,16 @@ const regionSensitivity = (region: string) => {
   return 1;
 };
 
+const compactRegionLabel = (region: string) => {
+  if (region === "ปาก / ริมฝีปาก") return "ปาก";
+  if (region === "ตา / คิ้ว") return "ตา";
+  if (region.startsWith("หลังใบหู")) return "หลังหู";
+  if (region.startsWith("หู")) return "หู";
+  if (region === "หลังศีรษะ") return "หลังหัว";
+  if (region === "หนังศีรษะ") return "ศีรษะ";
+  return region;
+};
+
 export function SymptomFaceCanvas({
   paintOwnerKey,
   layers = [],
@@ -73,6 +83,8 @@ export function SymptomFaceCanvas({
   background = "#F4F1EE",
   productName = "สูตรที่ประเมิน",
   eraseMode = false,
+  brushSizePct = 50,
+  clearPaintRequest = 0,
   initialPaint = null,
   onPaintChange,
   occupiedPaint = [],
@@ -85,6 +97,8 @@ export function SymptomFaceCanvas({
   background?: string;
   productName?: string;
   eraseMode?: boolean;
+  brushSizePct?: number;
+  clearPaintRequest?: number;
   initialPaint?: PaintMaskSnapshot | null;
   onPaintChange?: (snapshot: PaintMaskSnapshot) => void;
   occupiedPaint?: PaintMaskSnapshot[];
@@ -122,6 +136,8 @@ export function SymptomFaceCanvas({
   }, [sev]);
 
   const apiRef = useRef<PaintApi | null>(null);
+  const lastClearPaintRequestRef = useRef(clearPaintRequest);
+  const [hasExposurePaint, setHasExposurePaint] = useState(initialPaint?.hasPaint === true);
   const [tip, setTip] = useState<PaintHoverInfo | null>(null);
   const hoverPos = useRef<PaintHoverInfo | null>(null);
   const tipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -157,6 +173,19 @@ export function SymptomFaceCanvas({
     },
     [],
   );
+  useEffect(() => {
+    if (clearPaintRequest === lastClearPaintRequestRef.current) return;
+    lastClearPaintRequestRef.current = clearPaintRequest;
+    apiRef.current?.clear();
+  }, [clearPaintRequest]);
+  useEffect(() => {
+    setHasExposurePaint(initialPaint?.hasPaint === true);
+  }, [paintOwnerKey, initialPaint?.hasPaint]);
+
+  const handlePaintChange = (snapshot: PaintMaskSnapshot) => {
+    setHasExposurePaint(snapshot.hasPaint === true);
+    onPaintChange?.(snapshot);
+  };
   // Painting is armed as soon as the formula is scientifically ready. Before
   // assessment the endpoint severities are zero, so only the white exposure
   // layer appears; completed results reveal symptoms over the same masks.
@@ -192,15 +221,15 @@ export function SymptomFaceCanvas({
             activeSymptom={dominant}
             paintSymptoms={ASSESSMENT_PAINT_SYMPTOMS}
             sev={sev}
-            brushSizePct={50}
-            eyeLeft={eyeRed}
-            eyeRight={eyeRed}
-            acuteSystemic={acuteSystemic}
+            brushSizePct={brushSizePct}
+            eyeLeft={hasExposurePaint ? eyeRed : 0}
+            eyeRight={hasExposurePaint ? eyeRed : 0}
+            acuteSystemic={hasExposurePaint ? acuteSystemic : 0}
             eraseMode={eraseMode}
             apiRef={apiRef}
             onHover={handleHover}
             initialPaint={initialPaint}
-            onPaintChange={onPaintChange}
+            onPaintChange={handlePaintChange}
             occupiedPaint={occupiedPaint}
             onPaintBlocked={onPaintBlocked}
             cameraDistanceScale={1.15}
@@ -216,35 +245,47 @@ export function SymptomFaceCanvas({
           maxPolarAngle={Math.PI / 2}
         />
       </Canvas>
-      {armed && (
-        <div className="pointer-events-none absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-semibold tracking-wide text-slate-700">
-          <SemanticIcon name="scan" className="size-3" />
-          <span>ลากบนผิวเพื่อวาง Grid Scan</span>
-        </div>
-      )}
-
       {tip && (
         <div
-          className="pointer-events-none absolute z-20 w-56 rounded-xl border border-teal-200/80 bg-white/95 p-3 text-slate-800 shadow-xl backdrop-blur"
+          className="pointer-events-none absolute z-20 w-60 overflow-hidden rounded-2xl border border-slate-200/90 bg-white/95 text-slate-800 shadow-lg backdrop-blur"
           style={{
-            left: `min(calc(100% - 14rem - 8px), ${tip.x + 14}px)`,
-            top: `min(calc(100% - 11rem), ${tip.y + 14}px)`,
+            left: `min(calc(100% - 15rem - 8px), ${tip.x + 14}px)`,
+            top: `min(calc(100% - 11.5rem - 8px), ${tip.y + 14}px)`,
           }}
         >
-          <div className="flex items-center gap-1 truncate text-xs font-semibold"><SemanticIcon name="spray" className="size-3.5 shrink-0" /> {productName}</div>
-          <div className="mt-0.5 flex items-center gap-1 text-[11px] text-teal-700">
-            <span>ตำแหน่ง:</span>
-            <span className="font-semibold">{tip.region}</span>
+          <div className="p-3">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-teal-50 text-brand">
+                <SemanticIcon name="flask" className="size-4" />
+              </span>
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-xs font-semibold text-slate-800">{productName}</span>
+                <span
+                  className="shrink-0 rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-700"
+                  aria-label={`บริเวณ ${tip.region}`}
+                >
+                  {compactRegionLabel(tip.region)}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-2.5 flex items-center gap-1.5 text-[10px] text-slate-500">
+              <span
+                className={`size-1.5 shrink-0 rounded-full ${visibleSymptoms.length || acuteSystemic > 0.001 ? "bg-emerald-500" : "bg-slate-300"}`}
+              />
+              <span>
+                {visibleSymptoms.length || acuteSystemic > 0.001
+                  ? `${visibleSymptoms.length + (acuteSystemic > 0.001 ? 1 : 0)} อาการกำลังแสดงตามช่วงเวลา`
+                  : "ยังไม่แสดงอาการในช่วงเวลานี้"}
+              </span>
+            </div>
           </div>
-          <div className="mt-1 text-[10px] text-slate-500">
-            {visibleSymptoms.length || acuteSystemic > 0.001
-              ? `อาการที่แสดงตามเวลานี้: ${[
-                  ...visibleSymptoms.map((key) => SYMPTOM_LABEL[key]),
-                  ...(acuteSystemic > 0.001 ? ["ผิวซีด/หมองและชื้น (ภาพแทนผลเชิงระบบ)"] : []),
-                ].join(", ")}`
-              : "ยังไม่แสดงอาการในช่วงเวลานี้"}
-          </div>
-          <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">
+
+          <div className="border-t border-slate-100 bg-slate-50/70 px-3 py-2.5">
+            <div className="mb-1.5 flex items-center justify-between text-[9px] font-medium text-slate-400">
+              <span>ผลประเมินบริเวณนี้</span>
+              <span>คะแนน</span>
+            </div>
             {layers
               .filter((layer) => regionEndpoints(tip.region).includes(layer.key))
               .map((layer) => {
@@ -255,19 +296,19 @@ export function SymptomFaceCanvas({
                 const band =
                   score < 25 ? "low" : score < 50 ? "moderate" : score < 75 ? "high" : "severe";
                 return (
-                  <div key={layer.key} className="flex items-center justify-between gap-2 text-[11px]">
-                    <span className="flex min-w-0 items-center gap-1.5 text-slate-500">
+                  <div key={layer.key} className="flex min-h-6 items-center justify-between gap-2 border-t border-slate-100 first:border-t-0 text-[10px]">
+                    <span className="flex min-w-0 items-center gap-1.5 text-slate-600">
                       <span className="size-2 shrink-0 rounded-full" style={{ background: layer.color }} />
                       <span className="truncate">{layer.label}</span>
                     </span>
-                    <span className="font-mono font-semibold tabular-nums" style={{ color: BAND_COLOR[band] }}>
-                      {score}
+                    <span className="shrink-0 font-semibold tabular-nums" style={{ color: BAND_COLOR[band] }}>
+                      {score}<span className="ml-0.5 text-[8px] font-normal text-slate-400">/100</span>
                     </span>
                   </div>
                 );
               })}
             {!layers.some((layer) => regionEndpoints(tip.region).includes(layer.key)) && (
-              <div className="text-[11px] text-slate-400">ยังไม่มีผลประเมินสำหรับบริเวณนี้</div>
+              <div className="rounded-lg bg-white px-2 py-2 text-[10px] text-slate-400">ยังไม่มีผลประเมินสำหรับบริเวณนี้</div>
             )}
           </div>
         </div>

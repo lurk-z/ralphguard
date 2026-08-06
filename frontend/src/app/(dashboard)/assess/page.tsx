@@ -225,6 +225,16 @@ const LEFT_SIDEBAR_MAX_WIDTH = 420;
 const NAVIGATION_SIDEBAR_WIDTH = 52;
 const FORMULA_PANEL_COLLAPSED_WIDTH = 48;
 const SUBSTANCE_LIBRARY_PAGE_SIZE = 60;
+const PAINT_BRUSH_CONTROL_MIN = 10;
+const PAINT_BRUSH_CONTROL_MAX = 100;
+const PAINT_BRUSH_CONTROL_MAX_STEP = 10;
+const PAINT_BRUSH_RENDER_MIN = 20;
+const PAINT_BRUSH_RENDER_MAX = 85;
+const paintBrushRenderSize = (controlPercent: number) =>
+  PAINT_BRUSH_RENDER_MIN +
+  ((controlPercent - PAINT_BRUSH_CONTROL_MIN) /
+    (PAINT_BRUSH_CONTROL_MAX - PAINT_BRUSH_CONTROL_MIN)) *
+  (PAINT_BRUSH_RENDER_MAX - PAINT_BRUSH_RENDER_MIN);
 
 const clampLeftSidebarWidth = (width: number) =>
   Math.min(LEFT_SIDEBAR_MAX_WIDTH, Math.max(LEFT_SIDEBAR_MIN_WIDTH, width));
@@ -249,6 +259,9 @@ export default function StudioPage() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateRisk, setTemplateRisk] = useState<"all" | "low" | "mid" | "high">("all");
   const [eraseMode, setEraseMode] = useState(false);
+  const [brushSizeControlPct, setBrushSizeControlPct] = useState(50);
+  const brushSizePct = paintBrushRenderSize(brushSizeControlPct);
+  const [clearPaintRequest, setClearPaintRequest] = useState(0);
   const [showTrend, setShowTrend] = useState(false);
   const [expandedFormulaIds, setExpandedFormulaIds] = useState<Set<string>>(
     () => new Set(),
@@ -262,6 +275,7 @@ export default function StudioPage() {
   const [customProductType, setCustomProductType] = useState("");
   const [starterFormulaMenuOpen, setStarterFormulaMenuOpen] = useState(false);
   const [formulaPendingDeletion, setFormulaPendingDeletion] = useState<WorkspaceFormula | null>(null);
+  const [paintPendingClearFormula, setPaintPendingClearFormula] = useState<WorkspaceFormula | null>(null);
   const [formulaDetailsEditingId, setFormulaDetailsEditingId] = useState<string | null>(null);
   const [manualSubstanceTargetFormulaId, setManualSubstanceTargetFormulaId] = useState<string | null>(null);
   const [manualSubstanceName, setManualSubstanceName] = useState("");
@@ -291,7 +305,7 @@ export default function StudioPage() {
     () => searchManualSubstanceSuggestions(manualRegistryItems, manualSubstanceName),
     [manualRegistryItems, manualSubstanceName],
   );
-  const activeFormula = formulas.find((f) => f.id === activeId) ?? formulas[0];
+  const activeFormula = formulas.find((f) => f.id === activeId);
   const formula = activeFormula?.items ?? [];
 
   useEffect(() => {
@@ -394,6 +408,20 @@ export default function StudioPage() {
   const [developerTestScores, setDeveloperTestScores] = useState<DeveloperTestScores>(
     DEFAULT_DEVELOPER_TEST_SCORES,
   );
+
+  // Paint snapshots must never outlive their formula. This also repairs older
+  // workspace drafts that may contain an orphan mask after the last card was
+  // deleted while no formula was selected.
+  useEffect(() => {
+    const validFormulaIds = new Set(formulas.map((formulaItem) => formulaItem.id));
+    setPaintByFormulaId((previous) => {
+      const orphanIds = Object.keys(previous).filter((formulaId) => !validFormulaIds.has(formulaId));
+      if (orphanIds.length === 0) return previous;
+      const nextPaint = { ...previous };
+      orphanIds.forEach((formulaId) => delete nextPaint[formulaId]);
+      return nextPaint;
+    });
+  }, [formulas]);
 
   useEffect(
     () => () => {
@@ -2502,17 +2530,17 @@ export default function StudioPage() {
               onPaintBlocked={() => {
                 toast.warning("บริเวณนี้มีรอยจากกล่องสูตรอื่นแล้ว");
               }}
-              dayIdx={dayIdx}
               region={region}
               paintReady={paintReady}
               resultReady={resultReady}
-              hasPaint={hasActivePaint}
-              assessing={assessing}
-              readinessIssue={formulaReadinessIssue}
-              developerPreview={developerTestEnabled}
               productName={developerTestEnabled ? `${productName} · ค่าทดสอบ` : productName}
+              activeFormulaName={activeFormula?.name}
               layers={modelLayers}
               eraseMode={eraseMode}
+              brushSizePct={brushSizePct}
+              brushSizeControlPct={brushSizeControlPct}
+              onBrushSizeControlChange={setBrushSizeControlPct}
+              clearPaintRequest={clearPaintRequest}
             />
           )}
 
@@ -2632,31 +2660,47 @@ export default function StudioPage() {
           {/* Paint follows formula readiness; assessment follows paint ownership. */}
           {mode === "assess" && (
             <div className="pointer-events-none absolute bottom-4 right-4 z-40 print:hidden">
-              <div className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-soft backdrop-blur">
+              <div className="pointer-events-auto flex items-center gap-0.5 rounded-xl border border-slate-200 bg-white p-1">
                 <button
                   type="button"
                   onClick={() => setEraseMode((value) => !value)}
-                  disabled={!hasActivePaint}
-                  title={!hasActivePaint ? "สูตรที่เลือกยังไม่มีรอยทา" : eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบระบาย"}
+                  disabled={!activeFormula || !hasActivePaint}
+                  title={!activeFormula ? "เลือกกล่องสูตรก่อน" : !hasActivePaint ? "สูตรที่เลือกยังไม่มีรอยทา" : eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบระบาย"}
                   aria-pressed={eraseMode}
-                  className={`flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-semibold transition ${eraseMode
-                    ? "bg-slate-900 text-white shadow-sm"
+                  className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition ${eraseMode
+                    ? "bg-slate-900 text-white"
                     : "text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
                     }`}
                 >
-                  <Eraser className="size-4" />
-                  {eraseMode ? "ลากเพื่อระบายลบ" : "ยางลบ"}
+                  <Eraser className="size-3.5" />
+                  ลบรอย
                 </button>
                 <button
+                  type="button"
+                  onClick={() => {
+                    if (activeFormula) setPaintPendingClearFormula(activeFormula);
+                  }}
+                  disabled={!activeFormula || !hasActivePaint}
+                  title={!activeFormula ? "เลือกกล่องสูตรก่อน" : !hasActivePaint ? "สูตรที่เลือกยังไม่มีรอยทา" : `ลบรอยทาทั้งหมดของ ${activeFormula.name}`}
+                  className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold text-slate-600 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-600"
+                >
+                  <SemanticIcon name="trash" className="size-3.5" />
+                  ลบทั้งหมด
+                </button>
+                <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-slate-200" />
+                <button
+                  type="button"
                   disabled={assessing || !activeFormula}
-                  title={!activeFormula ? "เลือกกล่องสูตรก่อนประเมิน" : undefined}
+                  title={!activeFormula ? "เลือกกล่องสูตรก่อนประเมิน" : assessing ? "กำลังประเมินสูตร" : completed ? "ประเมินอีกครั้ง" : "ประเมินสูตร"}
+                  aria-label={assessing ? "กำลังประเมินสูตร" : completed ? "ประเมินอีกครั้ง" : "ประเมินสูตร"}
                   onClick={() => {
                     setEraseMode(false); // กดประเมิน = กลับมาโหมด paint ผลลัพธ์
                     run();
                   }}
-                  className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-9 min-w-28 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-[12px] font-semibold text-white transition-colors hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {assessing ? "กำลังประเมิน…" : <span className="inline-flex items-center gap-1"><SemanticIcon name={completed ? "refresh" : "play"} className="size-4" /> {completed ? "ประเมินอีกครั้ง" : "ประเมินสูตร"}</span>}
+                  <SemanticIcon name={assessing || completed ? "refresh" : "play"} className={`size-4 ${assessing ? "animate-spin motion-reduce:animate-none" : ""}`} />
+                  <span>เริ่มประเมิน</span>
                 </button>
               </div>
             </div>
@@ -3104,119 +3148,119 @@ export default function StudioPage() {
                 <section className="space-y-3.5 border-t border-slate-200 bg-white p-4 sm:p-5 md:border-l md:border-t-0">
 
 
-                <div className="block">
-                  <div className="mb-1.5 flex items-center gap-2">
-                    <span className="text-xs font-medium text-slate-600">รูปแบบสารเริ่มต้น</span>
-                    <span className="text-[10px] font-normal text-slate-400">ไม่บังคับ</span>
-                  </div>
-                  <Popover open={starterFormulaMenuOpen} onOpenChange={setStarterFormulaMenuOpen}>
-                    <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label="เลือกรูปแบบสารเริ่มต้น"
-                        aria-expanded={starterFormulaMenuOpen}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 text-left outline-none transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:border-slate-300 focus-visible:ring-2 focus-visible:ring-slate-200"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500">
-                            <SemanticIcon
-                              name={selectedDraftTemplate?.icon ?? "clipboard"}
-                              className="size-3.5"
-                            />
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="min-w-0 flex-1 truncate text-xs font-normal text-slate-800">
-                                {selectedDraftTemplate?.name ?? "สูตรเปล่า (กรอกเอง)"}
-                              </span>
-                              <ChevronDown
-                                className={`size-3.5 shrink-0 text-slate-400 transition-transform ${starterFormulaMenuOpen ? "rotate-180" : ""}`}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent
-                      align="start"
-                      sideOffset={6}
-                      className="w-[var(--radix-popover-trigger-width)] min-w-72 overflow-hidden rounded-xl border-slate-200 p-0 shadow-xl"
-                    >
-                      <div className="border-b border-slate-100 px-3 py-2.5">
-                        <p className="text-xs font-normal text-slate-800">เลือกรูปแบบสารเริ่มต้น</p>
-                      </div>
-                      <div className="max-h-80 space-y-1 overflow-y-auto p-1.5">
+                  <div className="block">
+                    <div className="mb-1.5 flex items-center gap-2">
+                      <span className="text-xs font-medium text-slate-600">รูปแบบสารเริ่มต้น</span>
+                      <span className="text-[10px] font-normal text-slate-400">ไม่บังคับ</span>
+                    </div>
+                    <Popover open={starterFormulaMenuOpen} onOpenChange={setStarterFormulaMenuOpen}>
+                      <PopoverTrigger asChild>
                         <button
                           type="button"
-                          onClick={() => {
-                            setDraft((current) => ({ ...current, from: "blank" }));
-                            setStarterFormulaMenuOpen(false);
-                          }}
-                          className={`flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-1.5 text-left transition-colors ${draft.from === "blank"
-                            ? "border-slate-200 bg-slate-50"
-                            : "border-transparent hover:border-slate-200 hover:bg-slate-50"
-                            }`}
+                          aria-label="เลือกรูปแบบสารเริ่มต้น"
+                          aria-expanded={starterFormulaMenuOpen}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 text-left outline-none transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:border-slate-300 focus-visible:ring-2 focus-visible:ring-slate-200"
                         >
-                          <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500">
-                            <SemanticIcon name="clipboard" className="size-3.5" />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-xs font-normal text-slate-800">สูตรเปล่า (กรอกเอง)</span>
-                          </span>
-                          {draft.from === "blank" && <SemanticIcon name="check" className="size-3.5 shrink-0 text-brand" />}
-                        </button>
-
-                        {PRODUCT_TEMPLATES.map((template) => {
-                          const selected = draft.from === template.id;
-                          return (
-                            <button
-                              key={template.id}
-                              type="button"
-                              onClick={() => {
-                                setDraft((current) => ({ ...current, from: template.id }));
-                                setStarterFormulaMenuOpen(false);
-                              }}
-                              className={`w-full rounded-lg border px-2.5 py-1.5 text-left transition-colors ${selected
-                                ? "border-slate-200 bg-slate-50"
-                                : "border-transparent hover:border-slate-200 hover:bg-slate-50"
-                                }`}
-                            >
-                              <div className="flex items-center gap-2.5">
-                                <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500">
-                                  <SemanticIcon name={template.icon} className="size-3.5" />
+                          <div className="flex items-center gap-2.5">
+                            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500">
+                              <SemanticIcon
+                                name={selectedDraftTemplate?.icon ?? "clipboard"}
+                                className="size-3.5"
+                              />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="min-w-0 flex-1 truncate text-xs font-normal text-slate-800">
+                                  {selectedDraftTemplate?.name ?? "สูตรเปล่า (กรอกเอง)"}
                                 </span>
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate text-xs font-normal text-slate-800">{template.name}</span>
-                                </span>
-                                {selected && <SemanticIcon name="check" className="size-3.5 shrink-0 text-brand" />}
+                                <ChevronDown
+                                  className={`size-3.5 shrink-0 text-slate-400 transition-transform ${starterFormulaMenuOpen ? "rotate-180" : ""}`}
+                                />
                               </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-
-                  {selectedDraftTemplate && (
-                    <div className="mt-3 border-t border-slate-200 pt-3">
-                      <div className="mb-2 flex items-center justify-between gap-3">
-                        <span className="text-[11px] font-semibold text-slate-700">สารในรูปแบบนี้</span>
-                        <span className="text-[10px] text-slate-400">{selectedDraftTemplate.formula.length} รายการ</span>
-                      </div>
-                      <div className="space-y-1.5">
-                        {selectedDraftTemplate.formula.map((item) => (
-                          <div
-                            key={`selected-${selectedDraftTemplate.id}-${item.smiles}`}
-                            className="flex items-center justify-between gap-3 rounded-lg bg-white px-2.5 py-2"
-                          >
-                            <span className="min-w-0 truncate text-[11px] font-medium text-slate-700">{item.name}</span>
-                            <span className="shrink-0 text-[11px] font-semibold text-brand">{item.concentration}%</span>
+                            </div>
                           </div>
-                        ))}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="start"
+                        sideOffset={6}
+                        className="w-[var(--radix-popover-trigger-width)] min-w-72 overflow-hidden rounded-xl border-slate-200 p-0 shadow-xl"
+                      >
+                        <div className="border-b border-slate-100 px-3 py-2.5">
+                          <p className="text-xs font-normal text-slate-800">เลือกรูปแบบสารเริ่มต้น</p>
+                        </div>
+                        <div className="max-h-80 space-y-1 overflow-y-auto p-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDraft((current) => ({ ...current, from: "blank" }));
+                              setStarterFormulaMenuOpen(false);
+                            }}
+                            className={`flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-1.5 text-left transition-colors ${draft.from === "blank"
+                              ? "border-slate-200 bg-slate-50"
+                              : "border-transparent hover:border-slate-200 hover:bg-slate-50"
+                              }`}
+                          >
+                            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500">
+                              <SemanticIcon name="clipboard" className="size-3.5" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-xs font-normal text-slate-800">สูตรเปล่า (กรอกเอง)</span>
+                            </span>
+                            {draft.from === "blank" && <SemanticIcon name="check" className="size-3.5 shrink-0 text-brand" />}
+                          </button>
+
+                          {PRODUCT_TEMPLATES.map((template) => {
+                            const selected = draft.from === template.id;
+                            return (
+                              <button
+                                key={template.id}
+                                type="button"
+                                onClick={() => {
+                                  setDraft((current) => ({ ...current, from: template.id }));
+                                  setStarterFormulaMenuOpen(false);
+                                }}
+                                className={`w-full rounded-lg border px-2.5 py-1.5 text-left transition-colors ${selected
+                                  ? "border-slate-200 bg-slate-50"
+                                  : "border-transparent hover:border-slate-200 hover:bg-slate-50"
+                                  }`}
+                              >
+                                <div className="flex items-center gap-2.5">
+                                  <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500">
+                                    <SemanticIcon name={template.icon} className="size-3.5" />
+                                  </span>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block truncate text-xs font-normal text-slate-800">{template.name}</span>
+                                  </span>
+                                  {selected && <SemanticIcon name="check" className="size-3.5 shrink-0 text-brand" />}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+
+                    {selectedDraftTemplate && (
+                      <div className="mt-3 border-t border-slate-200 pt-3">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <span className="text-[11px] font-semibold text-slate-700">สารในรูปแบบนี้</span>
+                          <span className="text-[10px] text-slate-400">{selectedDraftTemplate.formula.length} รายการ</span>
+                        </div>
+                        <div className="space-y-1.5">
+                          {selectedDraftTemplate.formula.map((item) => (
+                            <div
+                              key={`selected-${selectedDraftTemplate.id}-${item.smiles}`}
+                              className="flex items-center justify-between gap-3 rounded-lg bg-white px-2.5 py-2"
+                            >
+                              <span className="min-w-0 truncate text-[11px] font-medium text-slate-700">{item.name}</span>
+                              <span className="shrink-0 text-[11px] font-semibold text-brand">{item.concentration}%</span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
                 </section>
               )}
             </div>
@@ -3444,6 +3488,39 @@ export default function StudioPage() {
             >
               <SemanticIcon name="trash" className="size-4" />
               ลบสูตร
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(paintPendingClearFormula)}
+        onOpenChange={(open) => {
+          if (!open) setPaintPendingClearFormula(null);
+        }}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              ลบรอยทาทั้งหมดของ “{paintPendingClearFormula?.name}” ใช่ไหม?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              ระบบจะลบรอยทาและการแสดงระคายเคืองตาของสูตรนี้ออกจากโมเดล โดยไม่ลบสูตร ผลประเมิน หรือรอยทาของสูตรอื่น
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction
+              className="gap-2 bg-rose-600 text-white hover:bg-rose-700 focus-visible:ring-rose-600"
+              onClick={() => {
+                if (!paintPendingClearFormula || paintPendingClearFormula.id !== activeId) return;
+                setEraseMode(false);
+                setClearPaintRequest((request) => request + 1);
+                setPaintPendingClearFormula(null);
+              }}
+            >
+              <SemanticIcon name="trash" className="size-4" />
+              ลบรอยทั้งหมด
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -3841,63 +3918,131 @@ function Viewport({
   occupiedPaint,
   onPaintChange,
   onPaintBlocked,
-  dayIdx,
   region,
   paintReady,
   resultReady,
-  hasPaint,
-  assessing,
-  readinessIssue,
-  developerPreview,
   productName,
+  activeFormulaName,
   layers,
   eraseMode,
+  brushSizePct,
+  brushSizeControlPct,
+  onBrushSizeControlChange,
+  clearPaintRequest,
 }: {
   paintOwnerKey: string;
   initialPaint: PaintMaskSnapshot | null;
   occupiedPaint: PaintMaskSnapshot[];
   onPaintChange: (snapshot: PaintMaskSnapshot) => void;
   onPaintBlocked: () => void;
-  dayIdx: number;
   region: Region;
   paintReady: boolean;
   resultReady: boolean;
-  hasPaint: boolean;
-  assessing: boolean;
-  readinessIssue: string | null;
-  developerPreview: boolean;
   productName: string;
+  activeFormulaName?: string;
   layers: { key: string; label: string; score: number; color: string; band: string }[];
   eraseMode: boolean;
+  brushSizePct: number;
+  brushSizeControlPct: number;
+  onBrushSizeControlChange: (size: number) => void;
+  clearPaintRequest: number;
 }) {
+  const interactionRef = useRef<HTMLDivElement>(null);
+  const brushFeedbackRef = useRef<HTMLSpanElement>(null);
+  const latestBrushPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const brushPreviewActiveRef = useRef(false);
+  const brushFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const brushPreviewHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const interaction = interactionRef.current;
+    if (!interaction) return;
+    const changeBrushSize = (event: WheelEvent) => {
+      if (!event.ctrlKey || !paintReady) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const direction = event.deltaY < 0 ? 1 : -1;
+      const normalizedDelta = Math.abs(event.deltaY) *
+        (event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? 100
+            : 1);
+      const changeAmount = Math.min(
+        PAINT_BRUSH_CONTROL_MAX_STEP,
+        Math.max(1, Math.ceil(normalizedDelta / 12)),
+      );
+      const nextControlPercent = Math.min(
+        PAINT_BRUSH_CONTROL_MAX,
+        Math.max(
+          PAINT_BRUSH_CONTROL_MIN,
+          brushSizeControlPct + direction * changeAmount,
+        ),
+      );
+      if (nextControlPercent !== brushSizeControlPct) {
+        onBrushSizeControlChange(nextControlPercent);
+      }
+      const pointer = latestBrushPointerRef.current;
+      if (pointer && brushFeedbackRef.current) {
+        brushPreviewActiveRef.current = true;
+        brushFeedbackRef.current.textContent = `หัวทา ${nextControlPercent}%`;
+        brushFeedbackRef.current.style.transform = `translate3d(${pointer.x}px, ${pointer.y + 14}px, 0) translateX(-50%)`;
+        brushFeedbackRef.current.style.opacity = "1";
+      }
+      if (brushFeedbackTimerRef.current) clearTimeout(brushFeedbackTimerRef.current);
+      if (brushPreviewHideTimerRef.current) clearTimeout(brushPreviewHideTimerRef.current);
+      brushFeedbackTimerRef.current = setTimeout(() => {
+        if (brushFeedbackRef.current) brushFeedbackRef.current.style.opacity = "0";
+      }, 650);
+      brushPreviewHideTimerRef.current = setTimeout(() => {
+        brushPreviewActiveRef.current = false;
+      }, 1150);
+    };
+    interaction.addEventListener("wheel", changeBrushSize, { passive: false, capture: true });
+    return () => interaction.removeEventListener("wheel", changeBrushSize, true);
+  }, [brushSizeControlPct, onBrushSizeControlChange, paintReady]);
+
+  useEffect(
+    () => () => {
+      if (brushFeedbackTimerRef.current) clearTimeout(brushFeedbackTimerRef.current);
+      if (brushPreviewHideTimerRef.current) clearTimeout(brushPreviewHideTimerRef.current);
+    },
+    [],
+  );
+
   return (
     <div className="relative order-2 h-full min-w-0 flex-1">
       <div className="relative h-full w-full bg-[#F4F1EE]">
-        <div className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-3 py-2 shadow-sm backdrop-blur">
-          <span className="grid size-6 place-items-center rounded-lg bg-teal-50 text-xs font-bold text-brand">3</span>
-          <div>
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
-              ทาบนโมเดล
-              {developerPreview && (
-                <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[8px] font-bold text-violet-700">DEV TEST</span>
-              )}
-            </div>
-            <div className="text-[9px] text-slate-400">
-              {developerPreview
-                ? "ค่าทดสอบ · ทาแล้วปรับคะแนนด้านขวา"
-                : resultReady
-                  ? `Day ${DAY_LABELS[dayIdx]} · ทาแล้วชี้ค้างเพื่อดูตำแหน่ง`
-                  : assessing
-                    ? "กำลังวิเคราะห์สูตร · รอยทาจะยังอยู่บนโมเดล"
-                    : hasPaint
-                      ? "รอยทาพร้อมแล้ว · กดประเมินสูตรเพื่อดูผล"
-                      : paintReady
-                        ? "ลากบนผิวเพื่อทาครีม แล้วจึงเริ่มประเมิน"
-                        : readinessIssue ?? "เตรียมสูตรให้พร้อมก่อนทาบนโมเดล"}
-            </div>
-          </div>
+        <div className="absolute left-4 top-4 z-10 flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-2.5 shadow-sm backdrop-blur">
+          <span className={`grid size-6 shrink-0 place-items-center rounded-lg ${activeFormulaName ? "bg-teal-50 text-brand" : "bg-slate-100 text-slate-400"}`}>
+            <SemanticIcon
+              name={activeFormulaName ? FORMULA_REGION_OPTIONS.find((option) => option.value === region)?.icon ?? "scan" : "flask"}
+              className="size-3.5"
+            />
+          </span>
+          <span className="max-w-52 truncate text-[11px] font-semibold text-slate-700">
+            {activeFormulaName ? `เลือกสูตร ${activeFormulaName} อยู่` : "ยังไม่ได้เลือกสูตร"}
+          </span>
         </div>
-        <div className="absolute inset-0">
+        <div
+          ref={interactionRef}
+          className={`absolute inset-0 ${paintReady ? "cursor-crosshair" : ""}`}
+          onPointerMove={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            const pointer = {
+              x: event.clientX - rect.left,
+              y: event.clientY - rect.top,
+            };
+            latestBrushPointerRef.current = pointer;
+            if (!brushPreviewActiveRef.current || !brushFeedbackRef.current) return;
+            brushFeedbackRef.current.style.transform = `translate3d(${pointer.x}px, ${pointer.y + 14}px, 0) translateX(-50%)`;
+          }}
+          onPointerLeave={() => {
+            brushPreviewActiveRef.current = false;
+            latestBrushPointerRef.current = null;
+            if (brushFeedbackRef.current) brushFeedbackRef.current.style.opacity = "0";
+          }}
+        >
           <FaceView
             paintOwnerKey={paintOwnerKey}
             layers={layers}
@@ -3905,37 +4050,24 @@ function Viewport({
             revealResults={resultReady}
             productName={productName}
             eraseMode={eraseMode}
+            brushSizePct={brushSizePct}
+            clearPaintRequest={clearPaintRequest}
             background="#F4F1EE"
             initialPaint={initialPaint}
             onPaintChange={onPaintChange}
             occupiedPaint={occupiedPaint}
             onPaintBlocked={onPaintBlocked}
           />
+          {paintReady && (
+            <span
+              ref={brushFeedbackRef}
+              aria-hidden="true"
+              className="pointer-events-none absolute left-0 top-0 z-20 whitespace-nowrap rounded-md bg-slate-900/85 px-2 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity duration-500"
+            >
+              หัวทา {brushSizeControlPct}%
+            </span>
+          )}
         </div>
-        {!resultReady && (
-          <div className="pointer-events-none absolute right-4 top-4 z-10 rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-right shadow-sm backdrop-blur">
-            <div className="text-[11px] font-semibold text-slate-600">
-              {assessing
-                ? "กำลังวิเคราะห์สูตร"
-                : hasPaint
-                  ? "พร้อมประเมินสูตร"
-                  : paintReady
-                    ? "พร้อมทาบนโมเดล"
-                    : "เตรียมสูตรก่อนทดสอบ"}
-            </div>
-            <div className="mt-0.5 text-[9px] text-slate-400">
-              {assessing ? (
-                <>กรุณารอผลจาก Backend โดยไม่ต้องทาซ้ำ</>
-              ) : hasPaint ? (
-                <>บริเวณ <span className="font-medium text-brand">{REGIONS.find((r) => r.value === region)?.label}</span> · กด “ประเมินสูตร” ด้านขวาล่าง</>
-              ) : paintReady ? (
-                <>บริเวณ <span className="font-medium text-brand">{REGIONS.find((r) => r.value === region)?.label}</span> · ลากบนผิวเพื่อวางรอยครีม</>
-              ) : (
-                <>{readinessIssue ?? "เพิ่มสารและตรวจสัดส่วนให้พร้อม"}</>
-              )}
-            </div>
-          </div>
-        )}
         {/* Risk legend */}
         {resultReady && (
           <div className="absolute bottom-3 left-3 flex gap-3 rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-[11px] backdrop-blur">

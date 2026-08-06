@@ -6,23 +6,30 @@
 
   /* shadcn/ui tokens — white light theme for the whole project */
   :root {
-    --background: 200 24% 98%;       /* #F7FAFB cool near-white */
-    --foreground: 202 40% 16%;       /* #18333B slate ink */
-    --card: 0 0% 100%;               /* white surface */
+    --background: 200 24% 98%;
+    /* #F7FAFB cool near-white */
+    --foreground: 202 40% 16%;
+    /* #18333B slate ink */
+    --card: 0 0% 100%;
+    /* white surface */
     --card-foreground: 202 40% 16%;
     --popover: 0 0% 100%;
     --popover-foreground: 202 40% 16%;
-    --primary: 182 100% 32%;         /* brand #009FA5 */
+    --primary: 182 100% 32%;
+    /* brand #009FA5 */
     --primary-foreground: 0 0% 100%;
     --secondary: 190 30% 95%;
     --secondary-foreground: 202 40% 16%;
     --muted: 200 24% 96%;
-    --muted-foreground: 202 14% 42%; /* #5C6B70 */
-    --accent: 182 60% 93%;           /* soft teal tint */
+    --muted-foreground: 202 14% 42%;
+    /* #5C6B70 */
+    --accent: 182 60% 93%;
+    /* soft teal tint */
     --accent-foreground: 182 100% 28%;
     --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
-    --border: 200 20% 90%;           /* #DDE5E8 hairline */
+    --border: 200 20% 90%;
+    /* #DDE5E8 hairline */
     --input: 200 20% 88%;
     --ring: 182 100% 32%;
     --radius: 0.5rem;
