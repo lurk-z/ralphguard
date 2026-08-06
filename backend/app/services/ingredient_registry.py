@@ -666,7 +666,11 @@ def registry_row_to_dict(row: IngredientRegistry) -> dict:
 def resolve_verified_registry(
     db: Session,
     names: Iterable[str],
-) -> tuple[list[tuple], list[str], dict[str, dict], list[str]]:
+    *,
+    include_observed_names: bool = False,
+) -> tuple[list[tuple], list[str], dict[str, dict], list[str]] | tuple[
+    list[tuple], list[str], dict[str, dict], list[str], dict[str, str]
+]:
     """Resolve OCR names from previously verified registry memory.
 
     Returns QSAR-ready matches, known non-QSAR names, their structured display
@@ -692,6 +696,7 @@ def resolve_verified_registry(
     non_qsar: list[str] = []
     profiles: dict[str, dict] = {}
     remaining: list[str] = []
+    observed_by_smiles: dict[str, str] = {}
     seen_rows: set[int] = set()
     for observed in requested:
         row = aliases.get(normalize_ingredient_name(observed))
@@ -703,6 +708,7 @@ def resolve_verified_registry(
         seen_rows.add(row.id)
         if row.qsar_eligible and row.canonical_smiles:
             matched.append((row.inci_name or row.canonical_name, row.canonical_smiles, 100, "registry"))
+            observed_by_smiles.setdefault(row.canonical_smiles, observed)
             continue
         display_name = row.normalized_name
         non_qsar.append(display_name)
@@ -723,4 +729,7 @@ def resolve_verified_registry(
             or "ข้อมูลได้รับการยืนยันใน Ingredient Registry แล้ว แต่ไม่อยู่ในขอบเขตของ QSAR ชุดนี้",
             "verification_status": row.verification_status,
         }
-    return matched, non_qsar, profiles, remaining
+    result = (matched, non_qsar, profiles, remaining)
+    if include_observed_names:
+        return (*result, observed_by_smiles)
+    return result

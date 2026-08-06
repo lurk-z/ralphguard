@@ -21,6 +21,7 @@ from app.db.session import get_db
 from app.services.ingredient_registry import (
     learn_ocr_ingredients,
     non_qsar_profile,
+    normalize_ingredient_name,
     resolve_verified_registry,
 )
 
@@ -414,6 +415,45 @@ def resolve(text: str, online: bool = False):
             unmatched.append(tok)
 
     return matched, no_struct, unmatched[:25]
+
+
+def _sort_matches_by_label_order(
+    text: str,
+    matches: list[tuple],
+    registry_observed_by_smiles: dict[str, str] | None = None,
+) -> list[tuple]:
+    """Keep resolved ingredients in the order printed on the INCI label.
+
+    Local matches can be positioned by their resolved SMILES. Registry matches
+    may use a canonical display name that differs from the OCR text, so the
+    registry resolver also returns the original observed label name.
+    """
+    tokens = _tokens(text)
+    token_positions: dict[str, int] = {}
+    smiles_positions: dict[str, int] = {}
+    for position, token in enumerate(tokens):
+        token_positions.setdefault(normalize_ingredient_name(token), position)
+        detail = _dict_match_detail(token)
+        if detail and detail[0] == "sub" and detail[2]:
+            smiles_positions.setdefault(detail[2], position)
+
+    for smiles, observed in (registry_observed_by_smiles or {}).items():
+        position = token_positions.get(normalize_ingredient_name(observed))
+        if position is not None:
+            smiles_positions.setdefault(smiles, position)
+
+    fallback_start = len(tokens)
+    return [
+        match
+        for _position, _original_index, match in sorted(
+            (
+                smiles_positions.get(match[1], fallback_start + original_index),
+                original_index,
+                match,
+            )
+            for original_index, match in enumerate(matches)
+        )
+    ]
 
 
 class OcrItem(BaseModel):
@@ -841,12 +881,24 @@ async def read_label(
     # PubChem discoveries remain pending registry candidates and are never sent
     # directly into QSAR merely because a name lookup returned a molecule.
     matched_ranked, no_struct, unmatched = resolve(consensus_text, online=False)
+    registry_observed_by_smiles: dict[str, str] = {}
     registry_candidates: list[dict] = []
     registry_non_qsar_profiles: dict[str, dict] = {}
     registry_warning: str | None = None
     try:
-        registry_matched, registry_no_qsar, registry_non_qsar_profiles, unmatched = (
-            await run_in_threadpool(resolve_verified_registry, db, unmatched)
+        (
+            registry_matched,
+            registry_no_qsar,
+            registry_non_qsar_profiles,
+            unmatched,
+            registry_observed_by_smiles,
+        ) = (
+            await run_in_threadpool(
+                resolve_verified_registry,
+                db,
+                unmatched,
+                include_observed_names=True,
+            )
         )
         matched_ranked.extend(registry_matched)
         for name in registry_no_qsar:
@@ -866,7 +918,13 @@ async def read_label(
         # Registry/PubChem availability must not erase a successful OCR result.
         registry_warning = f"ingredient registry unavailable: {str(exc)[:300]}"
 
-    # dedupe by SMILES while keeping first (highest-%) occurrence
+    matched_ranked = _sort_matches_by_label_order(
+        consensus_text,
+        matched_ranked,
+        registry_observed_by_smiles,
+    )
+
+    # Dedupe by SMILES while keeping the first occurrence printed on the label.
     items: list[OcrItem] = []
     seen: set[str] = set()
     for name, smiles, score, source in matched_ranked:

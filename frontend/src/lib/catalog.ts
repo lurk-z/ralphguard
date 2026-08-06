@@ -154,6 +154,14 @@ export const SUBSTANCE_LIBRARY: CatalogGroup[] = [
 export const SUBSTANCE_FLAT: (CatalogItem & { category: string })[] =
   SUBSTANCE_LIBRARY.flatMap((g) => g.items.map((it) => ({ ...it, category: g.category })));
 
+const SUBSTANCE_CATEGORY_BY_SMILES = new Map<string, string>();
+for (const item of SUBSTANCE_FLAT) {
+  const smiles = item.smiles.trim();
+  if (!SUBSTANCE_CATEGORY_BY_SMILES.has(smiles)) {
+    SUBSTANCE_CATEGORY_BY_SMILES.set(smiles, item.category);
+  }
+}
+
 /** Merge the offline curated catalog with verified, QSAR-eligible registry rows. */
 export function catalogWithVerifiedRegistry(
   registryItems: IngredientRegistryItem[],
@@ -218,17 +226,19 @@ const SUBSTANCE_NAME_ALIASES: Record<string, string> = {
   glycerol: "glycerin",
 };
 
+const SUBSTANCE_BY_NORMALIZED_NAME = new Map<string, CatalogItem & { category: string }>();
+for (const item of SUBSTANCE_FLAT) {
+  const normalized = normalizeSubstanceName(item.name);
+  if (!SUBSTANCE_BY_NORMALIZED_NAME.has(normalized)) {
+    SUBSTANCE_BY_NORMALIZED_NAME.set(normalized, item);
+  }
+}
+
 /** Resolve a model-provided name to the trusted local ingredient catalog. */
 export function resolveCatalogSubstance(name: string): (CatalogItem & { category: string }) | undefined {
   const normalized = normalizeSubstanceName(name);
   if (!normalized) return undefined;
-  const exact = SUBSTANCE_FLAT.find((item) => normalizeSubstanceName(item.name) === normalized);
-  if (exact) return exact;
-  // OCR and labels often omit explanatory suffixes such as "(Vit C)".
-  const withoutSuffix = normalized.replace(/\s*\([^)]*\)\s*$/, "").trim();
-  return SUBSTANCE_FLAT.find(
-    (item) => normalizeSubstanceName(item.name).replace(/\s*\([^)]*\)\s*$/, "").trim() === withoutSuffix,
-  );
+  return SUBSTANCE_BY_NORMALIZED_NAME.get(normalized);
 }
 
 // ───────────────────────── Substance info (for hover tooltips) ─────────────────────────
@@ -295,8 +305,7 @@ export const SUBSTANCE_INFO: Record<string, SubstanceInfo> = {
 /** Look up category (from library) + info for a SMILES. */
 export function substanceInfo(smiles: string): { category?: string; info?: SubstanceInfo } {
   const s = (smiles || "").trim();
-  const grp = SUBSTANCE_LIBRARY.find((g) => g.items.some((it) => it.smiles === s));
-  return { category: grp?.category, info: SUBSTANCE_INFO[s] };
+  return { category: SUBSTANCE_CATEGORY_BY_SMILES.get(s), info: SUBSTANCE_INFO[s] };
 }
 
 // ───────────────────────── Product templates (starter formulas) ─────────────────────────

@@ -88,12 +88,48 @@ test("normalizes unsafe browser data before restoring it", () => {
   assert.equal(workspace.formulaPanelOpen, true);
 });
 
-test("rejects unsupported, empty, and invalid-project workspaces", () => {
+test("supports an empty formula workspace and rejects unsupported or invalid projects", () => {
   const storage = new MemoryStorage();
   assert.equal(normalizeProjectWorkspace({ version: 2, formulas: [] }), null);
-  assert.equal(normalizeProjectWorkspace({ version: 1, formulas: [] }), null);
+  const emptyWorkspace = normalizeProjectWorkspace({
+    version: 1,
+    formulas: [],
+    activeFormulaId: "missing",
+  });
+  assert.ok(emptyWorkspace);
+  assert.deepEqual(emptyWorkspace.formulas, []);
+  assert.equal(emptyWorkspace.activeFormulaId, "");
   assert.equal(saveProjectWorkspace(0, draft("Invalid"), storage), false);
   assert.equal(loadProjectWorkspace(-1, storage), null);
+});
+
+test("saves and restores a workspace after its last formula is deleted", () => {
+  const storage = new MemoryStorage();
+  const emptyDraft: ProjectWorkspaceDraft = {
+    ...draft("Deleted"),
+    formulas: [],
+    activeFormulaId: "",
+  };
+
+  assert.equal(saveProjectWorkspace(1, emptyDraft, storage), true);
+  const restored = loadProjectWorkspace(1, storage);
+  assert.ok(restored);
+  assert.deepEqual(restored.formulas, []);
+  assert.equal(restored.activeFormulaId, "");
+});
+
+test("preserves an explicit no-formula selection when formulas still exist", () => {
+  const storage = new MemoryStorage();
+  const deselectedDraft: ProjectWorkspaceDraft = {
+    ...draft("Deselected"),
+    activeFormulaId: "",
+  };
+
+  assert.equal(saveProjectWorkspace(1, deselectedDraft, storage), true);
+  const restored = loadProjectWorkspace(1, storage);
+  assert.ok(restored);
+  assert.equal(restored.formulas.length, 1);
+  assert.equal(restored.activeFormulaId, "");
 });
 
 test("deletes only the selected project's workspace", () => {

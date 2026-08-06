@@ -1,9 +1,16 @@
 'use client'
 
-import dynamic from 'next/dynamic'
 import { useState } from 'react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import {
@@ -17,10 +24,39 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+  InputGroupText,
+} from '@/components/ui/input-group'
 import { Label } from '@/components/ui/label'
+import {
+  NavigationMenu,
+  NavigationMenuContent,
+  NavigationMenuItem,
+  NavigationMenuLink,
+  NavigationMenuList,
+  NavigationMenuTrigger,
+} from '@/components/ui/navigation-menu'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
+import { Particles } from '@/components/ui/particles'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import {
   Sheet,
@@ -29,7 +65,17 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
+import {
+  SidebarProvider,
+  Sidebar,
+  SidebarContent,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+} from '@/components/ui/sidebar'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Slider } from '@/components/ui/slider'
+import { Toaster } from '@/components/ui/sonner'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
@@ -39,15 +85,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import {
-  SidebarProvider,
-  Sidebar,
-  SidebarContent,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuButton,
-} from '@/components/ui/sidebar'
-import { FlaskConical, Settings, HelpCircle, LayoutGrid, ChevronDown, Beaker, PackageOpen } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -66,11 +103,6 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from '@/components/ui/drawer'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Progress } from '@/components/ui/progress'
-import { Slider } from '@/components/ui/slider'
-import { Toaster } from '@/components/ui/sonner'
-import { toast } from 'sonner'
 import {
   Empty,
   EmptyHeader,
@@ -80,8 +112,13 @@ import {
   EmptyContent,
 } from '@/components/ui/empty'
 
-const Text3DTest = dynamic(() => import('./_Text3DTest'), { ssr: false })
+import {
+  FlaskConical, Settings, HelpCircle, LayoutGrid,
+  Beaker, PackageOpen, ChevronDown, Search, Mail, Eye, EyeOff,
+} from 'lucide-react'
+import { toast } from 'sonner'
 
+// ─── Layout helper ────────────────────────────────────────────────────────────
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-4">
@@ -93,14 +130,19 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function TestComponentsPage() {
   const [sw, setSw] = useState(true)
   const [progress, setProgress] = useState(65)
   const [sliderVal, setSliderVal] = useState([40])
+  const [showPwd, setShowPwd] = useState(false)
+  const [currentPage, setCurrentPage] = useState(3)
 
   return (
     <div className="app-light min-h-screen bg-background text-foreground">
       <Toaster />
+
+      {/* Header */}
       <header className="sticky top-0 z-30 border-b border-border bg-card px-6 py-4">
         <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
           RalphGuard · Design System
@@ -110,6 +152,7 @@ export default function TestComponentsPage() {
 
       <main className="mx-auto max-w-5xl space-y-10 px-6 py-10">
 
+        {/* ── Button ── */}
         <Section title="Button">
           <Button>Primary</Button>
           <Button variant="secondary">Secondary</Button>
@@ -121,6 +164,7 @@ export default function TestComponentsPage() {
           <Button disabled>Disabled</Button>
         </Section>
 
+        {/* ── Badge ── */}
         <Section title="Badge">
           <Badge>Default</Badge>
           <Badge variant="secondary">Secondary</Badge>
@@ -128,6 +172,21 @@ export default function TestComponentsPage() {
           <Badge variant="destructive">Destructive</Badge>
         </Section>
 
+        {/* ── Avatar ── */}
+        <Section title="Avatar">
+          <Avatar>
+            <AvatarImage src="https://github.com/shadcn.png" alt="shadcn" />
+            <AvatarFallback>SC</AvatarFallback>
+          </Avatar>
+          <Avatar>
+            <AvatarFallback>TS</AvatarFallback>
+          </Avatar>
+          <Avatar className="size-14">
+            <AvatarFallback className="text-lg">RG</AvatarFallback>
+          </Avatar>
+        </Section>
+
+        {/* ── Input · Label · Textarea ── */}
         <Section title="Input · Label · Textarea">
           <div className="flex flex-col gap-1.5 w-56">
             <Label htmlFor="test-input">ชื่อสูตร</Label>
@@ -139,6 +198,43 @@ export default function TestComponentsPage() {
           </div>
         </Section>
 
+        {/* ── InputGroup ── */}
+        <Section title="InputGroup">
+          <div className="w-64">
+            <InputGroup>
+              <InputGroupAddon>
+                <Search className="size-4" />
+              </InputGroupAddon>
+              <InputGroupInput placeholder="ค้นหาสาร…" />
+            </InputGroup>
+          </div>
+          <div className="w-64">
+            <InputGroup>
+              <InputGroupAddon>
+                <Mail className="size-4" />
+              </InputGroupAddon>
+              <InputGroupInput type="email" placeholder="อีเมล" />
+              <InputGroupAddon align="inline-end">
+                <InputGroupText>.th</InputGroupText>
+              </InputGroupAddon>
+            </InputGroup>
+          </div>
+          <div className="w-64">
+            <InputGroup>
+              <InputGroupInput
+                type={showPwd ? 'text' : 'password'}
+                placeholder="รหัสผ่าน"
+              />
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton onClick={() => setShowPwd(!showPwd)}>
+                  {showPwd ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </InputGroupButton>
+              </InputGroupAddon>
+            </InputGroup>
+          </div>
+        </Section>
+
+        {/* ── Switch ── */}
         <Section title="Switch">
           <div className="flex items-center gap-2">
             <Switch id="sw1" checked={sw} onCheckedChange={setSw} />
@@ -150,16 +246,7 @@ export default function TestComponentsPage() {
           </div>
         </Section>
 
-        <Section title="Avatar">
-          <Avatar>
-            <AvatarImage src="https://github.com/shadcn.png" alt="shadcn" />
-            <AvatarFallback>SC</AvatarFallback>
-          </Avatar>
-          <Avatar>
-            <AvatarFallback>TS</AvatarFallback>
-          </Avatar>
-        </Section>
-
+        {/* ── Skeleton ── */}
         <Section title="Skeleton">
           <div className="flex flex-col gap-2">
             <Skeleton className="h-4 w-48" />
@@ -167,8 +254,14 @@ export default function TestComponentsPage() {
             <Skeleton className="h-4 w-24" />
           </div>
           <Skeleton className="size-12 rounded-full" />
+          <div className="flex flex-col gap-2 w-48">
+            <Skeleton className="h-32 w-full rounded-xl" />
+            <Skeleton className="h-3 w-3/4" />
+            <Skeleton className="h-3 w-1/2" />
+          </div>
         </Section>
 
+        {/* ── Separator ── */}
         <Section title="Separator">
           <div className="w-full space-y-2">
             <p className="text-sm text-foreground">ข้อความด้านบน</p>
@@ -177,6 +270,73 @@ export default function TestComponentsPage() {
           </div>
         </Section>
 
+        {/* ── Progress ── */}
+        <Section title="Progress">
+          <div className="w-full space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-foreground">ความคืบหน้า</span>
+              <span className="font-mono text-muted-foreground">{progress}%</span>
+            </div>
+            <Progress value={progress} />
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setProgress(Math.max(0, progress - 10))}>− 10</Button>
+              <Button size="sm" variant="outline" onClick={() => setProgress(Math.min(100, progress + 10))}>+ 10</Button>
+            </div>
+          </div>
+        </Section>
+
+        {/* ── Slider ── */}
+        <Section title="Slider">
+          <div className="w-72 space-y-3">
+            <Slider value={sliderVal} onValueChange={setSliderVal} min={0} max={100} step={1} />
+            <p className="font-mono text-sm text-muted-foreground">ค่า: {sliderVal[0]}</p>
+          </div>
+        </Section>
+
+        {/* ── Card ── */}
+        <Section title="Card">
+          <Card className="w-64">
+            <CardHeader className="pb-2">
+              <p className="text-sm font-semibold text-foreground">Water (Aqua)</p>
+              <p className="font-mono text-[11px] text-muted-foreground">CAS 7732-18-5</p>
+            </CardHeader>
+            <CardContent>
+              <Badge>ตัวทำละลายหลัก</Badge>
+            </CardContent>
+          </Card>
+          <Card className="w-64">
+            <CardHeader className="pb-2">
+              <p className="text-sm font-semibold text-foreground">Sodium Lauryl Sulfate</p>
+              <p className="font-mono text-[11px] text-muted-foreground">CAS 151-21-3</p>
+            </CardHeader>
+            <CardContent className="flex gap-2">
+              <Badge variant="destructive">ระคายเคือง</Badge>
+              <Badge variant="outline">Surfactant</Badge>
+            </CardContent>
+          </Card>
+        </Section>
+
+        {/* ── Tabs ── */}
+        <Section title="Tabs">
+          <Tabs defaultValue="a" className="w-72">
+            <TabsList className="w-full">
+              <TabsTrigger value="a" className="flex-1">การทดลอง</TabsTrigger>
+              <TabsTrigger value="b" className="flex-1">โหนดโมเดล</TabsTrigger>
+              <TabsTrigger value="c" className="flex-1">ผลลัพธ์</TabsTrigger>
+            </TabsList>
+            <TabsContent value="a">
+              <p className="text-sm text-muted-foreground pt-2">เนื้อหาการทดลอง</p>
+            </TabsContent>
+            <TabsContent value="b">
+              <p className="text-sm text-muted-foreground pt-2">เนื้อหาโหนดโมเดล</p>
+            </TabsContent>
+            <TabsContent value="c">
+              <p className="text-sm text-muted-foreground pt-2">ผลการประเมินความเสี่ยง</p>
+            </TabsContent>
+          </Tabs>
+        </Section>
+
+        {/* ── Tooltip ── */}
         <Section title="Tooltip">
           <TooltipProvider>
             <Tooltip>
@@ -188,33 +348,86 @@ export default function TestComponentsPage() {
           </TooltipProvider>
         </Section>
 
-        <Section title="Card">
-          <Card className="w-64">
-            <CardHeader className="pb-2">
-              <p className="text-sm font-semibold text-foreground">Water (Aqua)</p>
-              <p className="font-mono text-[11px] text-muted-foreground">CAS 7732-18-5</p>
-            </CardHeader>
-            <CardContent>
-              <Badge>ตัวทำละลายหลัก</Badge>
-            </CardContent>
-          </Card>
+        {/* ── Breadcrumb ── */}
+        <Section title="Breadcrumb">
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink href="/">หน้าแรก</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbLink href="/assess">ประเมิน</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>สูตร ABC-123</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
         </Section>
 
-        <Section title="Tabs">
-          <Tabs defaultValue="a" className="w-72">
-            <TabsList className="w-full">
-              <TabsTrigger value="a" className="flex-1">การทดลอง</TabsTrigger>
-              <TabsTrigger value="b" className="flex-1">โหนดโมเดล</TabsTrigger>
-            </TabsList>
-            <TabsContent value="a">
-              <p className="text-sm text-muted-foreground pt-2">เนื้อหาการทดลอง</p>
-            </TabsContent>
-            <TabsContent value="b">
-              <p className="text-sm text-muted-foreground pt-2">เนื้อหาโหนดโมเดล</p>
-            </TabsContent>
-          </Tabs>
+        {/* ── Pagination ── */}
+        <Section title="Pagination">
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  href="#"
+                  onClick={(e) => { e.preventDefault(); setCurrentPage(Math.max(1, currentPage - 1)) }}
+                />
+              </PaginationItem>
+              {[1, 2, 3, 4, 5].map((p) => (
+                <PaginationItem key={p}>
+                  <PaginationLink
+                    href="#"
+                    isActive={p === currentPage}
+                    onClick={(e) => { e.preventDefault(); setCurrentPage(p) }}
+                  >
+                    {p}
+                  </PaginationLink>
+                </PaginationItem>
+              ))}
+              <PaginationItem>
+                <PaginationEllipsis />
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationNext
+                  href="#"
+                  onClick={(e) => { e.preventDefault(); setCurrentPage(Math.min(10, currentPage + 1)) }}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
         </Section>
 
+        {/* ── Navigation Menu ── */}
+        <Section title="Navigation Menu">
+          <NavigationMenu>
+            <NavigationMenuList>
+              <NavigationMenuItem>
+                <NavigationMenuTrigger>ประเมิน</NavigationMenuTrigger>
+                <NavigationMenuContent>
+                  <div className="grid gap-2 p-4 w-48">
+                    <NavigationMenuLink className="text-sm hover:text-primary" href="/assess">ประเมินสูตร</NavigationMenuLink>
+                    <NavigationMenuLink className="text-sm hover:text-primary" href="/history">ประวัติการประเมิน</NavigationMenuLink>
+                  </div>
+                </NavigationMenuContent>
+              </NavigationMenuItem>
+              <NavigationMenuItem>
+                <NavigationMenuTrigger>โมเดล</NavigationMenuTrigger>
+                <NavigationMenuContent>
+                  <div className="grid gap-2 p-4 w-48">
+                    <NavigationMenuLink className="text-sm hover:text-primary" href="/skin-viewer">โมเดลผิว 3D</NavigationMenuLink>
+                    <NavigationMenuLink className="text-sm hover:text-primary" href="/models">ความน่าเชื่อถือ</NavigationMenuLink>
+                  </div>
+                </NavigationMenuContent>
+              </NavigationMenuItem>
+            </NavigationMenuList>
+          </NavigationMenu>
+        </Section>
+
+        {/* ── Dialog ── */}
         <Section title="Dialog">
           <Dialog>
             <DialogTrigger asChild>
@@ -233,6 +446,28 @@ export default function TestComponentsPage() {
           </Dialog>
         </Section>
 
+        {/* ── Alert Dialog ── */}
+        <Section title="Alert Dialog">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive">ลบโปรเจ็ค</Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>คุณแน่ใจหรือไม่?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  การดำเนินการนี้ไม่สามารถย้อนกลับได้ โปรเจ็คและข้อมูลทั้งหมดจะถูกลบอย่างถาวร
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>ยกเลิก</AlertDialogCancel>
+                <AlertDialogAction>ยืนยันลบ</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </Section>
+
+        {/* ── Dropdown Menu ── */}
         <Section title="Dropdown Menu">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -241,6 +476,8 @@ export default function TestComponentsPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
+              <DropdownMenuLabel>จัดการสูตร</DropdownMenuLabel>
+              <DropdownMenuSeparator />
               <DropdownMenuItem>แก้ไข</DropdownMenuItem>
               <DropdownMenuItem>ทำสำเนา</DropdownMenuItem>
               <DropdownMenuItem className="text-destructive">ลบ</DropdownMenuItem>
@@ -248,6 +485,20 @@ export default function TestComponentsPage() {
           </DropdownMenu>
         </Section>
 
+        {/* ── Popover ── */}
+        <Section title="Popover">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline">เปิด Popover</Button>
+            </PopoverTrigger>
+            <PopoverContent>
+              <p className="text-sm font-medium text-foreground">ตัวเลือกสารเคมี</p>
+              <p className="mt-1 text-xs text-muted-foreground">เลือกสารเคมีที่ต้องการเพิ่มลงในสูตร</p>
+            </PopoverContent>
+          </Popover>
+        </Section>
+
+        {/* ── Sheet ── */}
         <Section title="Sheet">
           <Sheet>
             <SheetTrigger asChild>
@@ -264,6 +515,50 @@ export default function TestComponentsPage() {
           </Sheet>
         </Section>
 
+        {/* ── Drawer ── */}
+        <Section title="Drawer">
+          <Drawer>
+            <DrawerTrigger asChild>
+              <Button variant="outline">เปิด Drawer</Button>
+            </DrawerTrigger>
+            <DrawerContent>
+              <DrawerHeader>
+                <DrawerTitle>รายละเอียดสูตร</DrawerTitle>
+              </DrawerHeader>
+              <div className="p-4 text-sm text-muted-foreground">
+                Drawer เลื่อนขึ้นมาจากด้านล่าง เหมาะสำหรับ mobile-first UI
+              </div>
+            </DrawerContent>
+          </Drawer>
+        </Section>
+
+        {/* ── Sonner (Toast) ── */}
+        <Section title="Sonner (Toast)">
+          <Button onClick={() => toast('บันทึกสำเร็จแล้ว')}>Toast Default</Button>
+          <Button variant="outline" onClick={() => toast.success('สร้างสูตรสำเร็จ')}>Toast Success</Button>
+          <Button variant="outline" onClick={() => toast.error('เกิดข้อผิดพลาด')}>Toast Error</Button>
+          <Button variant="outline" onClick={() => toast.warning('คำเตือน: ความเข้มเกินมาตรฐาน')}>Toast Warning</Button>
+        </Section>
+
+        {/* ── Empty State ── */}
+        <Section title="Empty State">
+          <div className="w-full rounded-xl border border-dashed border-border">
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <PackageOpen />
+                </EmptyMedia>
+                <EmptyTitle>ยังไม่มีสูตร</EmptyTitle>
+                <EmptyDescription>สร้างสูตรใหม่เพื่อเริ่มการทดลองสารเคมี</EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button>สร้างสูตรแรก</Button>
+              </EmptyContent>
+            </Empty>
+          </div>
+        </Section>
+
+        {/* ── Sidebar (Icon Rail) ── */}
         <Section title="Sidebar (Icon Rail Preview)">
           <div className="h-64 w-14 rounded-xl border border-border overflow-hidden">
             <SidebarProvider>
@@ -297,115 +592,18 @@ export default function TestComponentsPage() {
           </div>
         </Section>
 
-        <Section title="Text3D — LINE Seed Sans TH Bold">
-          <div className="w-full rounded-xl overflow-hidden border border-border" style={{ height: 320 }}>
-            <Text3DTest />
-          </div>
-        </Section>
-
-        {/* ── Alert Dialog ── */}
-        <Section title="Alert Dialog">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive">ลบโปรเจ็ค</Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>คุณแน่ใจหรือไม่?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  การดำเนินการนี้ไม่สามารถย้อนกลับได้ โปรเจ็คและข้อมูลทั้งหมดจะถูกลบอย่างถาวร
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>ยกเลิก</AlertDialogCancel>
-                <AlertDialogAction>ยืนยันลบ</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </Section>
-
-        {/* ── Drawer ── */}
-        <Section title="Drawer">
-          <Drawer>
-            <DrawerTrigger asChild>
-              <Button variant="outline">เปิด Drawer</Button>
-            </DrawerTrigger>
-            <DrawerContent>
-              <DrawerHeader>
-                <DrawerTitle>รายละเอียดสูตร</DrawerTitle>
-              </DrawerHeader>
-              <div className="p-4 text-sm text-muted-foreground">
-                Drawer เลื่อนขึ้นมาจากด้านล่าง เหมาะสำหรับ mobile-first UI
-              </div>
-            </DrawerContent>
-          </Drawer>
-        </Section>
-
-        {/* ── Popover ── */}
-        <Section title="Popover">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline">เปิด Popover</Button>
-            </PopoverTrigger>
-            <PopoverContent>
-              <p className="text-sm font-medium text-foreground">ตัวเลือกสารเคมี</p>
-              <p className="mt-1 text-xs text-muted-foreground">เลือกสารเคมีที่ต้องการเพิ่มลงในสูตร</p>
-            </PopoverContent>
-          </Popover>
-        </Section>
-
-        {/* ── Progress ── */}
-        <Section title="Progress">
-          <div className="w-full space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-foreground">ความคืบหน้า</span>
-              <span className="font-mono text-muted-foreground">{progress}%</span>
-            </div>
-            <Progress value={progress} />
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => setProgress(Math.max(0, progress - 10))}>− 10</Button>
-              <Button size="sm" variant="outline" onClick={() => setProgress(Math.min(100, progress + 10))}>+ 10</Button>
-            </div>
-          </div>
-        </Section>
-
-        {/* ── Slider ── */}
-        <Section title="Slider">
-          <div className="w-72 space-y-3">
-            <Slider
-              value={sliderVal}
-              onValueChange={setSliderVal}
-              min={0}
-              max={100}
-              step={1}
+        {/* ── Particles ── */}
+        <Section title="Particles">
+          <div className="relative w-full h-48 rounded-xl overflow-hidden border border-border">
+            <Particles
+              className="absolute inset-0 bg-slate-950 rounded-xl"
+              quantity={60}
+              color="#6ee7b7"
+              size={0.6}
             />
-            <p className="font-mono text-sm text-muted-foreground">ค่า: {sliderVal[0]}</p>
-          </div>
-        </Section>
-
-        {/* ── Sonner (Toast) ── */}
-        <Section title="Sonner (Toast)">
-          <Button onClick={() => toast('บันทึกสำเร็จแล้ว')}>Toast Default</Button>
-          <Button variant="outline" onClick={() => toast.success('สร้างสูตรสำเร็จ')}>Toast Success</Button>
-          <Button variant="outline" onClick={() => toast.error('เกิดข้อผิดพลาด')}>Toast Error</Button>
-          <Button variant="outline" onClick={() => toast.warning('คำเตือน: ความเข้มเกินมาตรฐาน')}>Toast Warning</Button>
-        </Section>
-
-        {/* ── Empty State ── */}
-        <Section title="Empty State">
-          <div className="w-full rounded-xl border border-dashed border-border">
-            <Empty>
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <PackageOpen />
-                </EmptyMedia>
-                <EmptyTitle>ยังไม่มีสูตร</EmptyTitle>
-                <EmptyDescription>สร้างสูตรใหม่เพื่อเริ่มการทดลองสารเคมี</EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <Button>สร้างสูตรแรก</Button>
-              </EmptyContent>
-            </Empty>
+            <div className="relative z-10 flex h-full items-center justify-center">
+              <p className="text-white font-semibold text-sm">Mouse-reactive particles</p>
+            </div>
           </div>
         </Section>
 

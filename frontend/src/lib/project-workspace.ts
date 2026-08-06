@@ -315,13 +315,15 @@ export function normalizeProjectWorkspace(value: unknown): ProjectWorkspace | nu
     });
   }
 
-  if (formulas.length === 0) return null;
-
   const requestedActiveId =
     typeof value.activeFormulaId === "string" ? value.activeFormulaId : "";
-  const activeFormulaId = seenIds.has(requestedActiveId)
-    ? requestedActiveId
-    : formulas[0].id;
+  const activeFormulaId = formulas.length === 0
+    ? ""
+    : requestedActiveId === ""
+      ? ""
+      : seenIds.has(requestedActiveId)
+        ? requestedActiveId
+        : formulas[0].id;
   const dayIdx: 0 | 1 | 2 = value.dayIdx === 0 || value.dayIdx === 2 ? value.dayIdx : 1;
   const mode: WorkspaceMode =
     value.mode === "nodes" || value.mode === "trust" ? value.mode : "assess";
