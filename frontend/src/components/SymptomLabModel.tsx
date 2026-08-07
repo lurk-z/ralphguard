@@ -44,6 +44,7 @@ import type { PaintMaskSnapshot } from "@/lib/project-workspace";
 // The four paintable skin symptoms (eye redness is a separate, non-painted category).
 export type SkinKey = "redness" | "papule" | "peeling" | "edema";
 const SKIN_KEYS: SkinKey[] = ["redness", "papule", "peeling", "edema"];
+const MAX_PAINT_DABS_PER_FRAME = 12;
 
 // Brighten the base skin albedo (same lift the production model uses).
 const SKIN_LIFT = 0.7;
@@ -420,6 +421,7 @@ export function PaintSymptomModel({
   });
   const painting = useRef(false);
   const lastPaintUv = useRef<THREE.Vector2 | null>(null);
+  const queuedPaintUv = useRef<THREE.Vector2 | null>(null);
   // Some GLB exports split the jaw/neck from the face while reusing the same
   // skin material. Track every such mesh so paint/erase ray hits are accepted
   // across the full visible skin instead of only the last traversed mesh.
@@ -462,6 +464,9 @@ export function PaintSymptomModel({
       const tex = new THREE.CanvasTexture(canvas);
       tex.flipY = false;
       tex.colorSpace = THREE.NoColorSpace;
+      tex.generateMipmaps = false;
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
       return { canvas, ctx, tex };
     };
     return {
@@ -482,8 +487,15 @@ export function PaintSymptomModel({
     const tex = new THREE.CanvasTexture(canvas);
     tex.flipY = false;
     tex.colorSpace = THREE.NoColorSpace;
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
     return { canvas, ctx, tex };
   }, []);
+  const dirtyCanvasTextures = useRef<Set<THREE.CanvasTexture>>(new Set());
+  const markTextureDirty = (texture: THREE.CanvasTexture) => {
+    dirtyCanvasTextures.current.add(texture);
+  };
   // Binary version of occupiedMask used only for collision clipping. Keeping
   // it separate preserves the soft visual edge of other formulas while making
   // the no-overlap rule exact at every accepted pixel.
@@ -502,6 +514,7 @@ export function PaintSymptomModel({
     return { canvas, ctx: canvas.getContext("2d")! };
   }, []);
   const occupiedReady = useRef(false);
+  const hasOccupiedPaint = useRef(false);
   const blockedDuringStroke = useRef(false);
   const paintProbe = useMemo(() => {
     const canvas = document.createElement("canvas");
@@ -555,7 +568,7 @@ export function PaintSymptomModel({
         mask.ctx.globalCompositeOperation = "source-over";
         mask.ctx.fillStyle = "#000000";
         mask.ctx.fillRect(0, 0, mask.canvas.width, mask.canvas.height);
-        mask.tex.needsUpdate = true;
+        markTextureDirty(mask.tex);
       });
     };
     clearMasks();
@@ -573,7 +586,7 @@ export function PaintSymptomModel({
                 const mask = masks[key];
                 mask.ctx.globalCompositeOperation = "source-over";
                 mask.ctx.drawImage(image, 0, 0, mask.canvas.width, mask.canvas.height);
-                mask.tex.needsUpdate = true;
+                markTextureDirty(mask.tex);
               }
               resolve();
             };
@@ -606,7 +619,7 @@ export function PaintSymptomModel({
           mask.ctx.globalCompositeOperation = "source-over";
           mask.ctx.clearRect(0, 0, mask.canvas.width, mask.canvas.height);
           mask.ctx.drawImage(unionCanvas, 0, 0);
-          mask.tex.needsUpdate = true;
+          markTextureDirty(mask.tex);
         });
       }
 
@@ -645,11 +658,17 @@ export function PaintSymptomModel({
       occupiedExclusionMask.ctx.putImageData(exclusionPixels, 0, 0);
     };
 
-    occupiedReady.current = occupiedPaint.length === 0;
+    const collisionSnapshots = occupiedPaint.filter(
+      (snapshot) =>
+        snapshot.hasPaint !== false &&
+        SKIN_KEYS.some((key) => Boolean(snapshot[key])),
+    );
+    hasOccupiedPaint.current = collisionSnapshots.length > 0;
+    occupiedReady.current = collisionSnapshots.length === 0;
     occupiedMask.ctx.globalCompositeOperation = "source-over";
     occupiedMask.ctx.fillStyle = "#000000";
     occupiedMask.ctx.fillRect(0, 0, occupiedMask.canvas.width, occupiedMask.canvas.height);
-    occupiedMask.tex.needsUpdate = true;
+    markTextureDirty(occupiedMask.tex);
     occupiedExclusionMask.ctx.clearRect(
       0,
       0,
@@ -657,10 +676,11 @@ export function PaintSymptomModel({
       occupiedExclusionMask.canvas.height,
     );
 
-    const dataUrls = occupiedPaint.flatMap((snapshot) =>
+    const dataUrls = collisionSnapshots.flatMap((snapshot) =>
       SKIN_KEYS.map((key) => snapshot[key]).filter((value): value is string => Boolean(value)),
     );
     if (dataUrls.length === 0) {
+      hasOccupiedPaint.current = false;
       occupiedReady.current = true;
       return () => void (cancelled = true);
     }
@@ -680,7 +700,7 @@ export function PaintSymptomModel({
                   occupiedMask.canvas.width,
                   occupiedMask.canvas.height,
                 );
-                occupiedMask.tex.needsUpdate = true;
+                markTextureDirty(occupiedMask.tex);
               }
               resolve();
             };
@@ -1207,7 +1227,7 @@ roughnessFactor = clamp(
           m.ctx.globalCompositeOperation = "source-over";
           m.ctx.fillStyle = "#000000";
           m.ctx.fillRect(0, 0, m.canvas.width, m.canvas.height);
-          m.tex.needsUpdate = true;
+          markTextureDirty(m.tex);
           revealTargets.current[k] = 0;
           revealRefs[k].current.value = 0;
         });
@@ -1233,7 +1253,7 @@ roughnessFactor = clamp(
           m.ctx.globalCompositeOperation = "source-over";
           m.ctx.fillStyle = "#ffffff";
           m.ctx.fillRect(0, 0, m.canvas.width, m.canvas.height);
-          m.tex.needsUpdate = true;
+          markTextureDirty(m.tex);
           revealTargets.current[k] = 1;
         });
         notifyPaintChange();
@@ -1245,6 +1265,19 @@ roughnessFactor = clamp(
 
   // Ease every symptom's reveal toward its own target (~0.9s).
   useFrame((_, dt) => {
+    if (painting.current && queuedPaintUv.current) {
+      const nextUv = queuedPaintUv.current;
+      queuedPaintUv.current = null;
+      paintStrokeTo(nextUv);
+    }
+
+    // Canvas drawing can happen many times inside one stroke. Upload each
+    // changed texture once at the end of the frame instead of once per dab.
+    dirtyCanvasTextures.current.forEach((texture) => {
+      texture.needsUpdate = true;
+    });
+    dirtyCanvasTextures.current.clear();
+
     const k = Math.min(1, dt * 2.2);
     const severityK = 1 - Math.exp(-dt * 5.5);
     uScanTime.current.value += dt;
@@ -1276,68 +1309,73 @@ roughnessFactor = clamp(
       // written before their PNG snapshots finish decoding.
       if (!occupiedReady.current) return;
 
-      const W = occupiedMask.canvas.width;
-      const H = occupiedMask.canvas.height;
-      const px = uv.x * W;
-      const py = uv.y * H;
-      const radius = (brushSizeRef.current / 100) * 0.09 * W;
-      const minX = Math.max(0, Math.floor(px - radius));
-      const minY = Math.max(0, Math.floor(py - radius));
-      const maxX = Math.min(W - 1, Math.ceil(px + radius));
-      const maxY = Math.min(H - 1, Math.ceil(py + radius));
-      const width = Math.max(1, maxX - minX + 1);
-      const height = Math.max(1, maxY - minY + 1);
-      const pixels = occupiedMask.ctx.getImageData(minX, minY, width, height).data;
-      let hasPaintableArea = false;
+      // Most strokes have no other formula paint to collide with. Keep that
+      // common path free from synchronous pixel reads and the temporary dab
+      // canvas; collision clipping is only prepared when occupied paint exists.
+      if (hasOccupiedPaint.current) {
+        const W = occupiedMask.canvas.width;
+        const H = occupiedMask.canvas.height;
+        const px = uv.x * W;
+        const py = uv.y * H;
+        const radius = (brushSizeRef.current / 100) * 0.09 * W;
+        const minX = Math.max(0, Math.floor(px - radius));
+        const minY = Math.max(0, Math.floor(py - radius));
+        const maxX = Math.min(W - 1, Math.ceil(px + radius));
+        const maxY = Math.min(H - 1, Math.ceil(py + radius));
+        const width = Math.max(1, maxX - minX + 1);
+        const height = Math.max(1, maxY - minY + 1);
+        const pixels = occupiedMask.ctx.getImageData(minX, minY, width, height).data;
+        let hasPaintableArea = false;
 
-      // Only reject a dab when its useful area is completely occupied. Partial
-      // collisions remain valid and are clipped pixel-for-pixel below.
-      for (let y = 0; y < height && !hasPaintableArea; y += 4) {
-        for (let x = 0; x < width; x += 4) {
-          const dx = minX + x - px;
-          const dy = minY + y - py;
-          if (dx * dx + dy * dy > radius * radius * 0.85) continue;
-          if (pixels[(y * width + x) * 4] <= 12) {
-            hasPaintableArea = true;
-            break;
+        // Only reject a dab when its useful area is completely occupied. Partial
+        // collisions remain valid and are clipped pixel-for-pixel below.
+        for (let y = 0; y < height && !hasPaintableArea; y += 4) {
+          for (let x = 0; x < width; x += 4) {
+            const dx = minX + x - px;
+            const dy = minY + y - py;
+            if (dx * dx + dy * dy > radius * radius * 0.85) continue;
+            if (pixels[(y * width + x) * 4] <= 12) {
+              hasPaintableArea = true;
+              break;
+            }
           }
         }
-      }
 
-      if (!hasPaintableArea) {
-        if (!blockedDuringStroke.current) {
-          blockedDuringStroke.current = true;
-          onPaintBlockedRef.current?.();
+        if (!hasPaintableArea) {
+          if (!blockedDuringStroke.current) {
+            blockedDuringStroke.current = true;
+            onPaintBlockedRef.current?.();
+          }
+          return;
         }
-        return;
-      }
 
-      // Build one soft dab, then punch out only pixels owned by other formulas.
-      // The remaining crescent/edge is still painted even when the brush centre
-      // is very close to an existing mark.
-      paintDabMask.ctx.globalCompositeOperation = "source-over";
-      paintDabMask.ctx.clearRect(minX, minY, width, height);
-      const gradient = paintDabMask.ctx.createRadialGradient(px, py, 0, px, py, radius);
-      gradient.addColorStop(0, "rgba(255,255,255,0.85)");
-      gradient.addColorStop(1, "rgba(255,255,255,0)");
-      paintDabMask.ctx.fillStyle = gradient;
-      paintDabMask.ctx.beginPath();
-      paintDabMask.ctx.arc(px, py, radius, 0, Math.PI * 2);
-      paintDabMask.ctx.fill();
-      paintDabMask.ctx.globalCompositeOperation = "destination-out";
-      paintDabMask.ctx.drawImage(
-        occupiedExclusionMask.canvas,
-        minX,
-        minY,
-        width,
-        height,
-        minX,
-        minY,
-        width,
-        height,
-      );
-      paintDabMask.ctx.globalCompositeOperation = "source-over";
-      clippedDabBounds = { minX, minY, width, height };
+        // Build one soft dab, then punch out only pixels owned by other formulas.
+        // The remaining crescent/edge is still painted even when the brush centre
+        // is very close to an existing mark.
+        paintDabMask.ctx.globalCompositeOperation = "source-over";
+        paintDabMask.ctx.clearRect(minX, minY, width, height);
+        const gradient = paintDabMask.ctx.createRadialGradient(px, py, 0, px, py, radius);
+        gradient.addColorStop(0, "rgba(255,255,255,0.85)");
+        gradient.addColorStop(1, "rgba(255,255,255,0)");
+        paintDabMask.ctx.fillStyle = gradient;
+        paintDabMask.ctx.beginPath();
+        paintDabMask.ctx.arc(px, py, radius, 0, Math.PI * 2);
+        paintDabMask.ctx.fill();
+        paintDabMask.ctx.globalCompositeOperation = "destination-out";
+        paintDabMask.ctx.drawImage(
+          occupiedExclusionMask.canvas,
+          minX,
+          minY,
+          width,
+          height,
+          minX,
+          minY,
+          width,
+          height,
+        );
+        paintDabMask.ctx.globalCompositeOperation = "source-over";
+        clippedDabBounds = { minX, minY, width, height };
+      }
     }
 
     // Erasing uses the same brush interaction as painting and clears every
@@ -1379,25 +1417,36 @@ roughnessFactor = clamp(
             m.ctx.fill();
           });
         });
-        m.tex.needsUpdate = true;
+        markTextureDirty(m.tex);
         return;
       }
 
-      if (!clippedDabBounds) return;
-      // Copy only the non-overlapping portion of the prepared dab.
       m.ctx.globalCompositeOperation = "lighter";
-      m.ctx.drawImage(
-        paintDabMask.canvas,
-        clippedDabBounds.minX,
-        clippedDabBounds.minY,
-        clippedDabBounds.width,
-        clippedDabBounds.height,
-        clippedDabBounds.minX,
-        clippedDabBounds.minY,
-        clippedDabBounds.width,
-        clippedDabBounds.height,
-      );
-      m.tex.needsUpdate = true;
+      if (clippedDabBounds) {
+        // Copy only the non-overlapping portion of the prepared dab.
+        m.ctx.drawImage(
+          paintDabMask.canvas,
+          clippedDabBounds.minX,
+          clippedDabBounds.minY,
+          clippedDabBounds.width,
+          clippedDabBounds.height,
+          clippedDabBounds.minX,
+          clippedDabBounds.minY,
+          clippedDabBounds.width,
+          clippedDabBounds.height,
+        );
+      } else {
+        // Fast path: no other formula owns paint, so draw directly into the
+        // active mask without getImageData() or a full-size temporary canvas.
+        const gradient = m.ctx.createRadialGradient(px, py, 0, px, py, r);
+        gradient.addColorStop(0, "rgba(255,255,255,0.85)");
+        gradient.addColorStop(1, "rgba(255,255,255,0)");
+        m.ctx.fillStyle = gradient;
+        m.ctx.beginPath();
+        m.ctx.arc(px, py, r, 0, Math.PI * 2);
+        m.ctx.fill();
+      }
+      markTextureDirty(m.tex);
     });
     // Do NOT reset this symptom's reveal: already-revealed areas stay revealed
     // when you paint MORE of the same symptom. New marks show as cream only
@@ -1413,6 +1462,7 @@ roughnessFactor = clamp(
     }
 
     const distance = previous.distanceTo(uv);
+    if (distance < 0.0001) return;
     // Do not bridge distant UV islands across a model seam. Within one island,
     // interpolate dabs so a quick drag still produces one continuous stroke.
     if (distance > 0.2) {
@@ -1420,7 +1470,10 @@ roughnessFactor = clamp(
     } else {
       const brushRadiusUv = (brushSizeRef.current / 100) * 0.09;
       const spacing = Math.max(0.004, brushRadiusUv * 0.35);
-      const steps = Math.min(32, Math.max(1, Math.ceil(distance / spacing)));
+      const steps = Math.min(
+        MAX_PAINT_DABS_PER_FRAME,
+        Math.max(1, Math.ceil(distance / spacing)),
+      );
       for (let step = 1; step <= steps; step += 1) {
         dabAt(previous.clone().lerp(uv, step / steps));
       }
@@ -1540,8 +1593,22 @@ roughnessFactor = clamp(
     const c = getState().controls as unknown as { enabled: boolean } | null;
     if (c) c.enabled = enabled;
   };
-  const stopPaint = () => {
+  const queuePaintAt = (uv: THREE.Vector2) => {
+    if (queuedPaintUv.current) {
+      queuedPaintUv.current.copy(uv);
+    } else {
+      queuedPaintUv.current = uv.clone();
+    }
+  };
+  const flushQueuedPaint = () => {
+    const queuedUv = queuedPaintUv.current;
+    queuedPaintUv.current = null;
+    if (queuedUv) paintStrokeTo(queuedUv);
+  };
+  const stopPaint = (finalUv?: THREE.Vector2) => {
     if (painting.current) {
+      if (finalUv) queuePaintAt(finalUv);
+      flushQueuedPaint();
       painting.current = false;
       lastPaintUv.current = null;
       setControls(true);
@@ -1549,8 +1616,9 @@ roughnessFactor = clamp(
     }
   };
   useEffect(() => {
-    window.addEventListener("pointerup", stopPaint);
-    return () => window.removeEventListener("pointerup", stopPaint);
+    const handleWindowPointerUp = () => stopPaint();
+    window.addEventListener("pointerup", handleWindowPointerUp);
+    return () => window.removeEventListener("pointerup", handleWindowPointerUp);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1565,6 +1633,7 @@ roughnessFactor = clamp(
           blockedDuringStroke.current = false;
           painting.current = true;
           lastPaintUv.current = null;
+          queuedPaintUv.current = null;
           setControls(false);
           if (e.uv) paintStrokeTo(e.uv);
         }}
@@ -1578,7 +1647,7 @@ roughnessFactor = clamp(
           if (painting.current) {
             e.stopPropagation();
             onHover?.(null);
-            if (e.uv) paintStrokeTo(e.uv);
+            if (e.uv) queuePaintAt(e.uv);
             return;
           }
 
@@ -1595,7 +1664,7 @@ roughnessFactor = clamp(
         onPointerOut={() => {
           onHover?.(null);
         }}
-        onPointerUp={stopPaint}
+        onPointerUp={(e: any) => stopPaint(e.uv)}
       />
     </group>
   );
