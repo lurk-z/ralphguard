@@ -220,6 +220,7 @@ test("persists only valid paint masks under their owning formula", () => {
   const workspace = draft("Painted formula");
   workspace.paintByFormulaId = {
     "formula-1": {
+      exposure: "data:image/png;base64,EXPOSURE",
       redness: "data:image/png;base64,AAAA",
       papule: "not-a-data-url",
       hasPaint: true,
@@ -232,12 +233,41 @@ test("persists only valid paint masks under their owning formula", () => {
   assert.equal(saveProjectWorkspace(1, workspace, storage), true);
   const restored = loadProjectWorkspace(1, storage);
   assert.equal(
+    restored?.paintByFormulaId["formula-1"]?.exposure,
+    "data:image/png;base64,EXPOSURE",
+  );
+  assert.equal(
     restored?.paintByFormulaId["formula-1"]?.redness,
     "data:image/png;base64,AAAA",
   );
   assert.equal(restored?.paintByFormulaId["formula-1"]?.papule, undefined);
   assert.equal(restored?.paintByFormulaId["formula-1"]?.hasPaint, true);
   assert.equal(restored?.paintByFormulaId.missing, undefined);
+});
+
+test("keeps legacy paint presence unknown until its mask is inspected", () => {
+  const workspace = normalizeProjectWorkspace({
+    version: 1,
+    formulas: [
+      {
+        id: "formula-1",
+        name: "Legacy paint",
+        items: [],
+      },
+    ],
+    paintByFormulaId: {
+      "formula-1": {
+        redness: "data:image/png;base64,LEGACY",
+      },
+    },
+  });
+
+  assert.ok(workspace);
+  assert.equal(workspace.paintByFormulaId["formula-1"]?.hasPaint, undefined);
+  assert.equal(
+    workspace.paintByFormulaId["formula-1"]?.redness,
+    "data:image/png;base64,LEGACY",
+  );
 });
 
 test("persists node graphs independently under their owning formula", () => {

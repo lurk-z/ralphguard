@@ -779,24 +779,24 @@ Workflow ใหม่ที่ต้องใช้:
 
 #### แผน Optimize — ลดอาการหน่วงระหว่างทาบนโมเดล
 
-สถานะ: **กำลังดำเนินการแบบทีละขั้น — O1–O3 เสร็จแล้ว ส่วน O4–O7 ยังไม่ได้ดำเนินการ**
+สถานะ: **กำลังดำเนินการแบบทีละขั้น — O1, O3 และ O4 เสร็จแล้ว; O2 ถูก rollback เพื่อคืนพฤติกรรมการทาจาก `main`; O5–O7 ยังไม่ได้ดำเนินการ**
 
 สาเหตุที่ตรวจพบ เรียงตามผลกระทบที่คาด:
 
-1. ~~ทุก pointer move สามารถแตกเป็น dab ย่อยได้สูงสุด 32 dab และแต่ละ dab เรียก `getImageData()` เพื่อตรวจ collision แบบ synchronous แม้ขณะมีสูตรเดียวและไม่มี mask อื่นให้ชน~~ — แก้แล้วใน O1–O2 โดยตัด collision read ที่ไม่จำเป็นและจำกัดงานวาดต่อเฟรม
+1. ทุก `pointermove` สามารถแตกเป็น dab ย่อยได้สูงสุด 32 dab อีกครั้งตามพฤติกรรมของ `main`; O1 ยังตัด `getImageData()` เมื่อไม่มีรอยสูตรอื่น ส่วนแนวทาง queue เฉพาะ UV ล่าสุดของ O2 ถูก rollback เพราะทำจุดกลางหายและสร้างเส้นเชื่อมข้าม UV จากตาไปจมูก/ปาก
 2. ~~การทาหนึ่ง dab เขียน exposure เดียวกันลง Canvas mask 4 ชั้นขนาด 1024×1024 และตั้ง `CanvasTexture.needsUpdate` ทุกชั้น ทำให้มีโอกาสอัปโหลด texture และสร้าง mipmap ซ้ำในช่วงที่ pointer event ถี่~~ — แก้ส่วนการ batch upload และ mipmap แล้วใน O3; การรวม 4 mask ให้เหลือหนึ่งยังรอ O4
-3. เมื่อปล่อยเมาส์ ระบบตรวจ mask แล้วเรียก `toDataURL("image/png")` แบบ synchronous ครบ 4 ชั้น จากนั้น React สร้าง workspace snapshot ใหม่
+3. เมื่อปล่อยเมาส์ ระบบตรวจ mask แล้วเรียก `toDataURL("image/png")` แบบ synchronous; O4 ลด Assessment เหลือ exposure mask เดียวแล้ว แต่การเข้ารหัสยังบล็อก main thread และรอแก้ใน O5
 4. หลัง debounce 300ms ระบบ `JSON.stringify()` workspace ที่มี PNG Base64 ขนาดใหญ่และเขียน `localStorage.setItem()` แบบ synchronous จึงอาจเกิดการกระตุกตามหลังการปล่อยเมาส์ โดยจะชัดขึ้นเมื่อรอยมีรายละเอียดมากหรือมีหลายสูตร
-5. ใน Assessment mode mask ของ redness, papule, peeling และ edema เป็นพื้นที่ exposure เดียวกัน แต่ปัจจุบันยังเก็บ วาด อัปโหลด และบันทึกเป็น 4 สำเนา
+5. ~~ใน Assessment mode mask ของ redness, papule, peeling และ edema เป็นพื้นที่ exposure เดียวกัน แต่ปัจจุบันยังเก็บ วาด อัปโหลด และบันทึกเป็น 4 สำเนา~~ — แก้แล้วใน O4 โดยใช้ CanvasTexture และ snapshot `exposure` เดียว พร้อมรวม snapshot 4 ชั้นเดิมตอนโหลด
 6. Shader ผิว โมเดล animated eyes และ DPR สูงสุด 1.5 เป็นภาระ GPU พื้นฐาน แต่ปริมาณพื้นที่ที่ทาไม่ได้เพิ่มจำนวน geometry จึงไม่ใช่สาเหตุหลักของการช้าลงตามจำนวนรอย
 
 ลำดับดำเนินการ:
 
 - [x] **O1 — ตัดงานซ้ำใน hot path (ดำเนินการแล้ว):** เพิ่ม fast path เมื่อไม่มีรอยจริงจากสูตรอื่น โดยข้าม collision read/temporary mask ทั้งหมด ไม่โหลด snapshot ว่างมาเป็น occupied mask และตรวจ blocked state เฉพาะตอนจำเป็นแทนการ `getImageData()` ทุก dab
-- [x] **O2 — จำกัดงานต่อเฟรม (ดำเนินการแล้ว):** queue UV ล่าสุดจาก `pointermove` และประมวลผลการลากไม่เกินหนึ่งครั้งต่อ animation frame จำกัด interpolation สูงสุด 12 dab ต่อเฟรม พร้อมวาดจุดเริ่มต้นทันทีและ flush จุดสุดท้ายก่อนบันทึก snapshot
+- [ ] **O2 — จำกัดงานต่อเฟรม (rollback แล้ว ต้องออกแบบใหม่):** การ queue เฉพาะ UV ล่าสุดต่อ animation frame ทำให้จุด `pointermove` กลางทางหายและเกิดเส้น interpolation ข้าม UV จากรอบตาไปจมูกหรือปาก จึงคืนการวาดทุก `pointermove` และเพดาน 32 dab ให้ตรงกับ `main`; หากทำใหม่ต้องเก็บ path ย่อยครบ ไม่ใช่ latest-only
 - [x] **O3 — Batch texture update (ดำเนินการแล้ว):** วาด dab ทั้งหมดของเฟรมก่อนแล้วตั้ง `needsUpdate` เพียงครั้งเดียวต่อ texture รวมทั้ง occupied texture ปิด mipmap สำหรับ canvas mask และใช้ linear filtering ที่เหมาะกับ mask 2D
-- **O4 — ใช้ exposure mask เดียวใน Assessment:** ให้ endpoint ทั้ง 4 อ่าน texture พื้นที่ทาร่วมกัน เก็บ mask แยกเฉพาะหน้า standalone Symptom Lab และรองรับการรวม snapshot 4 ชั้นเก่าเป็น mask เดียวตอนโหลด
-- **O5 — ย้าย snapshot ออกจาก main interaction:** เปลี่ยนการเข้ารหัส PNG เป็น `toBlob()`/`OffscreenCanvas.convertToBlob()` แบบ asynchronous เก็บเพียง mask เดียว และไม่ให้การปล่อยเมาส์รอการบีบอัดภาพ
+- [x] **O4 — ใช้ exposure mask เดียวใน Assessment (ดำเนินการแล้ว):** ให้ endpoint ทั้ง 4 อ่าน CanvasTexture พื้นที่ทาร่วมกันเพียงชุดเดียว บันทึก snapshot ใหม่ด้วยคีย์ `exposure` เก็บ mask แยกเฉพาะหน้า standalone Symptom Lab และรวม snapshot 4 ชั้นเก่าเป็น mask เดียวก่อนบันทึกกลับโดยไม่เพิ่ม workspace version
+- **O5 — ย้าย snapshot ออกจาก main interaction:** เปลี่ยนการเข้ารหัส exposure mask เดียวจาก O4 เป็น `toBlob()`/`OffscreenCanvas.convertToBlob()` แบบ asynchronous และไม่ให้การปล่อยเมาส์รอการบีบอัดภาพ
 - **O6 — แยก persistence:** เก็บ paint blob ใน IndexedDB และให้ localStorage เก็บเฉพาะ metadata/สูตร หรืออย่างน้อยเลื่อนการ serialize ไปช่วง idle พร้อม debounce ที่ยาวขึ้น โดยยัง flush อย่างปลอดภัยตอนออกจากหน้า
 - **O7 — ปรับ GPU เมื่อยังจำเป็น:** ลด DPR ชั่วคราวเฉพาะระหว่างลากและพัก animation/hover effect ที่ไม่จำเป็น แล้วคืนคุณภาพหลังหยุดทา โดยทำหลัง O1–O6 เพื่อไม่ลดคุณภาพก่อนแก้ต้นเหตุ
 

@@ -25,7 +25,7 @@ export type FormulaAssessmentSnapshot = {
   startedAt: string;
 };
 
-export type PaintMaskKey = "redness" | "papule" | "peeling" | "edema";
+export type PaintMaskKey = "exposure" | "redness" | "papule" | "peeling" | "edema";
 
 export type PaintMaskSnapshot = Partial<Record<PaintMaskKey, string>> & {
   hasPaint?: boolean;
@@ -366,7 +366,7 @@ export function normalizeProjectWorkspace(value: unknown): ProjectWorkspace | nu
       if (!seenIds.has(formulaId) || !isRecord(rawSnapshot)) continue;
       const snapshot: PaintMaskSnapshot = {};
       let validMaskCount = 0;
-      for (const key of ["redness", "papule", "peeling", "edema"] as const) {
+      for (const key of ["exposure", "redness", "papule", "peeling", "edema"] as const) {
         const dataUrl = rawSnapshot[key];
         if (
           typeof dataUrl === "string" &&
@@ -378,7 +378,9 @@ export function normalizeProjectWorkspace(value: unknown): ProjectWorkspace | nu
         }
       }
       if (validMaskCount > 0) {
-        snapshot.hasPaint = rawSnapshot.hasPaint === true;
+        if (typeof rawSnapshot.hasPaint === "boolean") {
+          snapshot.hasPaint = rawSnapshot.hasPaint;
+        }
         paintByFormulaId[formulaId] = snapshot;
       }
     }

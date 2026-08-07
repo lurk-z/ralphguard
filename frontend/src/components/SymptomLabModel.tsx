@@ -44,7 +44,15 @@ import type { PaintMaskSnapshot } from "@/lib/project-workspace";
 // The four paintable skin symptoms (eye redness is a separate, non-painted category).
 export type SkinKey = "redness" | "papule" | "peeling" | "edema";
 const SKIN_KEYS: SkinKey[] = ["redness", "papule", "peeling", "edema"];
-const MAX_PAINT_DABS_PER_FRAME = 12;
+const SHARED_EXPOSURE_KEYS: SkinKey[] = ["redness"];
+const MAX_PAINT_DABS_PER_POINTER_MOVE = 32;
+
+const snapshotMaskDataUrls = (snapshot: PaintMaskSnapshot): string[] => {
+  if (snapshot.exposure) return [snapshot.exposure];
+  return SKIN_KEYS.map((key) => snapshot[key]).filter(
+    (value): value is string => Boolean(value),
+  );
+};
 
 // Brighten the base skin albedo (same lift the production model uses).
 const SKIN_LIFT = 0.7;
@@ -329,6 +337,7 @@ export function PaintSymptomModel({
   occupiedPaint = [],
   onPaintBlocked,
   cameraDistanceScale,
+  sharedExposureMask = false,
 }: {
   paintOwnerKey?: string;
   paintEnabled?: boolean;
@@ -349,6 +358,9 @@ export function PaintSymptomModel({
   occupiedPaint?: PaintMaskSnapshot[];
   onPaintBlocked?: () => void;
   cameraDistanceScale?: number;
+  // Assessment uses one exposure area for all endpoints. The standalone lab
+  // leaves this disabled so each symptom continues to own an independent mask.
+  sharedExposureMask?: boolean;
 }) {
   const { scene: rawScene, animations } = useGLTF("/models/head.glb", true);
   const gl = useThree((s) => s.gl);
@@ -421,7 +433,6 @@ export function PaintSymptomModel({
   });
   const painting = useRef(false);
   const lastPaintUv = useRef<THREE.Vector2 | null>(null);
-  const queuedPaintUv = useRef<THREE.Vector2 | null>(null);
   // Some GLB exports split the jaw/neck from the face while reusing the same
   // skin material. Track every such mesh so paint/erase ray hits are accepted
   // across the full visible skin instead of only the last traversed mesh.
@@ -451,6 +462,7 @@ export function PaintSymptomModel({
   useEffect(() => {
     paintSymptomsRef.current = paintSymptoms?.length ? paintSymptoms : [activeSymptom];
   }, [paintSymptoms, activeSymptom]);
+  const writableMaskKeys = sharedExposureMask ? SHARED_EXPOSURE_KEYS : SKIN_KEYS;
 
   // One 1024² grayscale mask per skin symptom — white where the user painted it.
   const masks = useMemo(() => {
@@ -469,10 +481,19 @@ export function PaintSymptomModel({
       tex.magFilter = THREE.LinearFilter;
       return { canvas, ctx, tex };
     };
+    if (sharedExposureMask) {
+      const exposure = make();
+      return {
+        redness: exposure,
+        papule: exposure,
+        peeling: exposure,
+        edema: exposure,
+      } as Record<SkinKey, { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture }>;
+    }
     return {
       redness: make(), papule: make(), peeling: make(), edema: make(),
     } as Record<SkinKey, { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture }>;
-  }, []);
+  }, [sharedExposureMask]);
 
   // Union of every non-selected formula's paint. It is deliberately separate
   // from the active symptom masks: other formulas remain visible as test-cream
@@ -524,7 +545,7 @@ export function PaintSymptomModel({
   }, []);
 
   const hasAnyPaint = () =>
-    SKIN_KEYS.some((key) => {
+    writableMaskKeys.some((key) => {
       paintProbe.ctx.globalCompositeOperation = "source-over";
       paintProbe.ctx.clearRect(0, 0, paintProbe.canvas.width, paintProbe.canvas.height);
       paintProbe.ctx.drawImage(
@@ -548,9 +569,13 @@ export function PaintSymptomModel({
 
   const snapshotMasks = (): PaintMaskSnapshot => {
     const snapshot: PaintMaskSnapshot = { hasPaint: hasAnyPaint() };
-    SKIN_KEYS.forEach((key) => {
-      snapshot[key] = masks[key].canvas.toDataURL("image/png");
-    });
+    if (sharedExposureMask) {
+      snapshot.exposure = masks.redness.canvas.toDataURL("image/png");
+    } else {
+      SKIN_KEYS.forEach((key) => {
+        snapshot[key] = masks[key].canvas.toDataURL("image/png");
+      });
+    }
     return snapshot;
   };
 
@@ -563,7 +588,7 @@ export function PaintSymptomModel({
   useEffect(() => {
     let cancelled = false;
     const clearMasks = () => {
-      SKIN_KEYS.forEach((key) => {
+      writableMaskKeys.forEach((key) => {
         const mask = masks[key];
         mask.ctx.globalCompositeOperation = "source-over";
         mask.ctx.fillStyle = "#000000";
@@ -574,61 +599,48 @@ export function PaintSymptomModel({
     clearMasks();
     if (!initialPaint) return () => void (cancelled = true);
 
-    void Promise.all(
-      SKIN_KEYS.map(
-        (key) =>
-          new Promise<void>((resolve) => {
-            const dataUrl = initialPaint[key];
-            if (!dataUrl) return resolve();
-            const image = new Image();
-            image.onload = () => {
-              if (!cancelled) {
-                const mask = masks[key];
-                mask.ctx.globalCompositeOperation = "source-over";
-                mask.ctx.drawImage(image, 0, 0, mask.canvas.width, mask.canvas.height);
-                markTextureDirty(mask.tex);
-              }
-              resolve();
-            };
-            image.onerror = () => resolve();
-            image.src = dataUrl;
-          }),
-      ),
-    ).then(() => {
-      // Production assessment paint marks an exposure area, not one particular
-      // symptom. Older snapshots can contain pixels in only the symptom that
-      // happened to be dominant when they were saved, leaving the other three
-      // masks black. Union every restored legacy layer and apply that exposure
-      // mask to all four symptoms so high scores can render redness, papules,
-      // peeling and edema together. The standalone symptom lab still keeps its
-      // deliberately independent per-symptom masks.
-      if (!cancelled && paintSymptomsRef.current.length > 1) {
-        const unionCanvas = document.createElement("canvas");
-        unionCanvas.width = masks.redness.canvas.width;
-        unionCanvas.height = masks.redness.canvas.height;
-        const unionContext = unionCanvas.getContext("2d")!;
-        unionContext.fillStyle = "#000000";
-        unionContext.fillRect(0, 0, unionCanvas.width, unionCanvas.height);
-        unionContext.globalCompositeOperation = "lighten";
-        SKIN_KEYS.forEach((key) => {
-          unionContext.drawImage(masks[key].canvas, 0, 0);
+    const loadImage = (dataUrl: string) =>
+      new Promise<HTMLImageElement | null>((resolve) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => resolve(null);
+        image.src = dataUrl;
+      });
+
+    if (sharedExposureMask) {
+      // New assessment snapshots have one exposure image. Legacy snapshots
+      // have up to four symptom images, which are unioned into that one canvas.
+      void Promise.all(snapshotMaskDataUrls(initialPaint).map(loadImage)).then((images) => {
+        if (cancelled) return;
+        const mask = masks.redness;
+        mask.ctx.globalCompositeOperation = "lighten";
+        images.forEach((image) => {
+          if (image) mask.ctx.drawImage(image, 0, 0, mask.canvas.width, mask.canvas.height);
         });
-        unionContext.globalCompositeOperation = "source-over";
-        SKIN_KEYS.forEach((key) => {
+        mask.ctx.globalCompositeOperation = "source-over";
+        markTextureDirty(mask.tex);
+        // Saving the restored mask immediately migrates legacy four-image
+        // snapshots to the compact exposure key without a workspace version bump.
+        notifyPaintChange();
+      });
+    } else {
+      void Promise.all(
+        SKIN_KEYS.map(async (key) => ({
+          key,
+          image: initialPaint[key] ? await loadImage(initialPaint[key]) : null,
+        })),
+      ).then((loadedMasks) => {
+        if (cancelled) return;
+        loadedMasks.forEach(({ key, image }) => {
+          if (!image) return;
           const mask = masks[key];
           mask.ctx.globalCompositeOperation = "source-over";
-          mask.ctx.clearRect(0, 0, mask.canvas.width, mask.canvas.height);
-          mask.ctx.drawImage(unionCanvas, 0, 0);
+          mask.ctx.drawImage(image, 0, 0, mask.canvas.width, mask.canvas.height);
           markTextureDirty(mask.tex);
         });
-      }
-
-      // Old workspace snapshots did not carry hasPaint metadata. Once their
-      // images are restored and unified, emit the same masks with accurate
-      // pixel presence so refresh migration completes without guessing from a
-      // PNG's existence.
-      if (!cancelled) notifyPaintChange();
-    });
+        notifyPaintChange();
+      });
+    }
 
     return () => {
       cancelled = true;
@@ -661,7 +673,7 @@ export function PaintSymptomModel({
     const collisionSnapshots = occupiedPaint.filter(
       (snapshot) =>
         snapshot.hasPaint !== false &&
-        SKIN_KEYS.some((key) => Boolean(snapshot[key])),
+        snapshotMaskDataUrls(snapshot).length > 0,
     );
     hasOccupiedPaint.current = collisionSnapshots.length > 0;
     occupiedReady.current = collisionSnapshots.length === 0;
@@ -676,9 +688,7 @@ export function PaintSymptomModel({
       occupiedExclusionMask.canvas.height,
     );
 
-    const dataUrls = collisionSnapshots.flatMap((snapshot) =>
-      SKIN_KEYS.map((key) => snapshot[key]).filter((value): value is string => Boolean(value)),
-    );
+    const dataUrls = collisionSnapshots.flatMap(snapshotMaskDataUrls);
     if (dataUrls.length === 0) {
       hasOccupiedPaint.current = false;
       occupiedReady.current = true;
@@ -1221,13 +1231,18 @@ roughnessFactor = clamp(
     if (!apiRef) return;
     apiRef.current = {
       clear: () => {
-        paintSymptomsRef.current.forEach((k) => {
+        const keysToClear = sharedExposureMask
+          ? writableMaskKeys
+          : paintSymptomsRef.current;
+        keysToClear.forEach((k) => {
           const m = masks[k];
           if (!m) return;
           m.ctx.globalCompositeOperation = "source-over";
           m.ctx.fillStyle = "#000000";
           m.ctx.fillRect(0, 0, m.canvas.width, m.canvas.height);
           markTextureDirty(m.tex);
+        });
+        paintSymptomsRef.current.forEach((k) => {
           revealTargets.current[k] = 0;
           revealRefs[k].current.value = 0;
         });
@@ -1247,13 +1262,15 @@ roughnessFactor = clamp(
       // Fill every mask so the whole face shows the mapped symptoms at once
       // (used by the results-driven canvas — no manual painting required).
       fillAll: () => {
-        SKIN_KEYS.forEach((k) => {
+        writableMaskKeys.forEach((k) => {
           const m = masks[k];
           if (!m) return;
           m.ctx.globalCompositeOperation = "source-over";
           m.ctx.fillStyle = "#ffffff";
           m.ctx.fillRect(0, 0, m.canvas.width, m.canvas.height);
           markTextureDirty(m.tex);
+        });
+        SKIN_KEYS.forEach((k) => {
           revealTargets.current[k] = 1;
         });
         notifyPaintChange();
@@ -1265,12 +1282,6 @@ roughnessFactor = clamp(
 
   // Ease every symptom's reveal toward its own target (~0.9s).
   useFrame((_, dt) => {
-    if (painting.current && queuedPaintUv.current) {
-      const nextUv = queuedPaintUv.current;
-      queuedPaintUv.current = null;
-      paintStrokeTo(nextUv);
-    }
-
     // Canvas drawing can happen many times inside one stroke. Upload each
     // changed texture once at the end of the frame instead of once per dab.
     dirtyCanvasTextures.current.forEach((texture) => {
@@ -1380,7 +1391,11 @@ roughnessFactor = clamp(
 
     // Erasing uses the same brush interaction as painting and clears every
     // symptom mask underneath it so no hidden reaction layer is left behind.
-    const targetSymptoms = eraseRef.current ? SKIN_KEYS : paintSymptomsRef.current;
+    const targetSymptoms = sharedExposureMask
+      ? writableMaskKeys
+      : eraseRef.current
+        ? SKIN_KEYS
+        : paintSymptomsRef.current;
     targetSymptoms.forEach((k) => {
       const m = masks[k];
       if (!m) return;
@@ -1471,7 +1486,7 @@ roughnessFactor = clamp(
       const brushRadiusUv = (brushSizeRef.current / 100) * 0.09;
       const spacing = Math.max(0.004, brushRadiusUv * 0.35);
       const steps = Math.min(
-        MAX_PAINT_DABS_PER_FRAME,
+        MAX_PAINT_DABS_PER_POINTER_MOVE,
         Math.max(1, Math.ceil(distance / spacing)),
       );
       for (let step = 1; step <= steps; step += 1) {
@@ -1485,6 +1500,14 @@ roughnessFactor = clamp(
   // check next to the masks means a hover tooltip can never appear on untouched
   // skin just because the pointer happens to be over the model.
   const paintedSymptomsAt = (uv: THREE.Vector2): SkinKey[] => {
+    if (sharedExposureMask) {
+      const mask = masks.redness;
+      const x = Math.max(0, Math.min(mask.canvas.width - 1, Math.floor(uv.x * mask.canvas.width)));
+      const y = Math.max(0, Math.min(mask.canvas.height - 1, Math.floor(uv.y * mask.canvas.height)));
+      return mask.ctx.getImageData(x, y, 1, 1).data[0] > 12
+        ? paintSymptomsRef.current
+        : [];
+    }
     return SKIN_KEYS.filter((k) => {
       const m = masks[k];
       const x = Math.max(0, Math.min(m.canvas.width - 1, Math.floor(uv.x * m.canvas.width)));
@@ -1593,22 +1616,8 @@ roughnessFactor = clamp(
     const c = getState().controls as unknown as { enabled: boolean } | null;
     if (c) c.enabled = enabled;
   };
-  const queuePaintAt = (uv: THREE.Vector2) => {
-    if (queuedPaintUv.current) {
-      queuedPaintUv.current.copy(uv);
-    } else {
-      queuedPaintUv.current = uv.clone();
-    }
-  };
-  const flushQueuedPaint = () => {
-    const queuedUv = queuedPaintUv.current;
-    queuedPaintUv.current = null;
-    if (queuedUv) paintStrokeTo(queuedUv);
-  };
-  const stopPaint = (finalUv?: THREE.Vector2) => {
+  const stopPaint = () => {
     if (painting.current) {
-      if (finalUv) queuePaintAt(finalUv);
-      flushQueuedPaint();
       painting.current = false;
       lastPaintUv.current = null;
       setControls(true);
@@ -1633,7 +1642,6 @@ roughnessFactor = clamp(
           blockedDuringStroke.current = false;
           painting.current = true;
           lastPaintUv.current = null;
-          queuedPaintUv.current = null;
           setControls(false);
           if (e.uv) paintStrokeTo(e.uv);
         }}
@@ -1647,7 +1655,7 @@ roughnessFactor = clamp(
           if (painting.current) {
             e.stopPropagation();
             onHover?.(null);
-            if (e.uv) queuePaintAt(e.uv);
+            if (e.uv) paintStrokeTo(e.uv);
             return;
           }
 
@@ -1664,7 +1672,7 @@ roughnessFactor = clamp(
         onPointerOut={() => {
           onHover?.(null);
         }}
-        onPointerUp={(e: any) => stopPaint(e.uv)}
+        onPointerUp={stopPaint}
       />
     </group>
   );

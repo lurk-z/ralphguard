@@ -233,6 +233,7 @@ export function SymptomFaceCanvas({
             occupiedPaint={occupiedPaint}
             onPaintBlocked={onPaintBlocked}
             cameraDistanceScale={1.15}
+            sharedExposureMask
           />
         </Suspense>
         {/* Left-right orbit only (locked polar) to keep the face front-on. */}
