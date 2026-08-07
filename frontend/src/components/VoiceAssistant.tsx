@@ -71,6 +71,7 @@ export default function VoiceAssistant({
   const [typing, setTyping] = useState(false);
   const [actionBusy, setActionBusy] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [voiceInputError, setVoiceInputError] = useState<string | null>(null);
   const recogRef = useRef<any>(null);
   const chatControllerRef = useRef<AbortController | null>(null);
   const ttsControllerRef = useRef<AbortController | null>(null);
@@ -206,7 +207,7 @@ export default function VoiceAssistant({
     const text = q.trim();
     if (!text || thinking || typing) return;
     const requestStartedAt = Date.now();
-    setMessages((m) => [...m.slice(-6), { role: "user", text }]);
+    setMessages((m) => [...m, { role: "user", text }]);
     setInput("");
     setThinking(true);
     chatControllerRef.current?.abort();
@@ -312,7 +313,7 @@ export default function VoiceAssistant({
   const toggleListen = () => {
     const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     if (!SR) {
-      ask("ขอสรุปผล");
+      setVoiceInputError("เบราว์เซอร์นี้ไม่รองรับการพิมพ์ด้วยเสียง");
       return;
     }
     if (listening) {
@@ -321,16 +322,19 @@ export default function VoiceAssistant({
     }
     const r = new SR();
     recogRef.current = r;
+    setVoiceInputError(null);
     r.lang = "th-TH";
     r.interimResults = false;
     r.maxAlternatives = 1;
     r.onstart = () => setListening(true);
     r.onend = () => setListening(false);
-    r.onerror = () => setListening(false);
+    r.onerror = () => {
+      setListening(false);
+      setVoiceInputError("ฟังเสียงไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+    };
     r.onresult = (e: any) => {
       const t = e.results[0][0].transcript as string;
       setInput(t);
-      ask(t);
     };
     r.start();
   };
@@ -342,6 +346,7 @@ export default function VoiceAssistant({
   }, []);
 
   const QUICK = ["สรุปผล", "เสี่ยงสุด", "คำแนะนำ"];
+  const canSend = input.trim().length > 0 && !thinking && !typing;
 
   const actionLabel = (action: AssistantAction) => {
     const name = String(action.name || action.to || action.from || "").trim();
@@ -377,7 +382,7 @@ export default function VoiceAssistant({
   };
 
   return (
-    <div className="flex h-[22rem] flex-col">
+    <div className="flex h-full min-h-0 w-full flex-col px-4 pb-4 pt-3">
       {/* status row */}
       <div className="mb-1 flex h-4 items-center justify-end gap-2 text-[10px] text-brand">
         {thinking ? <span>● กำลังคิด…</span> : typing ? <span>● กำลังพิมพ์…</span> : speaking ? <span>● กำลังพูด</span> : null}
@@ -395,7 +400,7 @@ export default function VoiceAssistant({
       </div>
 
       {/* messages / empty state */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="assess-scrollbar flex-1 overflow-y-auto">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-2 text-center">
             <span className="grid size-11 place-items-center rounded-xl bg-slate-100 text-lg text-slate-500"><SemanticIcon name="message" className="size-5" /></span>
@@ -500,12 +505,19 @@ export default function VoiceAssistant({
         </div>
       )}
 
+      {voiceInputError && (
+        <div className="mt-1 rounded-lg bg-amber-50 px-2 py-1.5 text-[10px] leading-snug text-amber-700">
+          {voiceInputError}
+        </div>
+      )}
+
       {/* input pill */}
-      <div className="mt-2 flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1">
+      <div className="mt-2 flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-sm">
         <button
+          type="button"
           onClick={toggleListen}
-          title="พูดเพื่อถาม"
-          aria-label="พูดเพื่อถาม"
+          title={listening ? "หยุดฟัง" : "พูดเพื่อพิมพ์ข้อความ"}
+          aria-label={listening ? "หยุดฟัง" : "พูดเพื่อพิมพ์ข้อความ"}
           className={`grid size-7 shrink-0 place-items-center rounded-full text-sm transition ${
             listening ? "animate-pulse bg-teal-50 text-brand" : "text-slate-400 hover:text-brand"
           }`}
@@ -515,16 +527,23 @@ export default function VoiceAssistant({
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && ask(input)}
-          placeholder="พิมพ์ข้อความ…"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && canSend) void ask(input);
+          }}
+          placeholder={listening ? "กำลังฟัง…" : "พิมพ์ข้อความ…"}
+          aria-label="ข้อความถึงผู้ช่วย AI"
           className="min-w-0 flex-1 bg-transparent px-1 text-xs text-slate-800 outline-none"
         />
         <button
+          type="button"
           onClick={() => ask(input)}
-          disabled={thinking || typing}
-          title="ส่ง"
+          disabled={!canSend}
+          title={canSend ? "ส่ง" : "พิมพ์ข้อความก่อนส่ง"}
           aria-label="ส่ง"
-          className="grid size-7 shrink-0 place-items-center rounded-full bg-brand text-sm text-white transition hover:bg-brand-dark disabled:opacity-50"
+          className={`grid size-7 shrink-0 place-items-center rounded-full text-sm transition ${canSend
+            ? "bg-brand text-white hover:bg-brand-dark"
+            : "cursor-not-allowed bg-slate-200 text-slate-400"
+          }`}
         >
           <SemanticIcon name="arrow-up" className="size-4" />
         </button>

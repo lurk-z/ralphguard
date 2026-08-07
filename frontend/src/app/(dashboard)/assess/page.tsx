@@ -170,7 +170,7 @@ const ENDPOINT_LABEL_TH: Record<string, string> = {
   skin: "ระคายเคืองผิว",
   eye: "ระคายเคืองตา",
   sens: "แพ้ผิวหนัง",
-  acute: "พิษเฉียบพลัน",
+  acute: "พิษเฉียบพลันต่อร่างกาย",
 };
 const DAY_LABELS = [1, 3, 7];
 const bandOf = (s: number) => (s < 25 ? "low" : s < 50 ? "moderate" : s < 75 ? "high" : "severe");
@@ -386,6 +386,7 @@ export default function StudioPage() {
     );
   const [region, setRegion] = useState<Region>("face");
   const [dayIdx, setDayIdx] = useState(1);
+  const [rightInspectorTab, setRightInspectorTab] = useState<"results" | "assistant">("results");
   const [assessmentByFormulaId, setAssessmentByFormulaId] = useState<
     Record<string, FormulaAssessmentSnapshot>
   >({});
@@ -601,6 +602,46 @@ export default function StudioPage() {
     color: EP_COLOR[ep],
   }));
 
+  const trendAnalytics = useMemo(() => {
+    if (!endpoints) return null;
+
+    const series = ENDPOINTS.map((endpoint) => {
+      const scores = [0, 1, 2].map((index) =>
+        Math.round(endpoints[endpoint]?.timecourse?.[index] ?? 0),
+      );
+      const peakScore = Math.max(...scores);
+      const peakIndex = scores.indexOf(peakScore);
+      const delta = scores[2] - scores[0];
+      return {
+        endpoint,
+        label: ENDPOINT_LABEL_TH[endpoint],
+        color: EP_COLOR[endpoint],
+        scores,
+        peakScore,
+        peakDay: DAY_LABELS[peakIndex],
+        delta,
+      };
+    });
+
+    const peak = series.reduce((highest, current) =>
+      current.peakScore > highest.peakScore ? current : highest,
+    );
+    const largestChange = series.reduce((largest, current) =>
+      Math.abs(current.delta) > Math.abs(largest.delta) ? current : largest,
+    );
+    const directions = series.reduce(
+      (summary, current) => {
+        if (current.delta > 3) summary.increasing += 1;
+        else if (current.delta < -3) summary.decreasing += 1;
+        else summary.stable += 1;
+        return summary;
+      },
+      { increasing: 0, decreasing: 0, stable: 0 },
+    );
+
+    return { series, peak, largestChange, directions };
+  }, [endpoints]);
+
   // Per-endpoint paint layers — each endpoint paints in its own neon color.
   const paintLayers = useMemo(() => {
     if (!endpoints) return [];
@@ -618,6 +659,37 @@ export default function StudioPage() {
       };
     });
   }, [endpoints, dayIdx]);
+
+  const primaryRiskLayer = useMemo(
+    () =>
+      paintLayers.reduce<(typeof paintLayers)[number] | null>(
+        (highest, layer) => (!highest || layer.score > highest.score ? layer : highest),
+        null,
+      ),
+    [paintLayers],
+  );
+
+  const resultConfidenceSummary = useMemo(() => {
+    if (!endpoints) return null;
+    let level: string | null = null;
+    let lowestOrder = Number.POSITIVE_INFINITY;
+    let outOfDomainCount = 0;
+
+    ENDPOINTS.forEach((ep) => {
+      const confidence = endpoints[ep]?.confidence;
+      if (!confidence) return;
+      const order = CONF_ORDER[confidence.level] ?? 1;
+      if (order < lowestOrder) {
+        lowestOrder = order;
+        level = confidence.level;
+      }
+      if (confidence.in_domain === false) outOfDomainCount += 1;
+    });
+
+    return level ? { level, outOfDomainCount } : null;
+  }, [endpoints]);
+
+  const activeRegionLabel = REGIONS.find((item) => item.value === region)?.label ?? region;
 
   const developerTestLayers = useMemo(
     () =>
@@ -2104,8 +2176,40 @@ export default function StudioPage() {
       </header>
 
       {/* Right sidebar header */}
-      <div className="relative z-40 col-start-4 row-start-1 flex items-center justify-end border-l border-border bg-card px-4">
-        <button onClick={exportPdf} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-brand hover:text-brand" title="ส่งออกรายงาน PDF จากข้อมูลการประเมิน">
+      <div className="relative z-40 col-start-4 row-start-1 flex items-center justify-between gap-3 border-b border-l border-border bg-card px-4">
+        <div className="flex min-w-0 items-center rounded-lg bg-slate-100 p-1" role="tablist" aria-label="เนื้อหาแถบด้านขวา">
+          {(
+            [
+              ["results", "ผลการทดสอบ", "chart"],
+              ["assistant", "ผู้ช่วย AI", "message"],
+            ] as ["results" | "assistant", string, SemanticIconName][]
+          ).map(([tab, label, icon]) => {
+            const active = rightInspectorTab === tab;
+            return (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setRightInspectorTab(tab)}
+                className={`flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[10px] transition-colors ${active
+                  ? "bg-white font-semibold text-brand-dark shadow-sm"
+                  : "text-slate-500 hover:text-slate-800"
+                  }`}
+              >
+                <SemanticIcon name={icon} className="size-3" />
+                <span className="truncate">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          onClick={exportPdf}
+          className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 transition-colors hover:border-brand/50 hover:bg-teal-50 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+          title="ส่งออกรายงาน PDF จากข้อมูลการประเมิน"
+        >
+          <SemanticIcon name="file" className="size-3.5" />
           PDF
         </button>
       </div>
@@ -2546,9 +2650,9 @@ export default function StudioPage() {
 
           {/* Inflammation trend — slides in from the right edge (site theme) */}
           {mode === "assess" && (
-            <div className="absolute right-0 top-24 z-20 flex items-start">
+            <div className="absolute right-0 top-4 z-20 flex items-start">
               <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showTrend ? "w-[420px]" : "w-0"}`}>
-                <div className="w-[420px] max-w-[calc(100vw-2rem)] rounded-l-2xl border border-r-0 border-slate-200 bg-white p-4 text-slate-800 shadow-xl">
+                <div className="assess-scrollbar max-h-[calc(100vh-6rem)] w-[420px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-l-2xl border border-r-0 border-slate-200 bg-white p-4 text-slate-800 shadow-xl">
                   <div className="mb-4 flex items-start gap-3">
                     <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-teal-50 text-lg"><SemanticIcon name="chart" className="size-4" /></span>
                     <div>
@@ -2565,24 +2669,43 @@ export default function StudioPage() {
                   </div>
                   {completed && trendData.length ? (
                     <>
-                      <div className="mb-3 grid grid-cols-2 gap-2">
-                        {paintLayers.map((layer) => (
-                          <div key={layer.key} className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
-                            <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
-                              <span className="size-2 rounded-full" style={{ background: layer.color }} />
-                              <span className="truncate">{layer.label}</span>
+                      {trendAnalytics && (
+                        <div className="mb-3 grid grid-cols-2 gap-2">
+                          <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5">
+                            <div className="flex items-center gap-1.5 text-[9px] font-medium text-slate-500">
+                              <SemanticIcon name="arrow-up" className="size-3.5 text-slate-400" />
+                              จุดสูงสุด
                             </div>
-                            <div className="mt-1 flex items-end justify-between gap-2">
-                              <span className="font-mono text-lg font-semibold tabular-nums text-slate-800">{Math.round(layer.score)}</span>
-                              <span className="mb-0.5 text-[9px] font-semibold" style={{ color: BAND_HEX[layer.band] }}>
-                                {BAND_LABEL[layer.band]} · Day {DAY_LABELS[dayIdx]}
-                              </span>
+                            <div className="mt-1.5 flex items-end justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="truncate text-[11px] font-semibold text-slate-800" title={trendAnalytics.peak.label}>{trendAnalytics.peak.label}</div>
+                                <div className="mt-0.5 text-[9px] text-slate-400">เกิดใน Day {trendAnalytics.peak.peakDay}</div>
+                              </div>
+                              <div className="shrink-0 font-mono text-lg font-semibold tabular-nums text-slate-800">
+                                {trendAnalytics.peak.peakScore}<span className="text-[9px] font-medium text-slate-400">/100</span>
+                              </div>
                             </div>
                           </div>
-                        ))}
-                      </div>
+                          <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5">
+                            <div className="flex items-center gap-1.5 text-[9px] font-medium text-slate-500">
+                              <SemanticIcon name="activity" className="size-3.5 text-slate-400" />
+                              เปลี่ยนแปลงมากที่สุด
+                            </div>
+                            <div className="mt-1.5 flex items-end justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="truncate text-[11px] font-semibold text-slate-800" title={trendAnalytics.largestChange.label}>{trendAnalytics.largestChange.label}</div>
+                                <div className="mt-0.5 text-[9px] text-slate-400">Day 1 → Day 7</div>
+                              </div>
+                              <div className={`shrink-0 font-mono text-lg font-semibold tabular-nums ${trendAnalytics.largestChange.delta > 0 ? "text-rose-600" : trendAnalytics.largestChange.delta < 0 ? "text-emerald-600" : "text-slate-500"}`}>
+                                {trendAnalytics.largestChange.delta > 0 ? "+" : ""}{trendAnalytics.largestChange.delta}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
-                      <div className="rounded-xl border border-slate-200 bg-white px-2 pb-2 pt-1">
+                      <div className="rounded-xl border border-slate-200 bg-white px-2 pb-2 pt-2">
+                        <div className="px-1 pb-1 text-[9px] font-medium text-slate-500">คะแนนจำลองตามเวลา</div>
                         <TrendChart data={trendData} lines={trendLines} />
                       </div>
 
@@ -2594,6 +2717,60 @@ export default function StudioPage() {
                           </span>
                         ))}
                       </div>
+
+                      {trendAnalytics && (
+                        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <div className="text-[10px] font-semibold text-slate-700">ระดับความเสี่ยงแต่ละช่วงเวลา</div>
+                            <div className="text-[9px] text-slate-400">สีเข้ม = คะแนนสูงขึ้น</div>
+                          </div>
+                          <div className="grid grid-cols-[minmax(0,1fr)_44px_44px_44px] items-center gap-1.5">
+                            <span />
+                            {DAY_LABELS.map((day) => (
+                              <span key={day} className="text-center text-[9px] font-medium text-slate-400">Day {day}</span>
+                            ))}
+                            {trendAnalytics.series.map((item) => (
+                              <div key={item.endpoint} className="contents">
+                                <div className="flex min-w-0 items-center gap-1.5 pr-1">
+                                  <span className="size-1.5 shrink-0 rounded-full" style={{ background: item.color }} />
+                                  <span className="truncate text-[9px] text-slate-600" title={item.label}>{item.label}</span>
+                                </div>
+                                {item.scores.map((score, index) => {
+                                  const band = bandOf(score);
+                                  return (
+                                    <div
+                                      key={`${item.endpoint}-${DAY_LABELS[index]}`}
+                                      title={`${item.label} · Day ${DAY_LABELS[index]}: ${score}/100 ระดับ${BAND_LABEL[band]}`}
+                                      className="grid h-7 place-items-center rounded-md border text-[9px] font-semibold tabular-nums"
+                                      style={{
+                                        borderColor: `${BAND_HEX[band]}38`,
+                                        backgroundColor: `${BAND_HEX[band]}14`,
+                                        color: BAND_HEX[band],
+                                      }}
+                                    >
+                                      {score}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {trendAnalytics && (
+                        <div className="mt-3 rounded-xl border border-teal-100 bg-teal-50/60 px-3 py-2.5">
+                          <div className="flex items-start gap-2">
+                            <SemanticIcon name="chart" className="mt-0.5 size-3.5 shrink-0 text-brand" />
+                            <div>
+                              <div className="text-[10px] font-semibold text-slate-700">สรุปแนวโน้ม Day 1 → Day 7</div>
+                              <p className="mt-0.5 text-[9px] leading-relaxed text-slate-500">
+                                เพิ่มขึ้น {trendAnalytics.directions.increasing} ด้าน · ลดลง {trendAnalytics.directions.decreasing} ด้าน · คงที่ {trendAnalytics.directions.stable} ด้าน
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="mt-3 overflow-hidden rounded-full border border-slate-200">
                         <div className="grid h-1.5 grid-cols-4">
@@ -2708,202 +2885,207 @@ export default function StudioPage() {
         </main>
 
         {/* Right inspector */}
-        <aside className="col-start-4 row-start-2 flex h-full min-h-0 w-full flex-col overflow-y-auto border-l border-border bg-card">
+        <aside className="col-start-4 row-start-2 flex h-full min-h-0 w-full flex-col overflow-hidden border-l border-border bg-card">
           {mode === "trust" ? (
             <div className="p-4 text-xs leading-relaxed text-slate-800/55">
               เลือก <b>Pages › ประเมินความเสี่ยง</b> เพื่อแก้สูตรและดูผลบนหุ่น 3D
             </div>
           ) : (
             <>
-              <Section title="การจำลองตามเวลา" className="order-2">
-                <div className="flex gap-1">
+              <div
+                role="tabpanel"
+                aria-label="ผลการทดสอบ"
+                className={`${rightInspectorTab === "results" ? "flex" : "hidden"} assess-scrollbar h-full min-h-0 flex-col overflow-y-auto`}
+              >
+              <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm">
+                <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="เลือกช่วงเวลาจำลอง">
                   {DAY_LABELS.map((d, i) => (
                     <button
                       key={d}
+                      type="button"
                       onClick={() => setDayIdx(i)}
-                      className={`flex-1 rounded-lg border py-1.5 text-xs transition ${i === dayIdx ? "border-brand bg-brand text-white font-semibold" : "border-slate-200 bg-slate-100 text-slate-800/65 hover:border-brand/50"
+                      aria-pressed={i === dayIdx}
+                      className={`h-8 rounded-lg border text-[11px] transition-colors ${i === dayIdx ? "border-brand bg-brand font-semibold text-white" : "border-slate-200 bg-slate-50 text-slate-600 hover:border-brand/40 hover:bg-teal-50 hover:text-brand-dark"
                         }`}
                     >
                       Day {d}
                     </button>
                   ))}
                 </div>
-              </Section>
-
-              <Section title="ผู้ช่วย AI" className="order-3">
-                <VoiceAssistant
-                  productName={productName}
-                  layers={paintLayers}
-                  ready={completed}
-                  formula={formula}
-                  coverage={formulaCoverage ? {
-                    percentage: formulaCoverage.coverage_percentage,
-                    unresolved: formulaCoverage.unresolved_ingredients,
-                  } : undefined}
-                  onImportFormula={importFormula}
-                  onAction={runAssistantAction}
-                />
-              </Section>
-
-              <Section title="5 · ผลการประเมิน" className="order-1">
-                <div className="mb-3 rounded-xl border border-dashed border-violet-300 bg-violet-50/70 p-2.5 print:hidden">
-                  <div className="flex items-center gap-2">
-                    <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-violet-100 text-violet-700">
-                      <SemanticIcon name="flask" className="size-3.5" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[11px] font-semibold text-violet-900">ทดสอบผลโดยผู้พัฒนา</div>
-                      <div className="text-[9px] leading-snug text-violet-600">ปรับเฉพาะภาพ 3D ไม่ส่ง API และไม่แก้ผลจริง</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDeveloperTestEnabled((enabled) => {
-                          if (enabled) setEraseMode(false);
-                          return !enabled;
-                        });
-                      }}
-                      aria-pressed={developerTestEnabled}
-                      className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[10px] font-semibold transition ${developerTestEnabled
-                        ? "bg-violet-700 text-white hover:bg-violet-800"
-                        : "border border-violet-300 bg-white text-violet-700 hover:bg-violet-100"
-                        }`}
-                    >
-                      {developerTestEnabled ? "ปิดการทดสอบ" : "เปิดทดสอบ"}
-                    </button>
-                  </div>
-
-                  {developerTestEnabled && (
-                    <div className="mt-3 space-y-2 border-t border-violet-200 pt-2.5">
-                      <div className="flex flex-wrap gap-1">
-                        {[0, 30, 55, 85].map((score) => (
-                          <button
-                            key={score}
-                            type="button"
-                            onClick={() =>
-                              setDeveloperTestScores({ skin: score, eye: score, sens: score, acute: score })
-                            }
-                            className="rounded-md border border-violet-200 bg-white px-2 py-1 text-[9px] font-medium text-violet-700 hover:bg-violet-100"
-                          >
-                            ทุกค่า {score}
-                          </button>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => setDeveloperTestScores(DEFAULT_DEVELOPER_TEST_SCORES)}
-                          className="ml-auto rounded-md px-2 py-1 text-[9px] font-medium text-slate-500 hover:bg-white"
-                        >
-                          คืนค่า 50
-                        </button>
-                      </div>
-
-                      {ENDPOINTS.map((ep) => {
-                        const score = developerTestScores[ep];
-                        const band = bandOf(score);
-                        return (
-                          <label key={ep} className="grid grid-cols-[1fr_46px] items-center gap-x-2 gap-y-1">
-                            <span className="flex items-center justify-between text-[10px] text-slate-700">
-                              <span>{ENDPOINT_LABEL_TH[ep]}</span>
-                              <span className="font-mono font-semibold tabular-nums" style={{ color: BAND_HEX[band] }}>
-                                {score} · {BAND_LABEL[band]}
-                              </span>
-                            </span>
-                            <input
-                              aria-label={`${ENDPOINT_LABEL_TH[ep]} (0 ถึง 100)`}
-                              type="number"
-                              min={0}
-                              max={100}
-                              step={1}
-                              value={score}
-                              onChange={(event) => {
-                                const next = Math.max(0, Math.min(100, Number(event.target.value) || 0));
-                                setDeveloperTestScores((current) => ({ ...current, [ep]: next }));
-                              }}
-                              className="row-span-2 h-8 rounded-lg border border-violet-200 bg-white px-1 text-center font-mono text-[11px] font-semibold text-violet-800 outline-none focus:border-violet-500"
-                            />
-                            <input
-                              aria-label={`เลื่อนค่า${ENDPOINT_LABEL_TH[ep]}`}
-                              type="range"
-                              min={0}
-                              max={100}
-                              step={1}
-                              value={score}
-                              onChange={(event) =>
-                                setDeveloperTestScores((current) => ({
-                                  ...current,
-                                  [ep]: Number(event.target.value),
-                                }))
-                              }
-                              className="h-1.5 w-full cursor-pointer accent-violet-600"
-                            />
-                          </label>
-                        );
-                      })}
-
-                      <div className="rounded-lg bg-white/80 px-2 py-1.5 text-[9px] leading-snug text-violet-700">
-                        ทาบริเวณบนโมเดล แล้วเลื่อนคะแนนเพื่อดูอาการเปลี่ยนทันที ค่าพิษเฉียบพลันเป็นผลเชิงระบบ จึงไม่สร้างรอยผิวเฉพาะจุด
-                      </div>
-                    </div>
-                  )}
+                <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-slate-400">
+                  <span>เลือกช่วงเวลาเพื่อดูคะแนนและอาการบนโมเดล</span>
+                  <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-500">ผลจำลอง</span>
                 </div>
-                {error && <div className="rounded border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-600">{error}</div>}
+              </div>
+
+              <Section
+                title="ผลคัดกรองจากแบบจำลอง"
+                action={(
+                  <span className="rounded-full border border-teal-100 bg-teal-50 px-2 py-1 text-[9px] font-semibold text-brand-dark">
+                    QSAR · In-silico
+                  </span>
+                )}
+              >
+                {developerTestEnabled && (
+                  <div className="mb-3 flex gap-2 rounded-xl border border-violet-200 bg-violet-50 p-2.5 text-[10px] leading-relaxed text-violet-800">
+                    <SemanticIcon name="flask" className="mt-0.5 size-3.5 shrink-0" />
+                    <span><b>โหมดทดสอบนักพัฒนาเปิดอยู่</b><br />ภาพบนโมเดลใช้ค่าทดสอบ แต่ข้อมูลผลด้านล่างยังเป็นผลจากระบบ</span>
+                  </div>
+                )}
+
+                {error && (
+                  <div className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-[11px] leading-relaxed text-rose-700">
+                    <SemanticIcon name="alert" className="mt-0.5 size-4 shrink-0" />
+                    <div><div className="font-semibold">ประเมินไม่สำเร็จ</div><div className="mt-0.5 text-rose-600">{error}</div></div>
+                  </div>
+                )}
+
                 {!completed && !error && !developerTestEnabled && (
-                  <div className="grid place-items-center gap-2 py-6 text-center">
-                    <SemanticIcon name="flask" className="size-6 text-slate-800/20" />
-                    <p className="text-xs text-slate-800/50">
-                      {jobId ? "กำลังประเมิน…" : "ยังไม่ได้ประเมิน"}
-                      <br />
-                      {hasActivePaint ? (
-                        <>รอยทาพร้อมแล้ว กด <span className="text-brand">ประเมินสูตรด้านขวาล่าง</span></>
-                      ) : (
-                        <>เตรียมสูตร แล้วทาครีมลงบนผิวโมเดลก่อน</>
-                      )}
+                  <div className="grid place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">
+                    <span className="grid size-10 place-items-center rounded-xl bg-white text-slate-400 shadow-sm">
+                      <SemanticIcon name={assessing || jobId ? "timer" : "flask"} className={`size-5 ${assessing ? "animate-spin motion-reduce:animate-none" : ""}`} />
+                    </span>
+                    <div className="mt-3 text-sm font-semibold text-slate-700">{assessing || jobId ? "กำลังประเมินสูตร" : "ยังไม่มีผลคัดกรอง"}</div>
+                    <p className="mt-1 max-w-56 text-[11px] leading-relaxed text-slate-500">
+                      {assessing || jobId
+                        ? "ระบบกำลังประมวลผลสูตรและตรวจสอบความครอบคลุมของข้อมูล"
+                        : hasActivePaint
+                          ? "รอยทาพร้อมแล้ว กดเริ่มประเมินที่แถบเครื่องมือด้านล่าง"
+                          : "เตรียมสูตรให้พร้อม แล้วทาสูตรลงบนบริเวณที่ต้องการประเมิน"}
                     </p>
                   </div>
                 )}
+
                 {completed && endpoints && (
-                  <div className="space-y-2">
-                    {lowConfidence && (
-                      <div className="flex gap-1.5 rounded-lg border border-rose-300 bg-rose-50 p-2 text-[11px] leading-snug text-rose-700">
-                        <SemanticIcon name="alert" className="mt-0.5 size-3.5 shrink-0" />
-                        <span>ผลนี้เชื่อถือได้ต่ำ — สารส่วนใหญ่อยู่นอกขอบเขตแบบจำลอง (out-of-domain)
-                          โมเดลอาจเดาว่า “ไม่ระคาย” ทั้งที่ไม่เคยเห็นสารกลุ่มนี้ <b>อย่าตีความคะแนนต่ำว่าปลอดภัย</b></span>
+                  <div className="space-y-3">
+                    {formulaCoverage && formulaCoverage.coverage_percentage < 100 && (
+                      <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[10px] leading-relaxed text-amber-900">
+                        <SemanticIcon name="alert" className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                        <div>
+                          <div className="font-semibold">ผลนี้ยังไม่ครอบคลุมทั้งสูตร</div>
+                          <div className="mt-0.5 text-amber-800">ประเมินได้ {formulaCoverage.coverage_percentage}% · ยังประเมินไม่ได้ {formulaCoverage.unresolved_ingredients} รายการ</div>
+                        </div>
                       </div>
                     )}
-                    {ENDPOINTS.map((ep) => {
-                      const sc = endpoints[ep]?.timecourse?.[dayIdx] ?? endpoints[ep]?.peak_score ?? 0;
-                      const band = bandOf(sc);
-                      return (
-                        <div key={ep}>
-                          <div className="mb-0.5 flex justify-between text-[11px]">
-                            <span className="text-slate-800/70">{ENDPOINT_LABEL_TH[ep]}</span>
-                            <span className="font-mono tabular-nums" style={{ color: BAND_HEX[band] }}>
-                              {Math.round(sc)} · {BAND_LABEL[band]}
-                            </span>
+
+                    {lowConfidence && (
+                      <div className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-[10px] leading-relaxed text-rose-800">
+                        <SemanticIcon name="shield" className="mt-0.5 size-4 shrink-0 text-rose-600" />
+                        <span><b>ควรตรวจสอบผลเพิ่มเติม</b><br />มีข้อมูลนอกขอบเขตแบบจำลอง อย่าตีความคะแนนต่ำว่าปลอดภัยโดยอัตโนมัติ</span>
+                      </div>
+                    )}
+
+                    {primaryRiskLayer && (
+                      <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-3.5">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-[10px] font-medium text-slate-500">จุดที่ควรระวัง · Day {DAY_LABELS[dayIdx]}</div>
+                            <div className="mt-1 text-sm font-semibold text-slate-900">{primaryRiskLayer.label}</div>
                           </div>
-                          <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-                            <div className="h-full rounded-full" style={{ width: `${Math.min(100, sc)}%`, background: BAND_HEX[band] }} />
+                          <div className="text-right">
+                            <div className="font-mono text-xl font-semibold tabular-nums text-slate-900">{Math.round(primaryRiskLayer.score)}<span className="text-xs font-medium text-slate-400">/100</span></div>
+                            <div className="mt-0.5 text-[10px] font-semibold" style={{ color: BAND_HEX[primaryRiskLayer.band] }}>ระดับ{BAND_LABEL[primaryRiskLayer.band]}</div>
                           </div>
-                          {endpoints[ep]?.confidence && (
-                            <div
-                              className="mt-0.5 flex items-center gap-1 text-[9px]"
-                              title={endpoints[ep]!.confidence!.reason_th}
-                            >
-                              <span
-                                className="size-1.5 rounded-full"
-                                style={{ background: CONF_HEX[endpoints[ep]!.confidence!.level] }}
-                              />
-                              <span className="text-slate-400">
-                                ความเชื่อมั่น {CONF_TH[endpoints[ep]!.confidence!.level] ?? endpoints[ep]!.confidence!.level}
-                              </span>
-                              {endpoints[ep]!.confidence!.in_domain === false && (
-                                <span className="font-medium text-rose-500">· นอกขอบเขต</span>
-                              )}
-                            </div>
-                          )}
                         </div>
-                      );
-                    })}
+                        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200/70">
+                          <div className="h-full rounded-full" style={{ width: `${Math.min(100, primaryRiskLayer.score)}%`, background: BAND_HEX[primaryRiskLayer.band] }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {[
+                      { title: "ผลบริเวณที่ทา", description: activeRegionLabel, layers: paintLayers.filter((layer) => layer.key !== "acute") },
+                      { title: "ผลเชิงระบบ", description: "ไม่ผูกกับตำแหน่งที่ทา", layers: paintLayers.filter((layer) => layer.key === "acute") },
+                    ].map((group) => (
+                      <div key={group.title}>
+                        <div className="mb-1.5 flex items-center justify-between gap-2">
+                          <div className="text-[11px] font-semibold text-slate-700">{group.title}</div>
+                          <div className="text-[9px] text-slate-400">{group.description}</div>
+                        </div>
+                        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                          {group.layers.map((layer, index) => {
+                            const confidence = endpoints[layer.key]?.confidence;
+                            return (
+                              <div key={layer.key} className={`p-3 ${index > 0 ? "border-t border-slate-100" : ""}`}>
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="truncate text-[11px] font-medium text-slate-700">{layer.label}</div>
+                                    <div className="mt-1 text-[9px] text-slate-400">
+                                      ความน่าเชื่อถือของโมเดล {confidence ? (CONF_TH[confidence.level] ?? confidence.level) : "ไม่มีข้อมูล"}
+                                      {confidence?.in_domain === false ? " · นอกขอบเขต" : ""}
+                                    </div>
+                                  </div>
+                                  <div className="shrink-0 text-right">
+                                    <div className="font-mono text-sm font-semibold tabular-nums text-slate-800">{Math.round(layer.score)}<span className="text-[9px] font-medium text-slate-400">/100</span></div>
+                                    <div className="text-[9px] font-semibold" style={{ color: BAND_HEX[layer.band] }}>ระดับ{BAND_LABEL[layer.band]}</div>
+                                  </div>
+                                </div>
+                                 <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-100">
+                                   <div className="h-full rounded-full" style={{ width: `${Math.min(100, layer.score)}%`, background: BAND_HEX[layer.band] }} />
+                                 </div>
+                                 {layer.key === "acute" && (
+                                   <div className="mt-2.5 border-t border-slate-100 pt-2.5">
+                                     <p className="text-[9px] leading-relaxed text-slate-500">
+                                       สารอาจถูกดูดซึมและส่งผลต่อร่างกาย จึงไม่แสดงเป็นรอยเฉพาะจุดบนโมเดล
+                                     </p>
+                                     <details className="group/acute mt-2 rounded-lg bg-slate-50">
+                                       <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-2 text-[9px] font-medium text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/30">
+                                         <SemanticIcon name="shield" className="size-3.5 shrink-0 text-slate-400" />
+                                         <span className="flex-1">เข้าใจผลนี้</span>
+                                         <ChevronDown className="size-3 text-slate-400 transition-transform group-open/acute:rotate-180" />
+                                       </summary>
+                                       <div className="space-y-2 border-t border-slate-200/70 px-2.5 py-2.5 text-[9px] leading-relaxed text-slate-500">
+                                         <p><span className="font-medium text-slate-700">หมายถึงอะไร:</span> ความเสี่ยงจากการสัมผัสในช่วงเวลาสั้น เมื่อสารเข้าสู่ร่างกายผ่านผิวหนัง</p>
+                                         <p><span className="font-medium text-slate-700">อาการที่อาจพบ:</span> ขึ้นอยู่กับชนิดและปริมาณสาร เช่น เวียนศีรษะ คลื่นไส้ หายใจลำบาก หรืออ่อนแรง</p>
+                                         <p><span className="font-medium text-slate-700">ต่างจากการระคายเคืองผิว:</span> การระคายเคืองเกิดเฉพาะจุดและอาจเห็นรอยแดง แสบ หรือบวม แต่ผลนี้เป็นผลต่อร่างกายและอาจไม่มีรอยบนผิว</p>
+                                         <p className="rounded-md bg-white px-2 py-1.5 text-slate-500"><span className="font-medium text-slate-700">การอ่านคะแนน:</span> เป็นดัชนีคัดกรองจากแบบจำลอง ไม่ใช่โอกาสเกิดอาการจริงหรือคำวินิจฉัยทางการแพทย์</p>
+                                       </div>
+                                     </details>
+                                   </div>
+                                 )}
+                               </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="flex items-center gap-1.5 text-[10px] text-slate-500"><SemanticIcon name="shield" className="size-3.5" /> ความน่าเชื่อถือของโมเดล</div>
+                        <div className="mt-1.5 text-sm font-semibold text-slate-800">{resultConfidenceSummary ? (CONF_TH[resultConfidenceSummary.level] ?? resultConfidenceSummary.level) : "ไม่มีข้อมูล"}</div>
+                        <div className="mt-0.5 text-[9px] text-slate-400">{resultConfidenceSummary?.outOfDomainCount ? `นอกขอบเขต ${resultConfidenceSummary.outOfDomainCount} ด้าน` : "ตรวจจากขอบเขตและความสอดคล้อง"}</div>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="flex items-center gap-1.5 text-[10px] text-slate-500"><SemanticIcon name="target" className="size-3.5" /> ความครอบคลุมสูตร</div>
+                        <div className="mt-1.5 text-sm font-semibold text-slate-800">{formulaCoverage ? `${formulaCoverage.coverage_percentage}%` : "ไม่มีข้อมูล"}</div>
+                        <div className="mt-0.5 text-[9px] text-slate-400">{formulaCoverage ? `${formulaCoverage.total_ingredients - formulaCoverage.unresolved_ingredients}/${formulaCoverage.total_ingredients} รายการ` : "ไม่มีข้อมูลส่วนผสม"}</div>
+                      </div>
+                    </div>
+
+                    <details className="group rounded-xl border border-slate-200 bg-slate-50/70">
+                      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[11px] font-semibold text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30">
+                        <SemanticIcon name="shield" className="size-3.5 text-slate-500" />
+                        <span className="flex-1">ดูที่มาและข้อจำกัดของผล</span>
+                        <ChevronDown className="size-3.5 text-slate-400 transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="space-y-2 border-t border-slate-200 px-3 py-3">
+                        {ENDPOINTS.map((ep) => {
+                          const confidence = endpoints[ep]?.confidence;
+                          if (!confidence) return null;
+                          return (
+                            <div key={ep} className="text-[10px] leading-relaxed text-slate-600">
+                              <div className="font-medium text-slate-700">{ENDPOINT_LABEL_TH[ep]} · ความน่าเชื่อถือ {CONF_TH[confidence.level] ?? confidence.level}</div>
+                              <div className="mt-0.5 text-slate-500">{confidence.reason_th}</div>
+                            </div>
+                          );
+                        })}
+                        <div className="rounded-lg bg-white p-2.5 text-[9px] leading-relaxed text-slate-500">
+                          {assessment.result?.disclaimer_th || "ผลนี้เป็นการคัดกรองจากแบบจำลองคอมพิวเตอร์ ไม่ใช่ผลการทดลองทางคลินิกหรือคำวินิจฉัยทางการแพทย์"}
+                        </div>
+                      </div>
+                    </details>
                   </div>
                 )}
 
@@ -2953,16 +3135,116 @@ export default function StudioPage() {
                         </div>
                       </div>
                     )}
-                    {formulaCoverage && formulaCoverage.coverage_percentage < 100 && (
-                      <div className="flex gap-1.5 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] leading-snug text-amber-800">
-                        <SemanticIcon name="alert" className="mt-0.5 size-3.5 shrink-0" />
-                        <span>ประเมินครอบคลุม {formulaCoverage.coverage_percentage}% · ยังประเมินไม่ได้ {formulaCoverage.unresolved_ingredients} รายการ
-                          <br /><b>คะแนนนี้เป็นผลเฉพาะส่วนที่ประเมินได้ ไม่ใช่ความเสี่ยงของสูตรทั้งหมด</b></span>
+                  </div>
+                )}
+
+                <details className="group mt-3 rounded-xl border border-dashed border-violet-200 bg-violet-50/40 print:hidden" open={developerTestEnabled}>
+                  <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[10px] font-semibold text-violet-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300">
+                    <SemanticIcon name="flask" className="size-3.5" />
+                    <span className="flex-1">เครื่องมือทดสอบสำหรับผู้พัฒนา</span>
+                    <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div className="border-t border-violet-100 px-3 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[9px] leading-relaxed text-violet-700">ปรับเฉพาะภาพ 3D ไม่ส่ง API และไม่แก้ผลจริง</div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeveloperTestEnabled((enabled) => {
+                            if (enabled) setEraseMode(false);
+                            return !enabled;
+                          });
+                        }}
+                        aria-pressed={developerTestEnabled}
+                        className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[10px] font-semibold transition ${developerTestEnabled
+                          ? "bg-violet-700 text-white hover:bg-violet-800"
+                          : "border border-violet-300 bg-white text-violet-700 hover:bg-violet-100"
+                          }`}
+                      >
+                        {developerTestEnabled ? "ปิดการทดสอบ" : "เปิดทดสอบ"}
+                      </button>
+                    </div>
+                    {developerTestEnabled && (
+                      <div className="mt-3 space-y-2 border-t border-violet-100 pt-3">
+                        <div className="flex flex-wrap gap-1">
+                          {[0, 30, 55, 85].map((score) => (
+                            <button
+                              key={score}
+                              type="button"
+                              onClick={() => setDeveloperTestScores({ skin: score, eye: score, sens: score, acute: score })}
+                              className="rounded-md border border-violet-200 bg-white px-2 py-1 text-[9px] font-medium text-violet-700 hover:bg-violet-100"
+                            >
+                              ทุกค่า {score}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => setDeveloperTestScores(DEFAULT_DEVELOPER_TEST_SCORES)}
+                            className="ml-auto rounded-md px-2 py-1 text-[9px] font-medium text-slate-500 hover:bg-white"
+                          >
+                            คืนค่า 50
+                          </button>
+                        </div>
+                        {ENDPOINTS.map((ep) => {
+                          const score = developerTestScores[ep];
+                          const band = bandOf(score);
+                          return (
+                            <label key={ep} className="grid grid-cols-[1fr_46px] items-center gap-x-2 gap-y-1">
+                              <span className="flex items-center justify-between text-[10px] text-slate-700">
+                                <span>{ENDPOINT_LABEL_TH[ep]}</span>
+                                <span className="font-mono font-semibold tabular-nums" style={{ color: BAND_HEX[band] }}>{score} · {BAND_LABEL[band]}</span>
+                              </span>
+                              <input
+                                aria-label={`${ENDPOINT_LABEL_TH[ep]} (0 ถึง 100)`}
+                                type="number"
+                                min={0}
+                                max={100}
+                                step={1}
+                                value={score}
+                                onChange={(event) => {
+                                  const next = Math.max(0, Math.min(100, Number(event.target.value) || 0));
+                                  setDeveloperTestScores((current) => ({ ...current, [ep]: next }));
+                                }}
+                                className="row-span-2 h-8 rounded-lg border border-violet-200 bg-white px-1 text-center font-mono text-[11px] font-semibold text-violet-800 outline-none focus:border-violet-500"
+                              />
+                              <input
+                                aria-label={`เลื่อนค่า${ENDPOINT_LABEL_TH[ep]}`}
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={1}
+                                value={score}
+                                onChange={(event) => setDeveloperTestScores((current) => ({ ...current, [ep]: Number(event.target.value) }))}
+                                className="h-1.5 w-full cursor-pointer accent-violet-600"
+                              />
+                            </label>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
-                )}
+                </details>
               </Section>
+
+              </div>
+              <div
+                role="tabpanel"
+                aria-label="ผู้ช่วย AI"
+                className={`${rightInspectorTab === "assistant" ? "flex" : "hidden"} h-full min-h-0 flex-col`}
+              >
+                <VoiceAssistant
+                  productName={productName}
+                  layers={paintLayers}
+                  ready={completed}
+                  formula={formula}
+                  coverage={formulaCoverage ? {
+                    percentage: formulaCoverage.coverage_percentage,
+                    unresolved: formulaCoverage.unresolved_ingredients,
+                  } : undefined}
+                  onImportFormula={importFormula}
+                  onAction={runAssistantAction}
+                />
+              </div>
             </>
           )}
         </aside>

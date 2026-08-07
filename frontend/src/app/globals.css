@@ -232,3 +232,32 @@ html {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+.assess-scrollbar {
+  scrollbar-color: rgb(148 163 184 / 0.65) transparent;
+  scrollbar-width: thin;
+}
+
+.assess-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.assess-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.assess-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgb(148 163 184 / 0.55);
+}
+
+.assess-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgb(100 116 139 / 0.75);
+}
+
+.assess-scrollbar::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
