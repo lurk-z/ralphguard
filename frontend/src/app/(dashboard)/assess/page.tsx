@@ -2852,334 +2852,327 @@ export default function StudioPage() {
                 aria-label="ผลการทดสอบ"
                 className={`${rightInspectorTab === "results" ? "flex" : "hidden"} assess-scrollbar h-full min-h-0 flex-col overflow-y-auto`}
               >
-              <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm">
-                <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="เลือกช่วงเวลาจำลอง">
-                  {DAY_LABELS.map((d, i) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => setDayIdx(i)}
-                      aria-pressed={i === dayIdx}
-                      className={`h-8 rounded-lg border text-[11px] transition-colors ${i === dayIdx ? "border-brand bg-brand font-semibold text-white" : "border-slate-200 bg-slate-50 text-slate-600 hover:border-brand/40 hover:bg-teal-50 hover:text-brand-dark"
-                        }`}
-                    >
-                      Day {d}
-                    </button>
-                  ))}
+                <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm">
+                  <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="เลือกช่วงเวลาจำลอง">
+                    {DAY_LABELS.map((d, i) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setDayIdx(i)}
+                        aria-pressed={i === dayIdx}
+                        className={`h-8 rounded-lg border text-[11px] transition-colors ${i === dayIdx ? "border-brand bg-brand font-semibold text-white" : "border-slate-200 bg-slate-50 text-slate-600 hover:border-brand/40 hover:bg-teal-50 hover:text-brand-dark"
+                          }`}
+                      >
+                        Day {d}
+                      </button>
+                    ))}
+                  </div>
+
                 </div>
-                <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-slate-400">
-                  <span>เลือกช่วงเวลาเพื่อดูคะแนนและอาการบนโมเดล</span>
-                  <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-500">ผลจำลอง</span>
-                </div>
-              </div>
 
-              <Section
-                title="ผลคัดกรองจากแบบจำลอง"
-                action={(
-                  <span className="rounded-full border border-teal-100 bg-teal-50 px-2 py-1 text-[9px] font-semibold text-brand-dark">
-                    QSAR · In-silico
-                  </span>
-                )}
-              >
-                {developerTestEnabled && (
-                  <div className="mb-3 flex gap-2 rounded-xl border border-violet-200 bg-violet-50 p-2.5 text-[10px] leading-relaxed text-violet-800">
-                    <SemanticIcon name="flask" className="mt-0.5 size-3.5 shrink-0" />
-                    <span><b>โหมดทดสอบนักพัฒนาเปิดอยู่</b><br />ภาพบนโมเดลใช้ค่าทดสอบ แต่ข้อมูลผลด้านล่างยังเป็นผลจากระบบ</span>
-                  </div>
-                )}
+                <Section
+                  title="ผลคัดกรองจากแบบจำลอง"
 
-                {error && (
-                  <div className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-[11px] leading-relaxed text-rose-700">
-                    <SemanticIcon name="alert" className="mt-0.5 size-4 shrink-0" />
-                    <div><div className="font-semibold">ประเมินไม่สำเร็จ</div><div className="mt-0.5 text-rose-600">{error}</div></div>
-                  </div>
-                )}
+                >
+                  {developerTestEnabled && (
+                    <div className="mb-3 flex gap-2 rounded-xl border border-violet-200 bg-violet-50 p-2.5 text-[10px] leading-relaxed text-violet-800">
+                      <SemanticIcon name="flask" className="mt-0.5 size-3.5 shrink-0" />
+                      <span><b>โหมดทดสอบนักพัฒนาเปิดอยู่</b><br />ภาพบนโมเดลใช้ค่าทดสอบ แต่ข้อมูลผลด้านล่างยังเป็นผลจากระบบ</span>
+                    </div>
+                  )}
 
-                {!completed && !error && !developerTestEnabled && (
-                  <div className="grid place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">
-                    <span className="grid size-10 place-items-center rounded-xl bg-white text-slate-400 shadow-sm">
-                      <SemanticIcon name={assessing || jobId ? "timer" : "flask"} className={`size-5 ${assessing ? "animate-spin motion-reduce:animate-none" : ""}`} />
-                    </span>
-                    <div className="mt-3 text-sm font-semibold text-slate-700">{assessing || jobId ? "กำลังประเมินสูตร" : "ยังไม่มีผลคัดกรอง"}</div>
-                    <p className="mt-1 max-w-56 text-[11px] leading-relaxed text-slate-500">
-                      {assessing || jobId
-                        ? "ระบบกำลังประมวลผลสูตรและตรวจสอบความครอบคลุมของข้อมูล"
-                        : hasActivePaint
-                          ? "รอยทาพร้อมแล้ว กดเริ่มประเมินที่แถบเครื่องมือด้านล่าง"
-                          : "เตรียมสูตรให้พร้อม แล้วทาสูตรลงบนบริเวณที่ต้องการประเมิน"}
-                    </p>
-                  </div>
-                )}
+                  {error && (
+                    <div className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-[11px] leading-relaxed text-rose-700">
+                      <SemanticIcon name="alert" className="mt-0.5 size-4 shrink-0" />
+                      <div><div className="font-semibold">ประเมินไม่สำเร็จ</div><div className="mt-0.5 text-rose-600">{error}</div></div>
+                    </div>
+                  )}
 
-                {completed && endpoints && (
-                  <div className="space-y-3">
-                    {formulaCoverage && formulaCoverage.coverage_percentage < 100 && (
-                      <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[10px] leading-relaxed text-amber-900">
-                        <SemanticIcon name="alert" className="mt-0.5 size-4 shrink-0 text-amber-600" />
-                        <div>
-                          <div className="font-semibold">ผลนี้ยังไม่ครอบคลุมทั้งสูตร</div>
-                          <div className="mt-0.5 text-amber-800">ประเมินได้ {formulaCoverage.coverage_percentage}% · ยังประเมินไม่ได้ {formulaCoverage.unresolved_ingredients} รายการ</div>
-                        </div>
-                      </div>
-                    )}
+                  {!completed && !error && !developerTestEnabled && (
+                    <div className="grid place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">
+                      <span className="grid size-10 place-items-center rounded-xl bg-white text-slate-400 shadow-sm">
+                        <SemanticIcon name={assessing || jobId ? "timer" : "flask"} className={`size-5 ${assessing ? "animate-spin motion-reduce:animate-none" : ""}`} />
+                      </span>
+                      <div className="mt-3 text-sm font-semibold text-slate-700">{assessing || jobId ? "กำลังประเมินสูตร" : "ยังไม่มีผลคัดกรอง"}</div>
+                      <p className="mt-1 max-w-56 text-[11px] leading-relaxed text-slate-500">
+                        {assessing || jobId
+                          ? "ระบบกำลังประมวลผลสูตรและตรวจสอบความครอบคลุมของข้อมูล"
+                          : hasActivePaint
+                            ? "รอยทาพร้อมแล้ว กดเริ่มประเมินที่แถบเครื่องมือด้านล่าง"
+                            : "เตรียมสูตรให้พร้อม แล้วทาสูตรลงบนบริเวณที่ต้องการประเมิน"}
+                      </p>
+                    </div>
+                  )}
 
-                    {lowConfidence && (
-                      <div className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-[10px] leading-relaxed text-rose-800">
-                        <SemanticIcon name="shield" className="mt-0.5 size-4 shrink-0 text-rose-600" />
-                        <span><b>ควรตรวจสอบผลเพิ่มเติม</b><br />มีข้อมูลนอกขอบเขตแบบจำลอง อย่าตีความคะแนนต่ำว่าปลอดภัยโดยอัตโนมัติ</span>
-                      </div>
-                    )}
-
-                    {primaryRiskLayer && (
-                      <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-3.5">
-                        <div className="flex items-center justify-between gap-3">
+                  {completed && endpoints && (
+                    <div className="space-y-3">
+                      {formulaCoverage && formulaCoverage.coverage_percentage < 100 && (
+                        <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[10px] leading-relaxed text-amber-900">
+                          <SemanticIcon name="alert" className="mt-0.5 size-4 shrink-0 text-amber-600" />
                           <div>
-                            <div className="text-[10px] font-medium text-slate-500">จุดที่ควรระวัง · Day {DAY_LABELS[dayIdx]}</div>
-                            <div className="mt-1 text-sm font-semibold text-slate-900">{primaryRiskLayer.label}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="font-mono text-xl font-semibold tabular-nums text-slate-900">{Math.round(primaryRiskLayer.score)}<span className="text-xs font-medium text-slate-400">/100</span></div>
-                            <div className="mt-0.5 text-[10px] font-semibold" style={{ color: BAND_HEX[primaryRiskLayer.band] }}>ระดับ{BAND_LABEL[primaryRiskLayer.band]}</div>
+                            <div className="font-semibold">ผลนี้ยังไม่ครอบคลุมทั้งสูตร</div>
+                            <div className="mt-0.5 text-amber-800">ประเมินได้ {formulaCoverage.coverage_percentage}% · ยังประเมินไม่ได้ {formulaCoverage.unresolved_ingredients} รายการ</div>
                           </div>
                         </div>
-                        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200/70">
-                          <div className="h-full rounded-full" style={{ width: `${Math.min(100, primaryRiskLayer.score)}%`, background: BAND_HEX[primaryRiskLayer.band] }} />
-                        </div>
-                      </div>
-                    )}
+                      )}
 
-                    {[
-                      { title: "ผลบริเวณที่ทา", description: activeRegionLabel, layers: paintLayers.filter((layer) => layer.key !== "acute") },
-                      { title: "ผลเชิงระบบ", description: "ไม่ผูกกับตำแหน่งที่ทา", layers: paintLayers.filter((layer) => layer.key === "acute") },
-                    ].map((group) => (
-                      <div key={group.title}>
-                        <div className="mb-1.5 flex items-center justify-between gap-2">
-                          <div className="text-[11px] font-semibold text-slate-700">{group.title}</div>
-                          <div className="text-[9px] text-slate-400">{group.description}</div>
+                      {lowConfidence && (
+                        <div className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-[10px] leading-relaxed text-rose-800">
+                          <SemanticIcon name="shield" className="mt-0.5 size-4 shrink-0 text-rose-600" />
+                          <span><b>ควรตรวจสอบผลเพิ่มเติม</b><br />มีข้อมูลนอกขอบเขตแบบจำลอง อย่าตีความคะแนนต่ำว่าปลอดภัยโดยอัตโนมัติ</span>
                         </div>
-                        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                          {group.layers.map((layer, index) => {
-                            const confidence = endpoints[layer.key]?.confidence;
-                            return (
-                              <div key={layer.key} className={`p-3 ${index > 0 ? "border-t border-slate-100" : ""}`}>
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="truncate text-[11px] font-medium text-slate-700">{layer.label}</div>
-                                    <div className="mt-1 text-[9px] text-slate-400">
-                                      ความน่าเชื่อถือของโมเดล {confidence ? (CONF_TH[confidence.level] ?? confidence.level) : "ไม่มีข้อมูล"}
-                                      {confidence?.in_domain === false ? " · นอกขอบเขต" : ""}
+                      )}
+
+                      {primaryRiskLayer && (
+                        <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-3.5">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-[10px] font-medium text-slate-500">Day {DAY_LABELS[dayIdx]}</div>
+                              <div className="mt-1 text-sm font-semibold text-slate-900">{primaryRiskLayer.label}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-mono text-xl font-semibold tabular-nums text-slate-900">{Math.round(primaryRiskLayer.score)}<span className="text-xs font-medium text-slate-400">/100</span></div>
+                              <div className="mt-0.5 text-[10px] font-semibold" style={{ color: BAND_HEX[primaryRiskLayer.band] }}>ระดับ{BAND_LABEL[primaryRiskLayer.band]}</div>
+                            </div>
+                          </div>
+                          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200/70">
+                            <div className="h-full rounded-full" style={{ width: `${Math.min(100, primaryRiskLayer.score)}%`, background: BAND_HEX[primaryRiskLayer.band] }} />
+                          </div>
+                        </div>
+                      )}
+
+                      {[
+                        { title: "ผลประเมิน", description: activeRegionLabel, layers: paintLayers.filter((layer) => layer.key !== "acute") },
+                        { title: "ผลเชิงระบบ", description: "ไม่ผูกกับตำแหน่งที่ทา", layers: paintLayers.filter((layer) => layer.key === "acute") },
+                      ].map((group) => (
+                        <div key={group.title}>
+                          <div className="mb-1.5 flex items-center justify-between gap-2">
+                            <div className="text-[11px] font-semibold text-slate-700">{group.title}</div>
+                            <div className="text-[9px] text-slate-400">{group.description}</div>
+                          </div>
+                          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                            {group.layers.map((layer, index) => {
+                              const confidence = endpoints[layer.key]?.confidence;
+                              return (
+                                <div key={layer.key} className={`p-3 ${index > 0 ? "border-t border-slate-100" : ""}`}>
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="truncate text-[11px] font-medium text-slate-700">{layer.label}</div>
+                                      <div className="mt-1 text-[9px] text-slate-400">
+                                        ความน่าเชื่อถือของโมเดล {confidence ? (CONF_TH[confidence.level] ?? confidence.level) : "ไม่มีข้อมูล"}
+                                        {confidence?.in_domain === false ? " · นอกขอบเขต" : ""}
+                                      </div>
+                                    </div>
+                                    <div className="shrink-0 text-right">
+                                      <div className="font-mono text-sm font-semibold tabular-nums text-slate-800">{Math.round(layer.score)}<span className="text-[9px] font-medium text-slate-400">/100</span></div>
+                                      <div className="text-[9px] font-semibold" style={{ color: BAND_HEX[layer.band] }}>ระดับ{BAND_LABEL[layer.band]}</div>
                                     </div>
                                   </div>
-                                  <div className="shrink-0 text-right">
-                                    <div className="font-mono text-sm font-semibold tabular-nums text-slate-800">{Math.round(layer.score)}<span className="text-[9px] font-medium text-slate-400">/100</span></div>
-                                    <div className="text-[9px] font-semibold" style={{ color: BAND_HEX[layer.band] }}>ระดับ{BAND_LABEL[layer.band]}</div>
+                                  <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-100">
+                                    <div className="h-full rounded-full" style={{ width: `${Math.min(100, layer.score)}%`, background: BAND_HEX[layer.band] }} />
                                   </div>
+                                  {layer.key === "acute" && (
+                                    <div className="mt-2.5 border-t border-slate-100 pt-2.5">
+                                      <p className="text-[9px] leading-relaxed text-slate-500">
+                                        สารอาจถูกดูดซึมและส่งผลต่อร่างกาย จึงไม่แสดงเป็นรอยเฉพาะจุดบนโมเดล
+                                      </p>
+                                      <details className="group/acute mt-2 rounded-lg bg-slate-50">
+                                        <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-2 text-[9px] font-medium text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/30">
+                                          <SemanticIcon name="shield" className="size-3.5 shrink-0 text-slate-400" />
+                                          <span className="flex-1">อ่านเพิ่มเติม</span>
+                                          <ChevronDown className="size-3 text-slate-400 transition-transform group-open/acute:rotate-180" />
+                                        </summary>
+                                        <div className="space-y-2 border-t border-slate-200/70 px-2.5 py-2.5 text-[9px] leading-relaxed text-slate-500">
+                                          <p><span className="font-medium text-slate-700">หมายถึงอะไร:</span> ความเสี่ยงจากการสัมผัสในช่วงเวลาสั้น เมื่อสารเข้าสู่ร่างกายผ่านผิวหนัง</p>
+                                          <p><span className="font-medium text-slate-700">อาการที่อาจพบ:</span> ขึ้นอยู่กับชนิดและปริมาณสาร เช่น เวียนศีรษะ คลื่นไส้ หายใจลำบาก หรืออ่อนแรง</p>
+                                          <p><span className="font-medium text-slate-700">ต่างจากการระคายเคืองผิว:</span> การระคายเคืองเกิดเฉพาะจุดและอาจเห็นรอยแดง แสบ หรือบวม แต่ผลนี้เป็นผลต่อร่างกายและอาจไม่มีรอยบนผิว</p>
+                                          <p className="rounded-md bg-white px-2 py-1.5 text-slate-500"><span className="font-medium text-slate-700">การอ่านคะแนน:</span> เป็นดัชนีคัดกรองจากแบบจำลอง ไม่ใช่โอกาสเกิดอาการจริงหรือคำวินิจฉัยทางการแพทย์</p>
+                                        </div>
+                                      </details>
+                                    </div>
+                                  )}
                                 </div>
-                                 <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-100">
-                                   <div className="h-full rounded-full" style={{ width: `${Math.min(100, layer.score)}%`, background: BAND_HEX[layer.band] }} />
-                                 </div>
-                                 {layer.key === "acute" && (
-                                   <div className="mt-2.5 border-t border-slate-100 pt-2.5">
-                                     <p className="text-[9px] leading-relaxed text-slate-500">
-                                       สารอาจถูกดูดซึมและส่งผลต่อร่างกาย จึงไม่แสดงเป็นรอยเฉพาะจุดบนโมเดล
-                                     </p>
-                                     <details className="group/acute mt-2 rounded-lg bg-slate-50">
-                                       <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-2 text-[9px] font-medium text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/30">
-                                         <SemanticIcon name="shield" className="size-3.5 shrink-0 text-slate-400" />
-                                         <span className="flex-1">เข้าใจผลนี้</span>
-                                         <ChevronDown className="size-3 text-slate-400 transition-transform group-open/acute:rotate-180" />
-                                       </summary>
-                                       <div className="space-y-2 border-t border-slate-200/70 px-2.5 py-2.5 text-[9px] leading-relaxed text-slate-500">
-                                         <p><span className="font-medium text-slate-700">หมายถึงอะไร:</span> ความเสี่ยงจากการสัมผัสในช่วงเวลาสั้น เมื่อสารเข้าสู่ร่างกายผ่านผิวหนัง</p>
-                                         <p><span className="font-medium text-slate-700">อาการที่อาจพบ:</span> ขึ้นอยู่กับชนิดและปริมาณสาร เช่น เวียนศีรษะ คลื่นไส้ หายใจลำบาก หรืออ่อนแรง</p>
-                                         <p><span className="font-medium text-slate-700">ต่างจากการระคายเคืองผิว:</span> การระคายเคืองเกิดเฉพาะจุดและอาจเห็นรอยแดง แสบ หรือบวม แต่ผลนี้เป็นผลต่อร่างกายและอาจไม่มีรอยบนผิว</p>
-                                         <p className="rounded-md bg-white px-2 py-1.5 text-slate-500"><span className="font-medium text-slate-700">การอ่านคะแนน:</span> เป็นดัชนีคัดกรองจากแบบจำลอง ไม่ใช่โอกาสเกิดอาการจริงหรือคำวินิจฉัยทางการแพทย์</p>
-                                       </div>
-                                     </details>
-                                   </div>
-                                 )}
-                               </div>
-                            );
-                          })}
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="rounded-xl border border-slate-200 bg-white p-3">
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500"><SemanticIcon name="shield" className="size-3.5" /> ความน่าเชื่อถือของโมเดล</div>
+                          <div className="mt-1.5 text-sm font-semibold text-slate-800">{resultConfidenceSummary ? (CONF_TH[resultConfidenceSummary.level] ?? resultConfidenceSummary.level) : "ไม่มีข้อมูล"}</div>
+                          <div className="mt-0.5 text-[9px] text-slate-400">{resultConfidenceSummary?.outOfDomainCount ? `นอกขอบเขต ${resultConfidenceSummary.outOfDomainCount} ด้าน` : "ตรวจจากขอบเขตและความสอดคล้อง"}</div>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-200 bg-white p-3">
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500"><SemanticIcon name="target" className="size-3.5" /> ความครอบคลุมสูตร</div>
+                          <div className="mt-1.5 text-sm font-semibold text-slate-800">{formulaCoverage ? `${formulaCoverage.coverage_percentage}%` : "ไม่มีข้อมูล"}</div>
+                          <div className="mt-0.5 text-[9px] text-slate-400">{formulaCoverage ? `${formulaCoverage.total_ingredients - formulaCoverage.unresolved_ingredients}/${formulaCoverage.total_ingredients} รายการ` : "ไม่มีข้อมูลส่วนผสม"}</div>
                         </div>
                       </div>
-                    ))}
 
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="rounded-xl border border-slate-200 bg-white p-3">
-                        <div className="flex items-center gap-1.5 text-[10px] text-slate-500"><SemanticIcon name="shield" className="size-3.5" /> ความน่าเชื่อถือของโมเดล</div>
-                        <div className="mt-1.5 text-sm font-semibold text-slate-800">{resultConfidenceSummary ? (CONF_TH[resultConfidenceSummary.level] ?? resultConfidenceSummary.level) : "ไม่มีข้อมูล"}</div>
-                        <div className="mt-0.5 text-[9px] text-slate-400">{resultConfidenceSummary?.outOfDomainCount ? `นอกขอบเขต ${resultConfidenceSummary.outOfDomainCount} ด้าน` : "ตรวจจากขอบเขตและความสอดคล้อง"}</div>
-                      </div>
-
-                      <div className="rounded-xl border border-slate-200 bg-white p-3">
-                        <div className="flex items-center gap-1.5 text-[10px] text-slate-500"><SemanticIcon name="target" className="size-3.5" /> ความครอบคลุมสูตร</div>
-                        <div className="mt-1.5 text-sm font-semibold text-slate-800">{formulaCoverage ? `${formulaCoverage.coverage_percentage}%` : "ไม่มีข้อมูล"}</div>
-                        <div className="mt-0.5 text-[9px] text-slate-400">{formulaCoverage ? `${formulaCoverage.total_ingredients - formulaCoverage.unresolved_ingredients}/${formulaCoverage.total_ingredients} รายการ` : "ไม่มีข้อมูลส่วนผสม"}</div>
-                      </div>
-                    </div>
-
-                    <details className="group rounded-xl border border-slate-200 bg-slate-50/70">
-                      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[11px] font-semibold text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30">
-                        <SemanticIcon name="shield" className="size-3.5 text-slate-500" />
-                        <span className="flex-1">ดูที่มาและข้อจำกัดของผล</span>
-                        <ChevronDown className="size-3.5 text-slate-400 transition-transform group-open:rotate-180" />
-                      </summary>
-                      <div className="space-y-2 border-t border-slate-200 px-3 py-3">
-                        {ENDPOINTS.map((ep) => {
-                          const confidence = endpoints[ep]?.confidence;
-                          if (!confidence) return null;
-                          return (
-                            <div key={ep} className="text-[10px] leading-relaxed text-slate-600">
-                              <div className="font-medium text-slate-700">{ENDPOINT_LABEL_TH[ep]} · ความน่าเชื่อถือ {CONF_TH[confidence.level] ?? confidence.level}</div>
-                              <div className="mt-0.5 text-slate-500">{confidence.reason_th}</div>
-                            </div>
-                          );
-                        })}
-                        <div className="rounded-lg bg-white p-2.5 text-[9px] leading-relaxed text-slate-500">
-                          {assessment.result?.disclaimer_th || "ผลนี้เป็นการคัดกรองจากแบบจำลองคอมพิวเตอร์ ไม่ใช่ผลการทดลองทางคลินิกหรือคำวินิจฉัยทางการแพทย์"}
-                        </div>
-                      </div>
-                    </details>
-                  </div>
-                )}
-
-                {/* AI — auto-adjust ratios for a realistic / safest result */}
-                {formula.some((it) => it.smiles.trim() && !isWaterItem(it)) && (
-                  <div className="mt-3">
-                    <button
-                      onClick={optimizeFormula}
-                      disabled={optBusy}
-                      className="w-full rounded-lg border border-brand/40 bg-teal-50 py-1.5 text-xs font-medium text-brand-dark transition hover:bg-teal-100 disabled:opacity-60"
-                    >
-                      <span className="inline-flex items-center justify-center gap-1"><SemanticIcon name={optBusy ? "timer" : "bot"} className="size-3.5" /> {optBusy ? "กำลังให้ AI วิเคราะห์…" : "ให้ AI เสนออัตราส่วนใหม่"}</span>
-                    </button>
-                    {optMsg && <div className="mt-1 text-[10px] leading-snug text-slate-500">{optMsg}</div>}
-                    {pendingOptimization && (
-                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
-                        <div className="mb-1 text-[10px] font-semibold text-amber-800">ตรวจสอบข้อเสนอ</div>
-                        <div className="space-y-1">
-                          {pendingOptimization.map((item, index) => {
-                            const old = formula.find((current) => current.smiles === item.smiles)?.concentration ?? 0;
+                      <details className="group rounded-xl border border-slate-200 bg-slate-50/70">
+                        <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[11px] font-semibold text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30">
+                          <SemanticIcon name="shield" className="size-3.5 text-slate-500" />
+                          <span className="flex-1">ดูที่มาและข้อจำกัดของผล</span>
+                          <ChevronDown className="size-3.5 text-slate-400 transition-transform group-open:rotate-180" />
+                        </summary>
+                        <div className="space-y-2 border-t border-slate-200 px-3 py-3">
+                          {ENDPOINTS.map((ep) => {
+                            const confidence = endpoints[ep]?.confidence;
+                            if (!confidence) return null;
                             return (
-                              <div key={`${item.smiles}-${index}`} className="flex items-center gap-1 text-[10px] text-amber-900">
-                                <span className="min-w-0 flex-1 truncate">{item.name || item.smiles}</span>
-                                <span className="font-mono text-amber-600">{old}% → {item.concentration}%</span>
+                              <div key={ep} className="text-[10px] leading-relaxed text-slate-600">
+                                <div className="font-medium text-slate-700">{ENDPOINT_LABEL_TH[ep]} · ความน่าเชื่อถือ {CONF_TH[confidence.level] ?? confidence.level}</div>
+                                <div className="mt-0.5 text-slate-500">{confidence.reason_th}</div>
                               </div>
                             );
                           })}
+                          <div className="rounded-lg bg-white p-2.5 text-[9px] leading-relaxed text-slate-500">
+                            {assessment.result?.disclaimer_th || "ผลนี้เป็นการคัดกรองจากแบบจำลองคอมพิวเตอร์ ไม่ใช่ผลการทดลองทางคลินิกหรือคำวินิจฉัยทางการแพทย์"}
+                          </div>
                         </div>
-                        <div className="mt-2 flex gap-1.5">
-                          <button
-                            onClick={() => {
-                              invalidateFormulaAssessment(activeId);
-                              setFormula(pendingOptimization);
-                              setPendingOptimization(null);
-                              setOptMsg("ยืนยันอัตราส่วนใหม่แล้ว กด Run เพื่อประเมิน");
-                            }}
-                            className="flex-1 rounded bg-brand px-2 py-1 text-[10px] font-semibold text-white"
-                          >
-                            ยืนยัน
-                          </button>
-                          <button
-                            onClick={() => { setPendingOptimization(null); setOptMsg(null); }}
-                            className="rounded border border-amber-200 bg-white px-2 py-1 text-[10px] text-amber-800"
-                          >
-                            ยกเลิก
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <details className="group mt-3 rounded-xl border border-dashed border-violet-200 bg-violet-50/40 print:hidden" open={developerTestEnabled}>
-                  <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[10px] font-semibold text-violet-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300">
-                    <SemanticIcon name="flask" className="size-3.5" />
-                    <span className="flex-1">เครื่องมือทดสอบสำหรับผู้พัฒนา</span>
-                    <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
-                  </summary>
-                  <div className="border-t border-violet-100 px-3 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-[9px] leading-relaxed text-violet-700">ปรับเฉพาะภาพ 3D ไม่ส่ง API และไม่แก้ผลจริง</div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDeveloperTestEnabled((enabled) => {
-                            if (enabled) setEraseMode(false);
-                            return !enabled;
-                          });
-                        }}
-                        aria-pressed={developerTestEnabled}
-                        className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[10px] font-semibold transition ${developerTestEnabled
-                          ? "bg-violet-700 text-white hover:bg-violet-800"
-                          : "border border-violet-300 bg-white text-violet-700 hover:bg-violet-100"
-                          }`}
-                      >
-                        {developerTestEnabled ? "ปิดการทดสอบ" : "เปิดทดสอบ"}
-                      </button>
+                      </details>
                     </div>
-                    {developerTestEnabled && (
-                      <div className="mt-3 space-y-2 border-t border-violet-100 pt-3">
-                        <div className="flex flex-wrap gap-1">
-                          {[0, 30, 55, 85].map((score) => (
+                  )}
+
+                  {/* AI — auto-adjust ratios for a realistic / safest result */}
+                  {formula.some((it) => it.smiles.trim() && !isWaterItem(it)) && (
+                    <div className="mt-3">
+                      <button
+                        onClick={optimizeFormula}
+                        disabled={optBusy}
+                        className="w-full rounded-lg border border-brand/40 bg-teal-50 py-1.5 text-xs font-medium text-brand-dark transition hover:bg-teal-100 disabled:opacity-60"
+                      >
+                        <span className="inline-flex items-center justify-center gap-1"><SemanticIcon name={optBusy ? "timer" : "bot"} className="size-3.5" /> {optBusy ? "กำลังให้ AI วิเคราะห์…" : "ให้ AI เสนออัตราส่วนใหม่"}</span>
+                      </button>
+                      {optMsg && <div className="mt-1 text-[10px] leading-snug text-slate-500">{optMsg}</div>}
+                      {pendingOptimization && (
+                        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
+                          <div className="mb-1 text-[10px] font-semibold text-amber-800">ตรวจสอบข้อเสนอ</div>
+                          <div className="space-y-1">
+                            {pendingOptimization.map((item, index) => {
+                              const old = formula.find((current) => current.smiles === item.smiles)?.concentration ?? 0;
+                              return (
+                                <div key={`${item.smiles}-${index}`} className="flex items-center gap-1 text-[10px] text-amber-900">
+                                  <span className="min-w-0 flex-1 truncate">{item.name || item.smiles}</span>
+                                  <span className="font-mono text-amber-600">{old}% → {item.concentration}%</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="mt-2 flex gap-1.5">
                             <button
-                              key={score}
-                              type="button"
-                              onClick={() => setDeveloperTestScores({ skin: score, eye: score, sens: score, acute: score })}
-                              className="rounded-md border border-violet-200 bg-white px-2 py-1 text-[9px] font-medium text-violet-700 hover:bg-violet-100"
+                              onClick={() => {
+                                invalidateFormulaAssessment(activeId);
+                                setFormula(pendingOptimization);
+                                setPendingOptimization(null);
+                                setOptMsg("ยืนยันอัตราส่วนใหม่แล้ว กด Run เพื่อประเมิน");
+                              }}
+                              className="flex-1 rounded bg-brand px-2 py-1 text-[10px] font-semibold text-white"
                             >
-                              ทุกค่า {score}
+                              ยืนยัน
                             </button>
-                          ))}
-                          <button
-                            type="button"
-                            onClick={() => setDeveloperTestScores(DEFAULT_DEVELOPER_TEST_SCORES)}
-                            className="ml-auto rounded-md px-2 py-1 text-[9px] font-medium text-slate-500 hover:bg-white"
-                          >
-                            คืนค่า 50
-                          </button>
+                            <button
+                              onClick={() => { setPendingOptimization(null); setOptMsg(null); }}
+                              className="rounded border border-amber-200 bg-white px-2 py-1 text-[10px] text-amber-800"
+                            >
+                              ยกเลิก
+                            </button>
+                          </div>
                         </div>
-                        {ENDPOINTS.map((ep) => {
-                          const score = developerTestScores[ep];
-                          const band = bandOf(score);
-                          return (
-                            <label key={ep} className="grid grid-cols-[1fr_46px] items-center gap-x-2 gap-y-1">
-                              <span className="flex items-center justify-between text-[10px] text-slate-700">
-                                <span>{ENDPOINT_LABEL_TH[ep]}</span>
-                                <span className="font-mono font-semibold tabular-nums" style={{ color: BAND_HEX[band] }}>{score} · {BAND_LABEL[band]}</span>
-                              </span>
-                              <input
-                                aria-label={`${ENDPOINT_LABEL_TH[ep]} (0 ถึง 100)`}
-                                type="number"
-                                min={0}
-                                max={100}
-                                step={1}
-                                value={score}
-                                onChange={(event) => {
-                                  const next = Math.max(0, Math.min(100, Number(event.target.value) || 0));
-                                  setDeveloperTestScores((current) => ({ ...current, [ep]: next }));
-                                }}
-                                className="row-span-2 h-8 rounded-lg border border-violet-200 bg-white px-1 text-center font-mono text-[11px] font-semibold text-violet-800 outline-none focus:border-violet-500"
-                              />
-                              <input
-                                aria-label={`เลื่อนค่า${ENDPOINT_LABEL_TH[ep]}`}
-                                type="range"
-                                min={0}
-                                max={100}
-                                step={1}
-                                value={score}
-                                onChange={(event) => setDeveloperTestScores((current) => ({ ...current, [ep]: Number(event.target.value) }))}
-                                className="h-1.5 w-full cursor-pointer accent-violet-600"
-                              />
-                            </label>
-                          );
-                        })}
+                      )}
+                    </div>
+                  )}
+
+                  <details className="group mt-3 rounded-xl border border-dashed border-violet-200 bg-violet-50/40 print:hidden" open={developerTestEnabled}>
+                    <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[10px] font-semibold text-violet-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300">
+                      <SemanticIcon name="flask" className="size-3.5" />
+                      <span className="flex-1">เครื่องมือทดสอบสำหรับผู้พัฒนา</span>
+                      <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+                    </summary>
+                    <div className="border-t border-violet-100 px-3 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-[9px] leading-relaxed text-violet-700">ปรับเฉพาะภาพ 3D ไม่ส่ง API และไม่แก้ผลจริง</div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeveloperTestEnabled((enabled) => {
+                              if (enabled) setEraseMode(false);
+                              return !enabled;
+                            });
+                          }}
+                          aria-pressed={developerTestEnabled}
+                          className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[10px] font-semibold transition ${developerTestEnabled
+                            ? "bg-violet-700 text-white hover:bg-violet-800"
+                            : "border border-violet-300 bg-white text-violet-700 hover:bg-violet-100"
+                            }`}
+                        >
+                          {developerTestEnabled ? "ปิดการทดสอบ" : "เปิดทดสอบ"}
+                        </button>
                       </div>
-                    )}
-                  </div>
-                </details>
-              </Section>
+                      {developerTestEnabled && (
+                        <div className="mt-3 space-y-2 border-t border-violet-100 pt-3">
+                          <div className="flex flex-wrap gap-1">
+                            {[0, 30, 55, 85].map((score) => (
+                              <button
+                                key={score}
+                                type="button"
+                                onClick={() => setDeveloperTestScores({ skin: score, eye: score, sens: score, acute: score })}
+                                className="rounded-md border border-violet-200 bg-white px-2 py-1 text-[9px] font-medium text-violet-700 hover:bg-violet-100"
+                              >
+                                ทุกค่า {score}
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              onClick={() => setDeveloperTestScores(DEFAULT_DEVELOPER_TEST_SCORES)}
+                              className="ml-auto rounded-md px-2 py-1 text-[9px] font-medium text-slate-500 hover:bg-white"
+                            >
+                              คืนค่า 50
+                            </button>
+                          </div>
+                          {ENDPOINTS.map((ep) => {
+                            const score = developerTestScores[ep];
+                            const band = bandOf(score);
+                            return (
+                              <label key={ep} className="grid grid-cols-[1fr_46px] items-center gap-x-2 gap-y-1">
+                                <span className="flex items-center justify-between text-[10px] text-slate-700">
+                                  <span>{ENDPOINT_LABEL_TH[ep]}</span>
+                                  <span className="font-mono font-semibold tabular-nums" style={{ color: BAND_HEX[band] }}>{score} · {BAND_LABEL[band]}</span>
+                                </span>
+                                <input
+                                  aria-label={`${ENDPOINT_LABEL_TH[ep]} (0 ถึง 100)`}
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  step={1}
+                                  value={score}
+                                  onChange={(event) => {
+                                    const next = Math.max(0, Math.min(100, Number(event.target.value) || 0));
+                                    setDeveloperTestScores((current) => ({ ...current, [ep]: next }));
+                                  }}
+                                  className="row-span-2 h-8 rounded-lg border border-violet-200 bg-white px-1 text-center font-mono text-[11px] font-semibold text-violet-800 outline-none focus:border-violet-500"
+                                />
+                                <input
+                                  aria-label={`เลื่อนค่า${ENDPOINT_LABEL_TH[ep]}`}
+                                  type="range"
+                                  min={0}
+                                  max={100}
+                                  step={1}
+                                  value={score}
+                                  onChange={(event) => setDeveloperTestScores((current) => ({ ...current, [ep]: Number(event.target.value) }))}
+                                  className="h-1.5 w-full cursor-pointer accent-violet-600"
+                                />
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                </Section>
 
               </div>
               <div
