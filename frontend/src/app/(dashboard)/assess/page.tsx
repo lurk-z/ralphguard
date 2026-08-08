@@ -84,6 +84,7 @@ import {
   prepareOcrFormulaReplacement,
 } from "@/lib/formula-ocr";
 import { formulaGraphItemsSignature } from "@/lib/formula-graph";
+import { buildAssessmentReportHtml } from "@/lib/assessment-report";
 import {
   resolveManualSubstanceMatch,
   resolveManualSubstanceRegistryMatch,
@@ -1739,135 +1740,89 @@ export default function StudioPage() {
     }
   };
 
-  // Build a real, data-filled PDF report from a template (not a screenshot) and
-  // print it via a hidden iframe → the user picks "Save as PDF".
-  const exportPdf = () => {
-    const esc = (s: unknown) =>
-      String(s ?? "").replace(/[&<>]/g, (c) => (c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;"));
-    const regionLabel = REGIONS.find((r) => r.value === region)?.label ?? region;
-    const items = withWaterBase(
-      formula.filter((it) => it.smiles.trim() && it.concentration > 0 && !isWaterItem(it)),
-    );
-    const eps = endpoints as Record<string, { peak_score?: number; timecourse?: number[] }> | null;
-    const scoreAt = (ep: string, d: number) =>
-      Math.round((eps?.[ep]?.timecourse?.[d] ?? eps?.[ep]?.peak_score ?? 0) as number);
-    const now = new Date();
-    const dateStr = now.toLocaleString("th-TH", { dateStyle: "long", timeStyle: "short" });
-
-    const ingredientRows = items
-      .map(
-        (it) =>
-          `<tr><td>${esc(it.name || "-")}</td><td class="mono">${esc(it.smiles)}</td><td class="num">${it.concentration}%</td></tr>`,
-      )
-      .join("");
-
-    let resultBlock: string;
-    let noteBlock = "";
-    if (completed && eps) {
-      resultBlock = `<table class="tbl">
-        <thead><tr><th style="text-align:left">ปลายทางความเสี่ยง</th><th>Day 1</th><th>Day 3</th><th>Day 7</th></tr></thead>
-        <tbody>${ENDPOINTS.map((ep) => {
-        const cells = [0, 1, 2]
-          .map((d) => {
-            const sc = scoreAt(ep, d);
-            const b = bandOf(sc);
-            return `<td class="num"><span class="pill" style="background:${BAND_HEX[b]}">${sc} · ${BAND_LABEL[b]}</span></td>`;
-          })
-          .join("");
-        return `<tr><td>${ENDPOINT_LABEL_TH[ep]}</td>${cells}</tr>`;
-      }).join("")}</tbody></table>`;
-      const top = ENDPOINTS.map((ep) => ({ label: ENDPOINT_LABEL_TH[ep], sc: scoreAt(ep, dayIdx) })).sort(
-        (a, b) => b.sc - a.sc,
-      )[0];
-      const b = bandOf(top.sc);
-      noteBlock = `<div class="note"><b>ข้อสังเกต:</b> ความเสี่ยงเด่นที่สุด (Day ${DAY_LABELS[dayIdx]}) คือ “${esc(top.label)}” ที่ ${top.sc}/100 (ระดับ${BAND_LABEL[b]})${top.sc >= 50 ? " — ควรทบทวน/ลดความเข้มข้นของสารหลักก่อนพัฒนาต่อ" : " — อยู่ในเกณฑ์ที่จัดการได้"
-        }</div>`;
-    } else {
-      resultBlock = `<p class="muted">ยังไม่ได้กด Run ประเมิน — รายงานนี้แสดงเฉพาะข้อมูลสูตร</p>`;
+  // Build one evidence-first A4 report and print it through the browser.
+  const exportPdf = async () => {
+    if (!activeFormula) {
+      toast.error("กรุณาเลือกสูตรก่อนออกรายงาน");
+      return;
     }
 
-    const html = `<!doctype html><html lang="th"><head><meta charset="utf-8">
-<title>RalphGuard — รายงานการประเมิน</title>
-<style>
-  @page { size: A4; margin: 15mm; }
-  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body { margin:0; font-family:'LINE Seed Sans TH','Sarabun','Segoe UI',system-ui,sans-serif; color:#0F1C1E; font-size:12px; line-height:1.5; }
-  .head { display:flex; align-items:center; justify-content:space-between; border-bottom:3px solid #0D9488; padding-bottom:10px; }
-  .brand { display:flex; align-items:center; gap:8px; }
-  .logo { width:30px; height:30px; border-radius:7px; display:block; object-fit:contain; }
-  .brand b { font-size:18px; }
-  .brand span { display:block; font-size:10px; color:#5b7075; }
-  .date { font-size:10px; color:#5b7075; text-align:right; }
-  h2 { font-size:13px; color:#0D9488; margin:20px 0 8px; border-left:4px solid #2DD4BF; padding-left:8px; }
-  .meta { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:14px; }
-  .meta div { background:#F0FaF9; border:1px solid #d7ebe8; border-radius:8px; padding:8px 10px; }
-  .meta .k { font-size:9px; text-transform:uppercase; letter-spacing:.04em; color:#6b8085; }
-  .meta .v { font-size:13px; font-weight:600; margin-top:2px; }
-  table.tbl { width:100%; border-collapse:collapse; }
-  table.tbl th, table.tbl td { border:1px solid #e2e8ea; padding:6px 8px; font-size:11.5px; }
-  table.tbl th { background:#0D9488; color:#fff; font-weight:600; }
-  table.tbl td.num { text-align:center; }
-  table.tbl .mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:10px; color:#556; }
-  .pill { display:inline-block; color:#fff; border-radius:999px; padding:2px 8px; font-size:10px; font-weight:600; }
-  .muted { color:#8a9a9e; font-style:italic; }
-  .note { margin-top:10px; background:#FFF7ED; border:1px solid #fed7aa; border-radius:8px; padding:8px 10px; font-size:11.5px; }
-  .foot { margin-top:26px; border-top:1px solid #e2e8ea; padding-top:8px; font-size:9.5px; color:#8a9a9e; line-height:1.5; }
-</style></head><body>
-  <div class="head">
-    <div class="brand"><img class="logo" src="/icons/logo.png" alt="RalphGuard"><div><b>RalphGuard</b><span>รายงานการประเมินความเสี่ยงสารเคมี (In-silico QSAR)</span></div></div>
-    <div class="date">ออกรายงาน<br>${esc(dateStr)}</div>
-  </div>
+    const reportRegion = assessment?.result?.region ?? activeFormula.region ?? region;
+    const regionLabel = REGIONS.find((item) => item.value === reportRegion)?.label ?? reportRegion;
+    const items = withWaterBase(
+      formula.filter((item) => item.smiles.trim() && item.concentration > 0 && !isWaterItem(item)),
+    );
+    let modelMetrics: ModelMetricsPayload | null = null;
+    let modelInfo: ModelInfoPayload | null = null;
+    try {
+      [modelMetrics, modelInfo] = await Promise.all([
+        api.getModelMetrics(),
+        api.getModelInfo(),
+      ]);
+    } catch (cause) {
+      logRequestFailure("load PDF evidence", cause);
+      toast.warning("โหลดข้อมูลโมเดลได้ไม่ครบ", {
+        description: "รายงานจะระบุส่วนที่ไม่มีข้อมูลตามจริง",
+      });
+    }
 
-  <div class="meta">
-    <div><div class="k">ชื่อสูตร</div><div class="v">${esc(activeFormula?.name ?? "-")}</div></div>
-    <div><div class="k">ประเภท</div><div class="v">${esc(activeFormula?.type ?? "-")}</div></div>
-    <div><div class="k">บริเวณทดสอบ</div><div class="v">${esc(regionLabel)}</div></div>
-    <div><div class="k">จำนวนสาร</div><div class="v">${items.length} รายการ</div></div>
-  </div>
-
-  <h2>ส่วนผสม (Formula)</h2>
-  <table class="tbl">
-    <thead><tr><th style="text-align:left">สาร</th><th style="text-align:left">SMILES</th><th style="text-align:center">สัดส่วน</th></tr></thead>
-    <tbody>${ingredientRows}</tbody>
-  </table>
-
-  <h2>ผลการประเมินความเสี่ยง</h2>
-  ${resultBlock}
-  ${noteBlock}
-
-  <div class="foot">
-    เอกสารนี้สร้างจากการคัดกรองด้วยแบบจำลอง QSAR (in-silico) เพื่อประเมินความเสี่ยงเบื้องต้นเท่านั้น
-    ไม่สามารถทดแทนการทดสอบจริงตามมาตรฐาน และไม่ใช่คำวินิจฉัยทางการแพทย์ · RalphGuard · NSC 2026 (28P14E01438)
-  </div>
-</body></html>`;
+    const html = buildAssessmentReportHtml({
+      projectName: project?.name || projectNameDraft.trim() || "โปรเจกต์ปัจจุบัน",
+      projectId,
+      formulaName: activeFormula.name || "ไม่ระบุชื่อสูตร",
+      formulaType: activeFormula.type || "ไม่ระบุประเภท",
+      regionLabel,
+      formula: items,
+      assessment,
+      modelMetrics,
+      modelInfo,
+      generatedAt: new Date(),
+      logoUrl: new URL("/icons/logo.png", window.location.origin).href,
+    });
 
     const iframe = document.createElement("iframe");
-    Object.assign(iframe.style, { position: "fixed", right: "0", bottom: "0", width: "0", height: "0", border: "0" });
+    iframe.title = "ตัวอย่างรายงาน RalphGuard";
+    Object.assign(iframe.style, {
+      position: "fixed",
+      right: "0",
+      bottom: "0",
+      width: "0",
+      height: "0",
+      border: "0",
+    });
     document.body.appendChild(iframe);
     const doc = iframe.contentWindow?.document;
-    if (!doc) return;
+    if (!doc) {
+      iframe.remove();
+      toast.error("ไม่สามารถเปิดหน้าต่างพิมพ์รายงานได้");
+      return;
+    }
     doc.open();
     doc.write(html);
     doc.close();
-    const go = () => {
+
+    let printStarted = false;
+    const printReport = () => {
+      if (printStarted) return;
+      printStarted = true;
       try {
         iframe.contentWindow?.focus();
         iframe.contentWindow?.print();
       } finally {
-        setTimeout(() => iframe.remove(), 1500);
+        window.setTimeout(() => iframe.remove(), 3000);
       }
     };
-    const logo = doc.querySelector<HTMLImageElement>(".logo");
+    const logo = doc.querySelector<HTMLImageElement>(".brand img");
     if (logo && !logo.complete) {
-      const fallback = window.setTimeout(go, 1000);
+      const fallback = window.setTimeout(printReport, 1500);
       const printWhenReady = () => {
         window.clearTimeout(fallback);
-        window.setTimeout(go, 50);
+        window.setTimeout(printReport, 100);
       };
       logo.addEventListener("load", printWhenReady, { once: true });
       logo.addEventListener("error", printWhenReady, { once: true });
     } else {
-      setTimeout(go, 100);
+      window.setTimeout(printReport, 150);
     }
   };
 

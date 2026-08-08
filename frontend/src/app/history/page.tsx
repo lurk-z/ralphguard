@@ -137,12 +137,14 @@ export default function HistoryPage() {
                     {new Date(r.created_at).toLocaleString("th-TH")}
                   </td>
                   <td className="py-2 px-3">
-                    <a
-                      href={
-                        r.status === "completed" && r.project_id != null
-                          ? `/projects/${r.project_id}/report?assessmentId=${encodeURIComponent(r.id)}`
-                          : `/assess?job=${encodeURIComponent(r.id)}`
-                      }
+                      <a
+                        href={
+                          r.status === "completed" && r.project_id != null
+                            ? `/projects/${r.project_id}/results`
+                            : r.project_id != null
+                              ? `/assess?projectId=${r.project_id}`
+                              : "/assess"
+                        }
                       className="text-brand hover:underline text-xs"
                     >
                       ดูผล →

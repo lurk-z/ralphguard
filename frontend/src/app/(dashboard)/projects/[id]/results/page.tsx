@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { FileText, FlaskConical, ShieldCheck } from "lucide-react";
+import { FlaskConical, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -46,7 +46,6 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const projectId = parseProjectRouteId(params.id);
   const [result, setResult] = useState<AssessmentResultPayload | null>(null);
-  const [assessmentId, setAssessmentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -72,7 +71,6 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
         );
         if (alive) {
           setResult(record.result);
-          setAssessmentId(record.id);
           setLoadError(null);
         }
       } catch (cause) {
@@ -80,7 +78,6 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
         logRequestFailure("load project results", cause);
         if (alive) {
           setResult(null);
-          setAssessmentId(null);
           setLoadError(apiErrorMessage(cause, "โหลดผลการวิเคราะห์ไม่สำเร็จ"));
         }
       } finally {
@@ -106,30 +103,16 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
         { label: "โปรเจกต์", href: "/projects" },
         { label: "ผลการวิเคราะห์" },
       ]}
-      actions={
-        <>
-          <Button
-            variant="outline"
-            className="h-11 gap-2 px-5"
-            onClick={() => router.push(`/projects/${params.id}/assess`)}
-          >
-            <FlaskConical className="size-4" />
-            กลับไปแก้สูตร
-          </Button>
-          <Button
-            className="h-11 gap-2 px-5"
-            disabled={!endpoints || !assessmentId}
-            onClick={() =>
-              router.push(
-                `/projects/${params.id}/report?assessmentId=${encodeURIComponent(assessmentId!)}`,
-              )
-            }
-          >
-            <FileText className="size-4" />
-            สร้าง PDF
-          </Button>
-        </>
-      }
+      actions={(
+        <Button
+          variant="outline"
+          className="h-11 gap-2 px-5"
+          onClick={() => router.push(`/projects/${params.id}/assess`)}
+        >
+          <FlaskConical className="size-4" />
+          กลับไปแก้สูตร
+        </Button>
+      )}
     >
       <div className="grid min-h-full gap-6 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:px-8">
         {/* Head viewport */}
