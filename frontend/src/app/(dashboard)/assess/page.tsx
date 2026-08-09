@@ -44,7 +44,9 @@ import {
 import VoiceAssistant from "@/components/VoiceAssistant";
 import CsvImportModal from "@/components/CsvImportModal";
 import LabelScanModal, { type ScanImportContext } from "@/components/LabelScanModal";
+import ManualSubstanceModal from "@/components/ManualSubstanceModal";
 import SubstanceHoverCard from "@/components/SubstanceHoverCard";
+import SubstanceLibraryPage from "@/components/SubstanceLibraryPage";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -93,6 +95,15 @@ import {
 import { parseProjectRouteId } from "@/lib/project-routing";
 import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
 import {
+  loadFavoriteSubstanceKeys,
+  loadLocalSubstances,
+  localSubstanceKey,
+  normalizedSmiles,
+  saveFavoriteSubstanceKeys,
+  systemSubstanceKey,
+  type LocalSubstance,
+} from "@/lib/substance-library-local";
+import {
   loadProjectWorkspace,
   formulaAssessmentSignature,
   saveProjectWorkspace,
@@ -131,7 +142,7 @@ const FormulaGraph = dynamic(() => import("@/components/FormulaGraph"), {
 });
 
 type Mode = WorkspaceMode;
-type PrimaryNavigationItem = "assessment" | "substances" | "more";
+type PrimaryNavigationItem = "assessment" | "substances" | "templates";
 
 const REGIONS: { value: Region; label: string; icon: SemanticIconName }[] = [
   { value: "forearm", label: "ท่อนแขน", icon: "muscle" },
@@ -283,7 +294,6 @@ export default function StudioPage() {
   const [manualSubstanceSmiles, setManualSubstanceSmiles] = useState("");
   const [manualSubstanceBusy, setManualSubstanceBusy] = useState(false);
   const [manualSubstanceError, setManualSubstanceError] = useState<string | null>(null);
-  const [manualSubstanceSuggestionsOpen, setManualSubstanceSuggestionsOpen] = useState(false);
   const [manualRegistryItems, setManualRegistryItems] = useState<IngredientRegistryItem[]>([]);
   const [manualRegistryLoading, setManualRegistryLoading] = useState(false);
   const manualSubstanceControllerRef = useRef<AbortController | null>(null);
@@ -1014,7 +1024,6 @@ export default function StudioPage() {
     setManualSubstanceName("");
     setManualSubstanceSmiles("");
     setManualSubstanceError(null);
-    setManualSubstanceSuggestionsOpen(false);
   };
   const closeManualSubstance = () => {
     manualSubstanceControllerRef.current?.abort();
@@ -1022,12 +1031,10 @@ export default function StudioPage() {
     setManualSubstanceBusy(false);
     setManualSubstanceTargetFormulaId(null);
     setManualSubstanceError(null);
-    setManualSubstanceSuggestionsOpen(false);
   };
   const chooseManualSubstanceSuggestion = (item: IngredientRegistryItem) => {
     setManualSubstanceName(item.inci_name || item.canonical_name);
     setManualSubstanceSmiles(item.canonical_smiles?.trim() || "");
-    setManualSubstanceSuggestionsOpen(false);
     setManualSubstanceError(null);
   };
   const submitManualSubstance = async () => {
@@ -1894,6 +1901,15 @@ export default function StudioPage() {
     setLeftSidebarWidth(nextWidth);
   };
 
+  const toggleFormulaSidebar = () => {
+    setFormulaSidebarCollapsed((collapsed) => !collapsed);
+  };
+
+  const changePrimaryNavigation = (item: PrimaryNavigationItem) => {
+    if (item === activeNavigationItem) return;
+    setActiveNavigationItem(item);
+  };
+
   const startEditingProjectName = () => {
     if (!project || savingProjectName) return;
     setProjectNameDraft(project.name);
@@ -1938,10 +1954,7 @@ export default function StudioPage() {
   return (
     <div
       ref={workspaceShellRef}
-      className={`app-light relative grid h-screen grid-rows-[3.5rem_minmax(0,1fr)] overflow-hidden bg-background text-foreground ${isLeftSidebarResizing
-        ? "select-none"
-        : "transition-[grid-template-columns] duration-200 ease-out motion-reduce:transition-none"
-        }`}
+      className={`app-light relative grid h-screen grid-rows-[3.5rem_minmax(0,1fr)] overflow-hidden bg-background text-foreground ${isLeftSidebarResizing ? "select-none" : ""}`}
       style={
         {
           "--navigation-sidebar-width": `${NAVIGATION_SIDEBAR_WIDTH}px`,
@@ -1949,7 +1962,7 @@ export default function StudioPage() {
           gridTemplateColumns: `var(--navigation-sidebar-width) ${formulaSidebarCollapsed
             ? `${FORMULA_PANEL_COLLAPSED_WIDTH}px`
             : "var(--left-sidebar-width)"
-            } minmax(0,1fr) 20rem`,
+            } minmax(0,1fr) ${activeNavigationItem === "assessment" ? "20rem" : "0px"}`,
         } as React.CSSProperties
       }
     >
@@ -1983,8 +1996,8 @@ export default function StudioPage() {
             {(
               [
                 { id: "assessment", label: "แสดงผลการประเมิน", icon: "chart" },
-                { id: "substances", label: "ดูสารทั้งหมด", icon: "flask" },
-                { id: "more", label: "ฟีเจอร์เพิ่มเติม", icon: "puzzle" },
+                { id: "substances", label: "คลังสารเคมีทั้งหมด", icon: "flask" },
+                { id: "templates", label: "รูปแบบสารเริ่มต้น", icon: "puzzle" },
               ] as {
                 id: PrimaryNavigationItem;
                 label: string;
@@ -1999,7 +2012,7 @@ export default function StudioPage() {
                       type="button"
                       aria-label={item.label}
                       aria-current={active ? "page" : undefined}
-                      onClick={() => setActiveNavigationItem(item.id)}
+                      onClick={() => changePrimaryNavigation(item.id)}
                       className={`grid size-9 place-items-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${active
                         ? "bg-teal-50 text-brand"
                         : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
@@ -2017,7 +2030,10 @@ export default function StudioPage() {
       </TooltipProvider>
 
       {/* Formula panel header */}
-      <div className="relative z-40 col-start-2 row-start-1 flex min-w-0 items-center border-b border-r border-border bg-card px-3">
+      <div
+        className={`relative z-40 col-start-2 row-start-1 flex min-w-0 items-center border-b border-border bg-card ${formulaSidebarCollapsed ? "justify-center px-0" : "border-r px-3"
+          }`}
+      >
         {!formulaSidebarCollapsed && (
           <div className="flex h-full min-w-0 flex-1 items-center">
             {editingProjectName && project ? (
@@ -2058,10 +2074,10 @@ export default function StudioPage() {
         )}
         <button
           type="button"
-          onClick={() => setFormulaSidebarCollapsed((collapsed) => !collapsed)}
+          onClick={toggleFormulaSidebar}
           aria-label={formulaSidebarCollapsed ? "ขยายกล่องสูตร" : "ย่อกล่องสูตร"}
           title={formulaSidebarCollapsed ? "ขยายกล่องสูตร" : "ย่อกล่องสูตร"}
-          className={`grid size-9 shrink-0 place-items-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${formulaSidebarCollapsed ? "mx-auto" : "ml-2"
+          className={`grid size-9 shrink-0 place-items-center text-slate-500 transition-colors hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${formulaSidebarCollapsed ? "bg-transparent" : "ml-2 rounded-lg hover:bg-slate-100"
             }`}
         >
           {formulaSidebarCollapsed ? (
@@ -2101,36 +2117,46 @@ export default function StudioPage() {
       {/* Main content top app bar */}
       <header className="sticky top-0 z-40 col-start-3 row-start-1 flex min-w-0 items-center border-b border-border bg-card px-4 shadow-sm">
         {/* Primary modes stay visually centered regardless of left/right actions. */}
-        <div className="absolute left-1/2 top-1/2 flex max-w-[calc(100%-8rem)] -translate-x-1/2 -translate-y-1/2 items-center rounded-xl bg-muted p-1">
-          {(
-            [
-              ["assess", "ประเมิน", "flask"],
-              ["nodes", "Nodes", "puzzle"],
-              ["trust", "ความน่าเชื่อถือ", "shield"],
-            ] as [Mode, string, SemanticIconName][]
-          ).map(([m, label, icon]) => {
-            const active = mode === m;
-            return (
-              <button
-                key={m}
-                onClick={() => {
-                  setActiveNavigationItem("assessment");
-                  setMode(m);
-                }}
-                className={`flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs transition ${active
-                  ? "bg-white font-semibold text-brand-dark shadow-sm"
-                  : "text-slate-500 hover:text-slate-800"
-                  }`}
-              >
-                <SemanticIcon name={icon} className="size-3.5" />
-                <span className="hidden truncate sm:inline">{label}</span>
-              </button>
-            );
-          })}
-        </div>
+        {activeNavigationItem === "assessment" ? (
+          <div className="absolute left-1/2 top-1/2 flex max-w-[calc(100%-8rem)] -translate-x-1/2 -translate-y-1/2 items-center rounded-xl bg-muted p-1">
+            {(
+              [
+                ["assess", "ประเมิน", "flask"],
+                ["nodes", "Nodes", "puzzle"],
+                ["trust", "ความน่าเชื่อถือ", "shield"],
+              ] as [Mode, string, SemanticIconName][]
+            ).map(([m, label, icon]) => {
+              const active = mode === m;
+              return (
+                <button
+                  key={m}
+                  onClick={() => {
+                    changePrimaryNavigation("assessment");
+                    setMode(m);
+                  }}
+                  className={`flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs transition ${active
+                    ? "bg-white font-semibold text-brand-dark shadow-sm"
+                    : "text-slate-500 hover:text-slate-800"
+                    }`}
+                >
+                  <SemanticIcon name={icon} className="size-3.5" />
+                  <span className="hidden truncate sm:inline">{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : activeNavigationItem === "substances" ? (
+          <div id="substance-library-toolbar-host" className="flex min-w-0 flex-1 items-center" />
+        ) : (
+          <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 text-sm font-semibold text-slate-700">
+            <SemanticIcon name="puzzle" className="size-4 text-brand" />
+            <span>รูปแบบสารเริ่มต้น</span>
+          </div>
+        )}
       </header>
 
       {/* Right sidebar header */}
+      {activeNavigationItem === "assessment" && (
       <div className="relative z-40 col-start-4 row-start-1 flex items-center justify-between gap-3 border-b border-l border-border bg-card px-4">
         <div className="flex min-w-0 items-center rounded-lg bg-slate-100 p-1" role="tablist" aria-label="เนื้อหาแถบด้านขวา">
           {(
@@ -2168,6 +2194,7 @@ export default function StudioPage() {
           PDF
         </button>
       </div>
+      )}
 
       {/* Four independent columns */}
       <div className="contents">
@@ -2177,9 +2204,9 @@ export default function StudioPage() {
           onClick={(event) => {
             if (event.target === event.currentTarget) clearFormulaSelection();
           }}
-          className={`relative z-40 col-start-2 row-start-2 flex h-full min-h-0 w-full flex-col border-r border-border bg-card ${formulaSidebarCollapsed
-            ? "pointer-events-none overflow-hidden opacity-0"
-            : "overflow-y-auto opacity-100"
+          className={`assess-scrollbar relative z-40 col-start-2 row-start-2 flex h-full min-h-0 w-full flex-col ${formulaSidebarCollapsed
+            ? `pointer-events-none overflow-hidden border-r-0 ${activeNavigationItem === "assessment" && mode === "assess" ? "bg-[#F4F1EE]" : "bg-background"}`
+            : "overflow-y-auto border-r border-border bg-card opacity-100"
             }`}
         >
           {!formulaSidebarCollapsed && (
@@ -2484,6 +2511,7 @@ export default function StudioPage() {
                               <div className="flex gap-0">
                                 <SubstanceLibraryTrigger
                                   onOpen={() => setLibraryTargetFormulaId(f.id)}
+                                  disabled={activeNavigationItem === "substances"}
                                 />
                                 <Popover>
                                   <PopoverTrigger asChild>
@@ -2573,6 +2601,32 @@ export default function StudioPage() {
 
         {/* Center canvas */}
         <main className="relative col-start-3 row-start-2 flex min-h-0 min-w-0 overflow-hidden bg-background">
+          <SubstanceLibraryPage
+            active={activeNavigationItem === "substances"}
+            activeFormulaName={activeFormula?.name}
+            selectedItems={formula}
+            onToggleFormula={(item) => {
+              if (!activeId) return;
+              const selectedIndex = formula.findIndex(
+                (formulaItem) => formulaItem.smiles.trim() === item.smiles.trim(),
+              );
+              if (selectedIndex >= 0) {
+                removeFormulaItem(activeId, selectedIndex);
+                return;
+              }
+              addFromCatalog(activeId, {
+                name: item.name,
+                smiles: item.smiles,
+                conc: item.concentration,
+              });
+            }}
+          />
+          {activeNavigationItem === "templates" && (
+            <section
+              aria-label="รูปแบบสารเริ่มต้น"
+              className="absolute inset-0 z-50 bg-background"
+            />
+          )}
           {mode === "assess" && (
             <Viewport
               paintOwnerKey={`${projectId ?? "standalone"}:${activeId}`}
@@ -2600,12 +2654,18 @@ export default function StudioPage() {
               brushSizeControlPct={brushSizeControlPct}
               onBrushSizeControlChange={setBrushSizeControlPct}
               clearPaintRequest={clearPaintRequest}
+              active={activeNavigationItem === "assessment"}
             />
           )}
 
           {/* Inflammation trend — slides in from the right edge (site theme) */}
           {mode === "assess" && (
-            <div className="absolute right-0 top-4 z-20 flex items-start">
+            <div
+              aria-hidden={activeNavigationItem !== "assessment"}
+              // React 18 expects inert to be serialized, while its typings still model a boolean.
+              inert={activeNavigationItem !== "assessment" ? ("true" as unknown as boolean) : undefined}
+              className="absolute right-0 top-4 z-20 flex items-start"
+            >
               <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showTrend ? "w-[420px]" : "w-0"}`}>
                 <div className="assess-scrollbar max-h-[calc(100vh-6rem)] w-[420px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-l-2xl border border-r-0 border-slate-200 bg-white p-4 text-slate-800 shadow-xl">
                   <div className="mb-4 flex items-start gap-3">
@@ -2840,6 +2900,7 @@ export default function StudioPage() {
         </main>
 
         {/* Right inspector */}
+        {activeNavigationItem === "assessment" && (
         <aside className="col-start-4 row-start-2 flex h-full min-h-0 w-full flex-col overflow-hidden border-l border-border bg-card">
           {mode === "trust" ? (
             <div className="p-4 text-xs leading-relaxed text-slate-800/55">
@@ -3196,6 +3257,7 @@ export default function StudioPage() {
             </>
           )}
         </aside>
+        )}
       </div>
 
       {/* Create-formula modal (centered, blurred backdrop) */}
@@ -3515,162 +3577,25 @@ export default function StudioPage() {
       )}
 
       {manualSubstanceTargetFormulaId && (
-        <div
-          className="fixed inset-0 z-[60] grid animate-in place-items-center bg-slate-900/30 p-4 fade-in-0 duration-150 backdrop-blur-sm motion-reduce:animate-none"
-          onClick={closeManualSubstance}
-        >
-          <form
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="manual-substance-title"
-            className="w-[min(94vw,440px)] animate-in overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl fade-in-0 zoom-in-95 duration-150 motion-reduce:animate-none"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submitManualSubstance();
-            }}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <header className="flex items-start gap-3 border-b border-slate-200 px-5 py-4">
-              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-teal-50 text-brand">
-                <Plus className="size-4" />
-              </span>
-              <div className="min-w-0">
-                <h2 id="manual-substance-title" className="text-sm font-semibold text-slate-800">
-                  เพิ่มสารเปล่า
-                </h2>
-                <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
-                  กรอกชื่อสารหรือ SMILES อย่างน้อยหนึ่งช่อง
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={closeManualSubstance}
-                aria-label="ปิด"
-                className="ml-auto grid size-8 shrink-0 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-              >
-                <SemanticIcon name="x" className="size-4" />
-              </button>
-            </header>
-
-            <div className="space-y-4 px-5 py-4">
-              <div className="relative">
-                <label htmlFor="manual-substance-name" className="mb-1.5 block text-xs font-medium text-slate-600">
-                  ชื่อสาร
-                </label>
-                <input
-                  id="manual-substance-name"
-                  autoFocus
-                  value={manualSubstanceName}
-                  maxLength={300}
-                  autoComplete="off"
-                  role="combobox"
-                  aria-autocomplete="list"
-                  aria-expanded={manualSubstanceSuggestionsOpen && Boolean(manualSubstanceName.trim())}
-                  aria-controls="manual-substance-suggestions"
-                  onFocus={() => setManualSubstanceSuggestionsOpen(true)}
-                  onBlur={() => setManualSubstanceSuggestionsOpen(false)}
-                  onChange={(event) => {
-                    setManualSubstanceName(event.target.value);
-                    setManualSubstanceError(null);
-                    setManualSubstanceSuggestionsOpen(true);
-                  }}
-                  placeholder="เช่น Ethanol หรือ Glycerin"
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-brand focus:ring-2 focus:ring-brand/10"
-                />
-                {manualSubstanceSuggestionsOpen && manualSubstanceName.trim() && (
-                  <div
-                    id="manual-substance-suggestions"
-                    role="listbox"
-                    className="absolute inset-x-0 top-full z-20 mt-1.5 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"
-                  >
-                    {manualRegistryLoading ? (
-                      <div className="flex items-center gap-2 px-2.5 py-2 text-[11px] text-slate-400">
-                        <span className="size-2 animate-pulse rounded-full bg-brand" />
-                        กำลังค้นหาสาร…
-                      </div>
-                    ) : manualSubstanceSuggestions.length > 0 ? (
-                      manualSubstanceSuggestions.map((item) => {
-                        const displayName = item.inci_name || item.canonical_name;
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            role="option"
-                            aria-selected={false}
-                            onPointerDown={(event) => event.preventDefault()}
-                            onClick={() => chooseManualSubstanceSuggestion(item)}
-                            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-teal-50 focus-visible:bg-teal-50 focus-visible:outline-none"
-                          >
-                            <SubstanceThumbnail
-                              name={displayName}
-                              smiles={item.canonical_smiles || ""}
-                              compact
-                            />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-xs font-medium text-slate-700">{displayName}</span>
-                              <span className="mt-0.5 block truncate font-mono text-[9px] text-slate-400">
-                                {item.canonical_smiles}
-                              </span>
-                            </span>
-                          </button>
-                        );
-                      })
-                    ) : (
-                      <div className="px-2.5 py-2 text-[11px] text-slate-400">ไม่พบชื่อสารที่ตรงกัน</div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center gap-3 text-[10px] text-slate-400 before:h-px before:flex-1 before:bg-slate-200 after:h-px after:flex-1 after:bg-slate-200">
-                หรือ
-              </div>
-
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-slate-600">SMILES</span>
-                <input
-                  value={manualSubstanceSmiles}
-                  maxLength={1000}
-                  spellCheck={false}
-                  onChange={(event) => {
-                    setManualSubstanceSmiles(event.target.value);
-                    setManualSubstanceError(null);
-                  }}
-                  placeholder="เช่น CCO"
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 font-mono text-sm text-slate-800 outline-none transition-colors placeholder:font-sans placeholder:text-slate-400 focus:border-brand focus:ring-2 focus:ring-brand/10"
-                />
-              </label>
-
-              <div className="rounded-xl bg-slate-50 px-3 py-2.5 text-[10px] leading-4 text-slate-500">
-                ระบบจะใช้ชื่อและ SMILES ที่ยืนยันแล้วจากฐานข้อมูล ความเข้มข้นของสารใหม่จะเริ่มที่ 0%
-              </div>
-
-              {manualSubstanceError && (
-                <div role="alert" className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-[11px] leading-4 text-rose-700">
-                  <SemanticIcon name="alert" className="mt-0.5 size-3.5 shrink-0" />
-                  <span>{manualSubstanceError}</span>
-                </div>
-              )}
-            </div>
-
-            <footer className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
-              <button
-                type="button"
-                onClick={closeManualSubstance}
-                className="h-9 rounded-lg border border-slate-200 px-4 text-sm text-slate-600 transition-colors hover:bg-slate-50"
-              >
-                ยกเลิก
-              </button>
-              <button
-                type="submit"
-                disabled={manualSubstanceBusy}
-                className="h-9 rounded-lg bg-brand px-4 text-sm font-semibold text-white transition-colors hover:bg-brand-dark disabled:cursor-wait disabled:opacity-60"
-              >
-                {manualSubstanceBusy ? "กำลังตรวจสอบ…" : "ตรวจสอบและเพิ่ม"}
-              </button>
-            </footer>
-          </form>
-        </div>
+        <ManualSubstanceModal
+          name={manualSubstanceName}
+          smiles={manualSubstanceSmiles}
+          busy={manualSubstanceBusy}
+          error={manualSubstanceError}
+          suggestions={manualSubstanceSuggestions}
+          suggestionsLoading={manualRegistryLoading}
+          onNameChange={(value) => {
+            setManualSubstanceName(value);
+            setManualSubstanceError(null);
+          }}
+          onSmilesChange={(value) => {
+            setManualSubstanceSmiles(value);
+            setManualSubstanceError(null);
+          }}
+          onSelectSuggestion={chooseManualSubstanceSuggestion}
+          onClose={closeManualSubstance}
+          onSubmit={() => void submitManualSubstance()}
+        />
       )}
 
       <SubstanceLibraryDrawer
@@ -3799,13 +3724,23 @@ function SubstanceThumbnail({
   );
 }
 
-function SubstanceLibraryTrigger({ onOpen }: { onOpen: () => void }) {
+function SubstanceLibraryTrigger({
+  onOpen,
+  disabled = false,
+}: {
+  onOpen: () => void;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="group flex h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-l-lg border border-dashed border-brand/40 bg-white px-2.5 text-brand transition-colors hover:border-brand hover:bg-teal-50 focus:outline-none focus:ring-2 focus:ring-brand/20"
-      aria-label="เปิดคลังสาร"
+      disabled={disabled}
+      className={`group flex h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-l-lg border border-dashed bg-white px-2.5 transition-colors focus:outline-none focus:ring-2 focus:ring-brand/20 ${disabled
+        ? "cursor-not-allowed border-slate-200 text-slate-300"
+        : "border-brand/40 text-brand hover:border-brand hover:bg-teal-50"
+      }`}
+      aria-label={disabled ? "กำลังเปิดหน้าคลังสารเคมีทั้งหมด" : "เปิดคลังสาร"}
       aria-haspopup="dialog"
     >
       <Plus className="size-3.5 shrink-0" />
@@ -3833,6 +3768,8 @@ function SubstanceLibraryDrawer({
   const [category, setCategory] = useState("all");
   const [registryItems, setRegistryItems] = useState<IngredientRegistryItem[]>([]);
   const [registryLoading, setRegistryLoading] = useState(false);
+  const [localSubstances, setLocalSubstances] = useState<LocalSubstance[]>([]);
+  const [favoriteSubstanceKeys, setFavoriteSubstanceKeys] = useState<string[]>([]);
   const [visibleItemCount, setVisibleItemCount] = useState(SUBSTANCE_LIBRARY_PAGE_SIZE);
   const [detailOpen, setDetailOpen] = useState(false);
 
@@ -3843,6 +3780,18 @@ function SubstanceLibraryDrawer({
       setDetailOpen(false);
     }
     setVisibleItemCount(SUBSTANCE_LIBRARY_PAGE_SIZE);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let storage: Storage | null = null;
+    try {
+      storage = window.localStorage;
+    } catch {
+      storage = null;
+    }
+    setLocalSubstances(loadLocalSubstances(storage));
+    setFavoriteSubstanceKeys(loadFavoriteSubstanceKeys(storage));
   }, [open]);
 
   useEffect(() => {
@@ -3881,9 +3830,50 @@ function SubstanceLibraryDrawer({
     };
   }, [open, registryItems.length]);
 
+  const localFavoriteKeyBySmiles = useMemo(
+    () => new Map(
+      localSubstances.map((item) => [normalizedSmiles(item.smiles), localSubstanceKey(item.id)]),
+    ),
+    [localSubstances],
+  );
+  const favoriteSubstanceKeySet = useMemo(
+    () => new Set(favoriteSubstanceKeys),
+    [favoriteSubstanceKeys],
+  );
+  const favoriteKeyForItem = (item: CatalogItem) =>
+    localFavoriteKeyBySmiles.get(normalizedSmiles(item.smiles)) ?? systemSubstanceKey(item.smiles);
+
   const libraryGroups = useMemo(() => {
-    return catalogWithVerifiedRegistry(registryItems);
-  }, [registryItems]);
+    const systemGroups = catalogWithVerifiedRegistry(registryItems);
+    const systemSmiles = new Set(
+      systemGroups.flatMap((group) => group.items.map((item) => normalizedSmiles(item.smiles))),
+    );
+    const localItems: CatalogItem[] = localSubstances
+      .filter((item) => !systemSmiles.has(normalizedSmiles(item.smiles)))
+      .map((item) => ({ name: item.name, smiles: item.smiles, conc: 0 }));
+    const favoriteItems: CatalogItem[] = [
+      ...localItems.filter((item) => favoriteSubstanceKeySet.has(favoriteKeyForItem(item))),
+      ...systemGroups.flatMap((group) =>
+        group.items.filter((item) => favoriteSubstanceKeySet.has(systemSubstanceKey(item.smiles))),
+      ),
+    ];
+    const remainingSystemGroups = systemGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => !favoriteSubstanceKeySet.has(systemSubstanceKey(item.smiles))),
+      }))
+      .filter((group) => group.items.length > 0);
+
+    return [
+      ...(localItems.length
+        ? [{ category: "สารที่เพิ่มเอง", icon: "pencil" as const, items: localItems }]
+        : []),
+      ...(favoriteItems.length
+        ? [{ category: "รายการโปรด", icon: "star" as const, items: favoriteItems }]
+        : []),
+      ...remainingSystemGroups,
+    ];
+  }, [favoriteSubstanceKeySet, localSubstances, registryItems]);
   const selectedItemIndexBySmiles = useMemo(
     () =>
       new Map(
@@ -3928,6 +3918,28 @@ function SubstanceLibraryDrawer({
       return items.length ? [{ ...group, items, totalItems: group.items.length }] : [];
     });
   }, [filteredGroups, visibleItemCount]);
+
+  const toggleFavorite = (item: CatalogItem) => {
+    const favoriteKey = favoriteKeyForItem(item);
+    const isFavorite = favoriteSubstanceKeySet.has(favoriteKey);
+    const nextKeys = isFavorite
+      ? favoriteSubstanceKeys.filter((key) => key !== favoriteKey)
+      : [favoriteKey, ...favoriteSubstanceKeys];
+    try {
+      saveFavoriteSubstanceKeys(window.localStorage, nextKeys);
+      setFavoriteSubstanceKeys(nextKeys);
+      setVisibleItemCount(SUBSTANCE_LIBRARY_PAGE_SIZE);
+      if (isFavorite && !nextKeys.length && category === "รายการโปรด") setCategory("all");
+      toast.success(
+        isFavorite
+          ? `นำ ${item.name} ออกจากรายการโปรดแล้ว`
+          : `เพิ่ม ${item.name} ในรายการโปรดแล้ว`,
+      );
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "บันทึกรายการโปรดไม่สำเร็จ");
+    }
+  };
+
   return (
     <Sheet
       open={open}
@@ -4051,6 +4063,7 @@ function SubstanceLibraryDrawer({
                       const displayedConcentration = alreadySelected
                         ? selectedItems[selectedIndex].concentration
                         : item.conc;
+                      const favorite = favoriteSubstanceKeySet.has(favoriteKeyForItem(item));
                       return (
                         <SubstanceHoverCard
                           key={`${group.category}-${item.smiles}`}
@@ -4061,8 +4074,9 @@ function SubstanceLibraryDrawer({
                           onOpenChange={setDetailOpen}
                           className="block"
                         >
-                          <button
-                            type="button"
+                          <div
+                            role="button"
+                            tabIndex={0}
                             aria-pressed={alreadySelected}
                             aria-label={alreadySelected ? `ลบ ${item.name} ออกจากสูตร` : `เพิ่ม ${item.name} เข้าสูตร`}
                             title="คลิกซ้ายเพื่อเพิ่มหรือลบ · คลิกขวาเพื่อดูรายละเอียด"
@@ -4070,7 +4084,14 @@ function SubstanceLibraryDrawer({
                               if (alreadySelected) onRemove(selectedIndex);
                               else onAdd(item);
                             }}
-                            className={`flex min-h-14 w-full cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand/30 ${alreadySelected
+                            onKeyDown={(event) => {
+                              if ((event.target as HTMLElement).closest("[data-substance-action]")) return;
+                              if (event.key !== "Enter" && event.key !== " ") return;
+                              event.preventDefault();
+                              if (alreadySelected) onRemove(selectedIndex);
+                              else onAdd(item);
+                            }}
+                            className={`group flex min-h-14 w-full cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand/30 ${alreadySelected
                               ? "border-brand/50 bg-teal-50 ring-1 ring-brand/10"
                               : "border-slate-200 bg-slate-50/70 hover:border-brand/30 hover:bg-teal-50/60"
                               }`}
@@ -4084,6 +4105,26 @@ function SubstanceLibraryDrawer({
                                 {item.smiles}
                               </span>
                             </span>
+                            <button
+                              type="button"
+                              data-substance-action
+                              aria-label={favorite ? `นำ ${item.name} ออกจากรายการโปรด` : `เพิ่ม ${item.name} ในรายการโปรด`}
+                              title={favorite ? "นำออกจากรายการโปรด" : "เพิ่มในรายการโปรด"}
+                              aria-pressed={favorite}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleFavorite(item);
+                              }}
+                              className={`group/star grid size-7 shrink-0 place-items-center bg-transparent p-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 ${favorite
+                                ? "text-amber-500 opacity-100"
+                                : "text-slate-400 opacity-0 group-hover:opacity-100 hover:text-amber-500 focus-visible:opacity-100 focus-visible:text-amber-500"
+                              }`}
+                            >
+                              <SemanticIcon
+                                name="star"
+                                className={`size-3.5 transition-colors ${favorite ? "fill-current" : "fill-none group-hover/star:fill-current"}`}
+                              />
+                            </button>
                             <span className={`min-w-9 shrink-0 text-right text-xs font-semibold tabular-nums ${alreadySelected
                               ? "text-brand"
                               : "text-slate-600"
@@ -4091,7 +4132,7 @@ function SubstanceLibraryDrawer({
                             >
                               {displayedConcentration}%
                             </span>
-                          </button>
+                          </div>
                         </SubstanceHoverCard>
                       );
                     })}
@@ -4159,6 +4200,7 @@ function Viewport({
   brushSizeControlPct,
   onBrushSizeControlChange,
   clearPaintRequest,
+  active,
 }: {
   paintOwnerKey: string;
   initialPaint: PaintMaskSnapshot | null;
@@ -4176,6 +4218,7 @@ function Viewport({
   brushSizeControlPct: number;
   onBrushSizeControlChange: (size: number) => void;
   clearPaintRequest: number;
+  active: boolean;
 }) {
   const interactionRef = useRef<HTMLDivElement>(null);
   const brushFeedbackRef = useRef<HTMLSpanElement>(null);
@@ -4241,7 +4284,12 @@ function Viewport({
   );
 
   return (
-    <div className="relative order-2 h-full min-w-0 flex-1">
+    <div
+      aria-hidden={!active}
+      // React 18 expects inert to be serialized, while its typings still model a boolean.
+      inert={!active ? ("true" as unknown as boolean) : undefined}
+      className="relative order-2 h-full min-w-0 flex-1"
+    >
       <div className="relative h-full w-full bg-[#F4F1EE]">
         <div className="absolute left-4 top-4 z-10 flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-2.5 shadow-sm backdrop-blur">
           <span className={`grid size-6 shrink-0 place-items-center rounded-lg ${activeFormulaName ? "bg-teal-50 text-brand" : "bg-slate-100 text-slate-400"}`}>
@@ -4287,6 +4335,7 @@ function Viewport({
             onPaintChange={onPaintChange}
             occupiedPaint={occupiedPaint}
             onPaintBlocked={onPaintBlocked}
+            paused={!active}
           />
           {paintReady && (
             <span

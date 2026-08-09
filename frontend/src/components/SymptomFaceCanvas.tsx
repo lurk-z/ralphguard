@@ -89,6 +89,7 @@ export function SymptomFaceCanvas({
   onPaintChange,
   occupiedPaint = [],
   onPaintBlocked,
+  paused = false,
 }: {
   paintOwnerKey: string;
   layers?: PaintLayer[];
@@ -103,6 +104,7 @@ export function SymptomFaceCanvas({
   onPaintChange?: (snapshot: PaintMaskSnapshot) => void;
   occupiedPaint?: PaintMaskSnapshot[];
   onPaintBlocked?: () => void;
+  paused?: boolean;
 }) {
   const scoreOf = (k: string) => (layers.find((l) => l.key === k)?.score ?? 0) / 100;
   const skin = scoreOf("skin");
@@ -202,6 +204,7 @@ export function SymptomFaceCanvas({
       <Canvas
         camera={{ fov: 35, position: [0, 0, 2] }}
         dpr={[1, 1.5]}
+        frameloop={paused ? "never" : "always"}
         gl={{
           antialias: true,
           toneMapping: THREE.ACESFilmicToneMapping,

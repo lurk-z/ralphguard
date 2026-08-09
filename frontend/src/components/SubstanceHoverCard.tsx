@@ -48,6 +48,8 @@ export default function SubstanceHoverCard({
   openOnContextMenu = false,
   contextMenuOnly = false,
   onOpenChange,
+  actions,
+  triggerAriaLabel,
 }: {
   name?: string;
   smiles?: string | null;
@@ -57,6 +59,8 @@ export default function SubstanceHoverCard({
   openOnContextMenu?: boolean;
   contextMenuOnly?: boolean;
   onOpenChange?: (open: boolean) => void;
+  actions?: ReactNode;
+  triggerAriaLabel?: string;
 }) {
   const triggerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLElement>(null);
@@ -184,6 +188,7 @@ export default function SubstanceHoverCard({
         tabIndex={contextMenuOnly ? undefined : 0}
         aria-haspopup={contextMenuOnly ? undefined : "dialog"}
         aria-expanded={contextMenuOnly ? undefined : open}
+        aria-label={contextMenuOnly ? undefined : triggerAriaLabel}
         onClick={contextMenuOnly ? undefined : (event) => toggleFromTrigger(event.target)}
         onKeyDown={contextMenuOnly ? undefined : (event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
@@ -326,6 +331,12 @@ export default function SubstanceHoverCard({
                     </span>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {actions && (
+              <div data-substance-action className="mt-3 border-t border-slate-100 pt-3">
+                {actions}
               </div>
             )}
 
