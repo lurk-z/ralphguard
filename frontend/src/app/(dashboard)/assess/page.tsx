@@ -60,6 +60,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Slider } from "@/components/ui/slider";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -82,7 +83,6 @@ import {
   assessmentPollExpired,
   assessmentPollResponseIsCurrent,
 } from "@/lib/assessment-polling";
-import {
 import {
   prepareOcrFormulaReplacement,
 } from "@/lib/formula-ocr";
