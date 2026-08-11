@@ -39,6 +39,11 @@ import { OrbitControls, useAnimations, useGLTF } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { SemanticIcon } from "@/components/SemanticIcon";
+import {
+  faceRegionAtUv,
+  loadFaceRegionMap,
+  type FaceRegionMap,
+} from "@/lib/face-region-map";
 import type { PaintMaskSnapshot } from "@/lib/project-workspace";
 
 // The four paintable skin symptoms (eye redness is a separate, non-painted category).
@@ -451,6 +456,16 @@ export function PaintSymptomModel({
     eyeSpan: number;
     leftIsPositiveX: boolean;
   } | null>(null);
+  const faceRegionMap = useRef<FaceRegionMap | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void loadFaceRegionMap().then((map) => {
+      if (!cancelled) faceRegionMap.current = map;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Keep the production paint set in a ref so pointer events always use the
   // latest endpoint mapping; the standalone lab falls back to activeSymptom.
@@ -1665,7 +1680,10 @@ roughnessFactor = clamp(
           onHover?.({
             x: e.nativeEvent.offsetX,
             y: e.nativeEvent.offsetY,
-            region: regionAt(e.point),
+            // Prefer the anatomical UV map so the label follows the exact
+            // painted texel. Keep the calibrated XYZ classifier as a safe
+            // fallback for map-loading failures and unmapped UV seams.
+            region: faceRegionAtUv(faceRegionMap.current, e.uv) ?? regionAt(e.point),
             symptoms,
           });
         }}

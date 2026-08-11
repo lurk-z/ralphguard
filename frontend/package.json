@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "generate:region-map": "node scripts/generate-face-region-map.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
