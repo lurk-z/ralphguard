@@ -149,7 +149,7 @@ export default function ProjectsShell({
   };
 
   return (
-    <div className="app-light flex min-h-dvh bg-background">
+    <div className="app-light flex min-h-dvh w-full max-w-full overflow-x-hidden bg-background">
       <aside
         className="sticky top-0 hidden h-dvh shrink-0 self-start flex-col overflow-hidden border-r bg-card xl:flex"
         style={{ width: sidebarWidth }}
@@ -194,7 +194,7 @@ export default function ProjectsShell({
         </div>
       </aside>
 
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 max-w-full flex-1 overflow-x-hidden">
         <div className="sticky top-0 z-40 border-b bg-card/95 backdrop-blur sm:flex sm:items-center">
           <div className="flex h-14 items-center gap-3 border-b bg-card px-4 sm:h-auto sm:min-w-[12rem] sm:shrink-0 sm:border-b-0 sm:pr-2 xl:hidden">
             <Brand compact onNavigate={onBrandClick} />
@@ -213,7 +213,7 @@ export default function ProjectsShell({
           </header>
         </div>
 
-        <main>{children}</main>
+        <main className="min-w-0 max-w-full overflow-x-hidden">{children}</main>
       </div>
     </div>
   );

@@ -46,7 +46,10 @@ export type FormulaGraphNodeSnapshot = {
     concentration?: number;
     region?: Region;
     status?: "idle" | "completed" | "failed";
-    endpoints?: Record<string, { peak_score: number }>;
+    endpoints?: Record<string, {
+      peak_score: number;
+      timecourse?: [number, number, number];
+    }>;
     error?: string;
   };
 };
@@ -130,15 +133,28 @@ const finiteNumber = (value: unknown, fallback = 0) => {
 const boundedCoordinate = (value: unknown) =>
   Math.min(100_000, Math.max(-100_000, finiteNumber(value)));
 
-function normalizeGraphEndpoints(value: unknown): Record<string, { peak_score: number }> | undefined {
+function normalizeGraphEndpoints(value: unknown): Record<string, {
+  peak_score: number;
+  timecourse?: [number, number, number];
+}> | undefined {
   if (!isRecord(value)) return undefined;
-  const endpoints: Record<string, { peak_score: number }> = {};
+  const endpoints: Record<string, {
+    peak_score: number;
+    timecourse?: [number, number, number];
+  }> = {};
   for (const [key, rawMetric] of Object.entries(value).slice(0, 20)) {
     if (!isRecord(rawMetric)) continue;
     const peakScore = Number(rawMetric.peak_score);
     if (!Number.isFinite(peakScore)) continue;
+    const rawTimecourse = Array.isArray(rawMetric.timecourse)
+      ? rawMetric.timecourse.slice(0, 3).map(Number)
+      : [];
+    const timecourse = rawTimecourse.length === 3 && rawTimecourse.every(Number.isFinite)
+      ? rawTimecourse.map((score) => Math.min(100, Math.max(0, score))) as [number, number, number]
+      : undefined;
     endpoints[key.slice(0, 40)] = {
       peak_score: Math.min(100, Math.max(0, peakScore)),
+      ...(timecourse ? { timecourse } : {}),
     };
   }
   return Object.keys(endpoints).length ? endpoints : undefined;

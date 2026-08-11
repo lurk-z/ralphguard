@@ -8,7 +8,15 @@
  */
 import "reactflow/dist/style.css";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import ReactFlow, {
   addEdge,
@@ -19,10 +27,13 @@ import ReactFlow, {
   Position,
   ReactFlowProvider,
   useEdgesState,
+  useEdges,
+  useNodes,
   useNodesState,
   useReactFlow,
   type Connection,
   type Edge,
+  type EdgeTypes,
   type Node,
   type NodeProps,
   type NodeTypes,
@@ -37,13 +48,13 @@ import {
 } from "../lib/api";
 import {
   catalogWithVerifiedRegistry,
-  withWaterBase,
   substanceInfo,
   type CatalogItem,
 } from "../lib/catalog";
 import {
   formulaGraphItemIdentity,
   formulaGraphItemsSignature,
+  formulaItemsConnectedToResults,
   formulaItemsFromGraph,
   formulaResultScope,
   initializeFormulaGraphSnapshot,
@@ -69,6 +80,7 @@ import {
 } from "@/components/ui/tooltip";
 
 const ENDPOINTS = ["skin", "eye", "sens", "acute"] as const;
+const RESULT_DAY_LABELS = [1, 3, 7] as const;
 const ENDPOINT_LABEL_TH: Record<string, string> = {
   skin: "ระคายเคืองผิว",
   eye: "ระคายเคืองตา",
@@ -89,6 +101,9 @@ const BAND_HEX: Record<string, string> = {
 };
 
 type LibItem = CatalogItem;
+type RemoveNodeHandler = (id: string) => void;
+
+const RemoveNodeContext = createContext<RemoveNodeHandler>(() => undefined);
 
 // ─────────────────────────── Substance node ───────────────────────────
 type SubstanceData = { name?: string; smiles: string; concentration: number };
@@ -126,8 +141,8 @@ function SubstanceNode({
   id,
   data,
   selected,
-  onRemove,
-}: NodeProps<SubstanceData> & { onRemove?: (id: string) => void }) {
+}: NodeProps<SubstanceData>) {
+  const onRemove = useContext(RemoveNodeContext);
   const { setNodes } = useReactFlow();
   const patch = useCallback((p: Partial<SubstanceData>) =>
     setNodes((nds) =>
@@ -274,17 +289,17 @@ function SubstanceNode({
           <SemanticIcon name="x" className="size-3.5" />
         </button>
       </div>
-      <div className="nodrag nowheel space-y-1.5 p-3">
+      <div className="nowheel space-y-1.5 p-3">
         {needsIdentity ? (
           <div className="space-y-1.5">
             <input
-              className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-brand focus:ring-2 focus:ring-brand/10"
+              className="nodrag nopan w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-brand focus:ring-2 focus:ring-brand/10"
               placeholder="ชื่อสาร"
               value={data.name ?? ""}
               onChange={(event) => patch({ name: event.target.value })}
             />
             <input
-              className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-800 outline-none focus:border-brand focus:ring-2 focus:ring-brand/10"
+              className="nodrag nopan w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-800 outline-none focus:border-brand focus:ring-2 focus:ring-brand/10"
               placeholder="SMILES เช่น CCO"
               value={data.smiles}
               onChange={(event) => patch({ smiles: event.target.value })}
@@ -298,7 +313,7 @@ function SubstanceNode({
               <span className="block truncate font-mono text-[10px] text-slate-400">{data.smiles}</span>
             </span>
             {editing ? (
-              <label className="flex shrink-0 items-center gap-1">
+              <label className="nodrag nopan flex shrink-0 items-center gap-1">
                 <input
                   autoFocus
                   type="number"
@@ -358,7 +373,10 @@ type ResultData = {
   projectId?: number | null;
   onRegionChange?: (region: Region) => void;
   status?: "idle" | "queued" | "running" | "completed" | "failed";
-  endpoints?: Record<string, { peak_score: number }>;
+  endpoints?: Record<string, {
+    peak_score: number;
+    timecourse?: [number, number, number];
+  }>;
   error?: string;
 };
 
@@ -387,16 +405,32 @@ function ResultNode({
   id,
   data,
   selected,
-  onRemove,
-}: NodeProps<ResultData> & { onRemove?: (id: string) => void }) {
+}: NodeProps<ResultData>) {
+  const onRemove = useContext(RemoveNodeContext);
   const { getNodes, getEdges, setNodes } = useReactFlow();
+  const graphNodes = useNodes();
+  const graphEdges = useEdges();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [selectedDayIndex, setSelectedDayIndex] = useState(1);
 
   const patch = (p: Partial<ResultData>) =>
     setNodes((nds) =>
       nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...p } } : n)),
     );
   const selectedRegion = data.region === "eye" ? REGIONS[1] : REGIONS[0];
+  const connectedScope = useMemo(
+    () => resultScopeFromFlow(graphNodes, graphEdges, id),
+    [graphEdges, graphNodes, id],
+  );
+  const connectedConcentration = connectedScope.items.reduce(
+    (total, item) => total + Math.max(0, Number(item.concentration) || 0),
+    0,
+  );
+  const connectedConcentrationLabel = connectedConcentration.toLocaleString("th-TH", {
+    maximumFractionDigits: 2,
+  });
+  const connectedConcentrationProgress = Math.min(100, connectedConcentration);
+  const concentrationExceeded = connectedConcentration > 100;
 
   const run = async () => {
     const allEdges = getEdges();
@@ -412,6 +446,10 @@ function ResultNode({
         smiles: item.smiles,
         concentration: item.concentration,
       }));
+    const selectedConcentration = selectedItems.reduce(
+      (total, item) => total + item.concentration,
+      0,
+    );
 
     if (selectedItems.length === 0) {
       patch({
@@ -421,7 +459,15 @@ function ResultNode({
       });
       return;
     }
-    const formula: FormulaItem[] = withWaterBase(selectedItems);
+    if (selectedConcentration > 100) {
+      patch({
+        status: "failed",
+        endpoints: undefined,
+        error: "ความเข้มข้นรวมของสารที่เชื่อมต้องไม่เกิน 100%",
+      });
+      return;
+    }
+    const formula: FormulaItem[] = selectedItems;
     patch({ status: "queued", error: undefined, endpoints: undefined });
     try {
       const { job_id } = await api.createAssessment(formula, selectedRegion.value, data.projectId ?? null);
@@ -450,14 +496,18 @@ function ResultNode({
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   const busy = data.status === "queued" || data.status === "running";
-  const statusLabel = data.status === "completed"
+  const statusLabel = concentrationExceeded
+    ? "ความเข้มข้นเกิน 100%"
+    : data.status === "completed"
     ? "มีผลแล้ว"
     : data.status === "failed"
       ? "ประเมินไม่สำเร็จ"
       : busy
         ? "กำลังประเมิน"
-        : "รอเชื่อมสาร";
-  const statusTone = data.status === "completed"
+        : null;
+  const statusTone = concentrationExceeded
+    ? "bg-rose-500"
+    : data.status === "completed"
     ? "bg-emerald-500"
     : data.status === "failed"
       ? "bg-rose-500"
@@ -480,6 +530,9 @@ function ResultNode({
         <span className="flex min-w-0 items-center gap-1.5">
           <SemanticIcon name="target" className="size-3.5 shrink-0 text-brand" />
           <span className="truncate">ผลการประเมิน</span>
+          <span className="shrink-0 font-mono text-[10px] font-normal text-slate-400">
+            #{id}
+          </span>
         </span>
         <button
           type="button"
@@ -495,13 +548,28 @@ function ResultNode({
           <SemanticIcon name="x" className="size-3.5" />
         </button>
       </div>
-      <div className="nodrag nowheel space-y-2.5 p-3">
-        <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
-          <span className="inline-flex items-center gap-1.5">
-            <span className={`size-1.5 rounded-full ${statusTone}`} />
-            {statusLabel}
-          </span>
-          <span>#{id}</span>
+      <div className="nowheel space-y-2.5 p-3">
+        {statusLabel && (
+          <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+            <span className="inline-flex items-center gap-1.5">
+              <span className={`size-1.5 rounded-full ${statusTone}`} />
+              {statusLabel}
+            </span>
+          </div>
+        )}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-2 text-[10px] text-slate-600">
+            <span>ความเข้มข้นรวมที่เชื่อม</span>
+            <span className={`font-semibold tabular-nums ${concentrationExceeded ? "text-rose-600" : "text-brand"}`}>
+              {connectedConcentrationLabel}%
+            </span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className={`h-full rounded-full transition-[width,background-color] ${concentrationExceeded ? "bg-rose-500" : "bg-brand"}`}
+              style={{ width: `${connectedConcentrationProgress}%` }}
+            />
+          </div>
         </div>
         <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
           <span>บริเวณทดสอบ</span>
@@ -515,7 +583,7 @@ function ResultNode({
           >
             <SelectTrigger
               aria-label="เลือกบริเวณทดสอบ"
-              className="h-8 w-28 rounded-lg border-slate-200 bg-white px-2 text-xs shadow-none focus:ring-brand/15"
+              className="nodrag nopan h-8 w-28 rounded-lg border-slate-200 bg-white px-2 text-xs shadow-none focus:ring-brand/15"
             >
               <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
                 <SemanticIcon name={selectedRegion.icon} className="size-3.5 shrink-0 text-brand" />
@@ -537,13 +605,13 @@ function ResultNode({
 
         <button
           onClick={run}
-          disabled={busy}
-          className="flex h-8 w-full items-center justify-center rounded-lg bg-brand px-3 text-xs font-semibold text-white transition-colors hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={busy || concentrationExceeded}
+          className="nodrag nopan flex h-8 w-full items-center justify-center rounded-lg bg-brand px-3 text-xs font-semibold text-white transition-colors hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy ? "กำลังประเมิน…" : <span className="inline-flex items-center gap-1"><SemanticIcon name="play" className="size-3" /> ประเมิน</span>}
         </button>
 
-        {data.status === "failed" && (
+        {data.status === "failed" && !concentrationExceeded && (
           <div className="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] text-rose-600">
             {data.error}
           </div>
@@ -551,9 +619,28 @@ function ResultNode({
 
         {data.status === "completed" && data.endpoints && (
           <div className="space-y-1 pt-1">
+            <div className="mb-2 grid grid-cols-3 gap-1 rounded-lg bg-slate-100 p-0.5">
+              {RESULT_DAY_LABELS.map((day, index) => (
+                <button
+                  key={day}
+                  type="button"
+                  aria-pressed={selectedDayIndex === index}
+                  onClick={() => setSelectedDayIndex(index)}
+                  className={`nodrag nopan h-6 rounded-md text-[9px] font-medium transition-colors ${
+                    selectedDayIndex === index
+                      ? "bg-white text-brand shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Day {day}
+                </button>
+              ))}
+            </div>
             {ENDPOINTS.map((ep) => {
-              const sc = data.endpoints?.[ep]?.peak_score ?? 0;
-              const band = bandOf(sc);
+              const endpoint = data.endpoints?.[ep];
+              const sc = endpoint?.timecourse?.[selectedDayIndex] ?? endpoint?.peak_score ?? 0;
+              const scorePercent = Math.round(Math.max(0, Math.min(100, sc)));
+              const band = bandOf(scorePercent);
               return (
                 <div key={ep} className="flex items-center gap-2">
                   <span className="w-20 shrink-0 text-[10px] text-slate-800/70">
@@ -562,11 +649,11 @@ function ResultNode({
                   <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
                     <div
                       className="h-full rounded-full"
-                      style={{ width: `${Math.min(100, sc)}%`, background: BAND_HEX[band] }}
+                      style={{ width: `${scorePercent}%`, background: BAND_HEX[band] }}
                     />
                   </div>
-                  <span className="w-7 text-right font-mono text-[10px] tabular-nums" style={{ color: BAND_HEX[band] }}>
-                    {Math.round(sc)}
+                  <span className="w-12 text-right font-mono text-[10px] tabular-nums" style={{ color: BAND_HEX[band] }}>
+                    {scorePercent}/100
                   </span>
                 </div>
               );
@@ -591,8 +678,8 @@ function ModifierNode({
   id,
   data,
   selected,
-  onRemove,
-}: NodeProps<ModifierData> & { onRemove?: (id: string) => void }) {
+}: NodeProps<ModifierData>) {
+  const onRemove = useContext(RemoveNodeContext);
   const { setNodes } = useReactFlow();
   const [editing, setEditing] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -667,7 +754,7 @@ function ModifierNode({
           <SemanticIcon name="x" className="size-3.5" />
         </button>
       </div>
-      <div className="nodrag nowheel space-y-2 p-3 text-xs">
+      <div className="nowheel space-y-2 p-3 text-xs">
         <div className="flex items-center gap-2">
           <GraphSubstanceThumbnail name={data.name} smiles={data.smiles} />
           <span className="min-w-0 flex-1">
@@ -675,7 +762,7 @@ function ModifierNode({
             <span className="block truncate font-mono text-[10px] text-slate-400">{data.smiles || "—"}</span>
           </span>
           {editing ? (
-            <label className="flex shrink-0 items-center gap-1">
+            <label className="nodrag nopan flex shrink-0 items-center gap-1">
               <input
                 autoFocus
                 type="number"
@@ -723,6 +810,13 @@ function ModifierNode({
     </div>
   );
 }
+
+const NODE_TYPES: NodeTypes = {
+  substance: SubstanceNode,
+  result: ResultNode,
+  modifier: ModifierNode,
+};
+const EDGE_TYPES: EdgeTypes = {};
 
 let idCounter = 100;
 const nextId = () => String(++idCounter);
@@ -913,7 +1007,6 @@ function GraphInner({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerKind, setPickerKind] = useState<"substance" | "modifier" | "result">("substance");
   const [pickerSearch, setPickerSearch] = useState("");
-  const [helpOpen, setHelpOpen] = useState(false);
   const [showMiniMap, setShowMiniMap] = useState(true);
   const [registryItems, setRegistryItems] = useState<IngredientRegistryItem[]>([]);
   useEffect(() => {
@@ -990,15 +1083,6 @@ function GraphInner({
     },
     [setEdges, setNodes],
   );
-  const nodeTypes = useMemo<NodeTypes>(
-    () => ({
-      substance: (props) => <SubstanceNode {...props} onRemove={removeNode} />,
-      result: (props) => <ResultNode {...props} onRemove={removeNode} />,
-      modifier: (props) => <ModifierNode {...props} onRemove={removeNode} />,
-    }),
-    [removeNode],
-  );
-
   const focusExistingChemicalNode = (item: { name?: string; smiles?: string }) => {
     const identity = formulaGraphItemIdentity(item);
     if (!identity) return false;
@@ -1073,18 +1157,19 @@ function GraphInner({
     });
   };
 
-  // Formula Panel and Save as formula both use the complete chemical working set.
+  const connectedFormulaItems = useMemo(
+    () => formulaItemsConnectedToResults(currentSnapshot)
+      .filter((item) => item.smiles.trim() && item.concentration > 0),
+    [currentSnapshot],
+  );
+
+  // Edges are an explicit selection: unconnected chemicals stay in the draft,
+  // but are excluded from both assessment and Save as formula.
   const saveAsFormula = () => {
-    const items = formulaItemsFromGraph(currentSnapshot)
-      .filter((item) => item.smiles.trim() && item.concentration > 0);
-    if (!items.length) return;
-    onSaveFormula?.(withWaterBase(items));
+    if (!connectedFormulaItems.length) return;
+    onSaveFormula?.(connectedFormulaItems);
   };
-  const hasFormulaInput = nodes.some((node) => {
-    if (node.type !== "substance" && node.type !== "modifier") return false;
-    const nodeData = node.data as SubstanceData & ModifierData;
-    return Boolean(nodeData.smiles?.trim()) && (Number(nodeData.concentration) || 0) > 0;
-  });
+  const hasFormulaInput = connectedFormulaItems.length > 0;
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-slate-50">
@@ -1309,9 +1394,36 @@ function GraphInner({
             </div>
           )}
         </div>
-          <span className="hidden whitespace-nowrap text-[11px] text-slate-400 min-[1600px]:inline">
-            {nodes.length} Node · {edges.length} เส้นเชื่อม
-          </span>
+          <div className="hidden items-center gap-1 text-[11px] text-slate-400 min-[1600px]:flex">
+            <span className="whitespace-nowrap">
+              {nodes.length} Node · {edges.length} เส้นเชื่อม
+            </span>
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="วิธีใช้ Node Graph"
+                    className="grid size-4 shrink-0 place-items-center text-slate-400 transition-colors hover:text-brand focus-visible:outline-none focus-visible:text-brand"
+                  >
+                    <SemanticIcon name="info" className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="bottom"
+                  align="end"
+                  sideOffset={7}
+                  className="w-64 border border-slate-200 bg-white p-3 text-[11px] leading-relaxed text-slate-600 shadow-xl"
+                >
+                  <div className="mb-1 font-semibold text-slate-800">วิธีใช้ Node Graph</div>
+                  <p>ลากจากจุดเชื่อมด้านขวาของสารไปยัง Node ผลการประเมิน</p>
+                  <p className="mt-1 text-slate-400">
+                    ระบบจะประเมินและบันทึกเฉพาะสารที่เชื่อมเท่านั้น
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
         </div>
 
         <div className="formula-graph-toolbar-utilities flex shrink-0 items-center gap-1.5">
@@ -1330,30 +1442,6 @@ function GraphInner({
             <SemanticIcon name="map" className="size-3.5" />
           </button>
 
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setHelpOpen((value) => !value)}
-              aria-expanded={helpOpen}
-              title="วิธีใช้ Node Graph"
-              aria-label="วิธีใช้ Node Graph"
-              className={`grid size-8 place-items-center rounded-lg border transition-colors ${
-                helpOpen
-                  ? "border-brand/30 bg-teal-50 text-brand"
-                  : "border-slate-200 bg-white text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              <SemanticIcon name="lightbulb" className="size-3.5" />
-            </button>
-            {helpOpen && (
-              <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-64 rounded-xl border border-slate-200 bg-white p-3 text-[11px] leading-relaxed text-slate-600 shadow-xl">
-                <div className="mb-1 font-semibold text-slate-800">วิธีใช้ Node Graph</div>
-                <p>ลากจากจุดเชื่อมด้านขวาของสารไปยัง Node ผลการประเมิน</p>
-                <p className="mt-1 text-slate-400">ต้องเชื่อมสารทุกตัวในสูตรก่อนส่งเข้า QSAR</p>
-              </div>
-            )}
-          </div>
-
           {onSaveFormula && (
           <button
             type="button"
@@ -1370,34 +1458,36 @@ function GraphInner({
       </div>
 
       <div className="relative min-h-0 flex-1">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onEdgeClick={(event, edge) => setEdgeMenu({ id: edge.id, x: event.clientX, y: event.clientY })}
-          onPaneClick={() => {
-            setEdgeMenu(null);
-            setPickerOpen(false);
-            setHelpOpen(false);
-          }}
-          onMoveEnd={(_, viewport) => setGraphViewport(viewport)}
-          nodeTypes={nodeTypes}
-          defaultViewport={initial.viewport}
-          fitView={!snapshot}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background color="#CBD5E1" gap={18} />
-          <Controls showInteractive={false} className="formula-graph-controls" />
-          {showMiniMap && (
-            <MiniMap
-              pannable
-              zoomable
-              className="formula-graph-minimap !border !border-slate-200 !bg-white"
-            />
-          )}
-        </ReactFlow>
+        <RemoveNodeContext.Provider value={removeNode}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onEdgeClick={(event, edge) => setEdgeMenu({ id: edge.id, x: event.clientX, y: event.clientY })}
+            onPaneClick={() => {
+              setEdgeMenu(null);
+              setPickerOpen(false);
+            }}
+            onMoveEnd={(_, viewport) => setGraphViewport(viewport)}
+            nodeTypes={NODE_TYPES}
+            edgeTypes={EDGE_TYPES}
+            defaultViewport={initial.viewport}
+            fitView={!snapshot}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background color="#CBD5E1" gap={18} />
+            <Controls showInteractive={false} className="formula-graph-controls" />
+            {showMiniMap && (
+              <MiniMap
+                pannable
+                zoomable
+                className="formula-graph-minimap !border !border-slate-200 !bg-white"
+              />
+            )}
+          </ReactFlow>
+        </RemoveNodeContext.Provider>
 
         {nodes.length === 0 && (
           <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center p-6">

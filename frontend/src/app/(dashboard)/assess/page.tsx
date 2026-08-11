@@ -2959,7 +2959,7 @@ export default function StudioPage() {
               </div>
             </div>
           )}
-          {mode === "nodes" && (
+          {activeNavigationItem !== "substances" && mode === "nodes" && (
             <div className="absolute inset-0">
               <FormulaGraph
                 key={`${projectId ?? "standalone"}:${graphOwnerId}`}

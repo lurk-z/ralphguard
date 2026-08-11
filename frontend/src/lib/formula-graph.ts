@@ -124,6 +124,30 @@ export function formulaResultScope(
   };
 }
 
+/**
+ * Return the chemical working set that is explicitly connected to at least one
+ * Result node. Unconnected nodes remain part of the graph draft, but are not
+ * part of a formula that can be assessed or saved.
+ */
+export function formulaItemsConnectedToResults(
+  graph: Pick<FormulaGraphSnapshot, "nodes" | "edges">,
+): FormulaItem[] {
+  const connectedChemicalNodeIds = new Set<string>();
+  for (const resultNode of graph.nodes.filter((node) => node.type === "result")) {
+    for (const nodeId of formulaResultScope(graph, resultNode.id).connectedChemicalNodeIds) {
+      connectedChemicalNodeIds.add(nodeId);
+    }
+  }
+
+  return graph.nodes
+    .filter((node) => isChemicalNode(node) && connectedChemicalNodeIds.has(node.id))
+    .map((node) => ({
+      name: String(node.data.name || ""),
+      smiles: String(node.data.smiles || ""),
+      concentration: Number(node.data.concentration) || 0,
+    }));
+}
+
 export function buildFormulaGraphSnapshot(
   formula: FormulaItem[],
   region: Region,

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildFormulaGraphSnapshot,
   formulaGraphItemsSignature,
+  formulaItemsConnectedToResults,
   formulaItemsFromGraph,
   formulaResultScope,
   initializeFormulaGraphSnapshot,
@@ -271,4 +272,25 @@ test("result scope terminates safely when an upstream graph contains a cycle", (
 
   assert.deepEqual(scope.connectedChemicalNodeIds, ["s1"]);
   assert.deepEqual(scope.disconnectedChemicalNodeIds, []);
+});
+
+test("save scope includes only chemicals connected to a Result node", () => {
+  const graph = buildFormulaGraphSnapshot(
+    [
+      { name: "Isopropanol", smiles: "CC(C)O", concentration: 30 },
+      { name: "Propylene Glycol", smiles: "CC(O)CO", concentration: 10 },
+      { name: "Butylene Glycol", smiles: "CC(O)CCO", concentration: 8 },
+      { name: "Ethylhexylglycerin", smiles: "CCCCCC(CC)COCC(O)CO", concentration: 1 },
+    ],
+    "face",
+  );
+  graph.edges = graph.edges.filter(
+    (edge) => edge.source === "s1" || edge.source === "s3",
+  );
+
+  const items = formulaItemsConnectedToResults(graph);
+
+  assert.deepEqual(items.map((item) => item.name), ["Isopropanol", "Butylene Glycol"]);
+  assert.equal(items.some((item) => item.name === "Propylene Glycol"), false);
+  assert.equal(items.some((item) => item.name === "Ethylhexylglycerin"), false);
 });

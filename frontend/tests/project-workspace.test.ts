@@ -298,7 +298,7 @@ test("persists node graphs independently under their owning formula", () => {
           data: {
             region: "face",
             status: "completed",
-            endpoints: { skin: { peak_score: 36 } },
+            endpoints: { skin: { peak_score: 36, timecourse: [22, 36, 18] } },
           },
         },
       ],
@@ -330,6 +330,10 @@ test("persists node graphs independently under their owning formula", () => {
   assert.equal(
     restored?.graphByFormulaId["formula-1"]?.nodes[1].data.endpoints?.skin.peak_score,
     36,
+  );
+  assert.deepEqual(
+    restored?.graphByFormulaId["formula-1"]?.nodes[1].data.endpoints?.skin.timecourse,
+    [22, 36, 18],
   );
   assert.equal(restored?.graphByFormulaId["formula-1"]?.viewport.zoom, 1.2);
   assert.equal(

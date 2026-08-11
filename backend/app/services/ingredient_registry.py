@@ -679,7 +679,10 @@ def resolve_verified_registry(
     """
     requested = list(dict.fromkeys(str(name).strip() for name in names if str(name).strip()))
     if not requested:
-        return [], [], {}, []
+        empty_result = ([], [], {}, [])
+        if include_observed_names:
+            return (*empty_result, {})
+        return empty_result
     rows = db.execute(
         select(IngredientRegistry).where(IngredientRegistry.verification_status == "verified")
     ).scalars()

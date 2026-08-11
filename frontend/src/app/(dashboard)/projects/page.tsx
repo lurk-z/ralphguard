@@ -729,7 +729,7 @@ export default function ProjectListPage() {
             onSubmit={(values) => saveProject(values, "create")}
           />
         ) : (
-          <div className="mx-auto w-full max-w-[92rem] px-4 py-5 sm:px-6 lg:px-8">
+          <div className="mx-auto min-w-0 w-full max-w-[92rem] overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8">
           {loading && knownProjectCount > 0 && (
               <div
                 className={cn(
@@ -820,7 +820,7 @@ export default function ProjectListPage() {
             <div
               ref={gridRef}
               className={cn(
-                "grid gap-4",
+                "grid min-w-0 gap-4",
                 layoutMode === "grid" ? "sm:grid-cols-2 2xl:grid-cols-3" : "grid-cols-1",
               )}
               aria-live="polite"
@@ -837,11 +837,12 @@ export default function ProjectListPage() {
                     tabIndex={0}
                     aria-label={`เปิดโปรเจกต์ ${project.name}`}
                     className={cn(
-                      "group relative flex self-start cursor-pointer rounded-2xl border bg-card shadow-sm transition-[border-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                      "group relative flex min-w-0 w-full max-w-full self-start cursor-pointer overflow-hidden rounded-2xl border bg-card shadow-sm transition-[border-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                       layoutMode === "grid"
                         ? "min-h-[11.5rem]"
                         : "min-h-[5.5rem]",
-                      color.border,
+                      "border-white",
+                      color.hoverBorder,
                       color.glow,
                     )}
                     onClick={() => openProject(project)}
@@ -973,7 +974,7 @@ export default function ProjectListPage() {
                     key={`page-space-${index}`}
                     aria-hidden="true"
                     className={cn(
-                      "invisible pointer-events-none",
+                      "invisible pointer-events-none hidden sm:block",
                       layoutMode === "grid"
                         ? "min-h-[11.5rem]"
                         : "min-h-[5.5rem]",

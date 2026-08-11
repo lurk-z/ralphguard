@@ -5,6 +5,7 @@ from app.services.ingredient_registry import (
     non_qsar_profile,
     normalize_ingredient_name,
     parse_pubchem_responses,
+    resolve_verified_registry,
 )
 
 
@@ -28,6 +29,12 @@ def _property_payload(**overrides):
 
 def _synonym_payload(*values):
     return {"InformationList": {"Information": [{"CID": 5526, "Synonym": list(values)}]}}
+
+
+def test_empty_verified_registry_resolution_preserves_observed_name_shape():
+    result = resolve_verified_registry(object(), [], include_observed_names=True)
+
+    assert result == ([], [], {}, [], {})
 
 
 def test_aqua_is_resolved_water_but_not_qsar_eligible():

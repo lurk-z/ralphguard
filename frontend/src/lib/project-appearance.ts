@@ -21,6 +21,7 @@ export type ProjectColorOption = {
   soft: string;
   text: string;
   border: string;
+  hoverBorder: string;
   bar: string;
   glow: string;
 };
@@ -33,6 +34,7 @@ export const PROJECT_COLORS: ProjectColorOption[] = [
     soft: "bg-teal-50",
     text: "text-teal-700",
     border: "border-teal-200",
+    hoverBorder: "hover:border-teal-200",
     bar: "bg-teal-500",
     glow: "hover:shadow-[0_0_16px_rgba(20,184,166,0.16)]",
   },
@@ -43,6 +45,7 @@ export const PROJECT_COLORS: ProjectColorOption[] = [
     soft: "bg-cyan-50",
     text: "text-cyan-700",
     border: "border-cyan-200",
+    hoverBorder: "hover:border-cyan-200",
     bar: "bg-cyan-500",
     glow: "hover:shadow-[0_0_16px_rgba(6,182,212,0.16)]",
   },
@@ -53,6 +56,7 @@ export const PROJECT_COLORS: ProjectColorOption[] = [
     soft: "bg-blue-50",
     text: "text-blue-700",
     border: "border-blue-200",
+    hoverBorder: "hover:border-blue-200",
     bar: "bg-blue-500",
     glow: "hover:shadow-[0_0_16px_rgba(59,130,246,0.16)]",
   },
@@ -63,6 +67,7 @@ export const PROJECT_COLORS: ProjectColorOption[] = [
     soft: "bg-indigo-50",
     text: "text-indigo-700",
     border: "border-indigo-200",
+    hoverBorder: "hover:border-indigo-200",
     bar: "bg-indigo-500",
     glow: "hover:shadow-[0_0_16px_rgba(99,102,241,0.16)]",
   },
@@ -73,6 +78,7 @@ export const PROJECT_COLORS: ProjectColorOption[] = [
     soft: "bg-violet-50",
     text: "text-violet-700",
     border: "border-violet-200",
+    hoverBorder: "hover:border-violet-200",
     bar: "bg-violet-500",
     glow: "hover:shadow-[0_0_16px_rgba(139,92,246,0.16)]",
   },
@@ -83,6 +89,7 @@ export const PROJECT_COLORS: ProjectColorOption[] = [
     soft: "bg-emerald-50",
     text: "text-emerald-700",
     border: "border-emerald-200",
+    hoverBorder: "hover:border-emerald-200",
     bar: "bg-emerald-500",
     glow: "hover:shadow-[0_0_16px_rgba(16,185,129,0.16)]",
   },
@@ -93,6 +100,7 @@ export const PROJECT_COLORS: ProjectColorOption[] = [
     soft: "bg-amber-50",
     text: "text-amber-700",
     border: "border-amber-200",
+    hoverBorder: "hover:border-amber-200",
     bar: "bg-amber-500",
     glow: "hover:shadow-[0_0_16px_rgba(245,158,11,0.16)]",
   },
@@ -103,6 +111,7 @@ export const PROJECT_COLORS: ProjectColorOption[] = [
     soft: "bg-slate-100",
     text: "text-slate-700",
     border: "border-slate-300",
+    hoverBorder: "hover:border-slate-300",
     bar: "bg-slate-500",
     glow: "hover:shadow-[0_0_16px_rgba(100,116,139,0.14)]",
   },
@@ -113,6 +122,7 @@ export const PROJECT_COLORS: ProjectColorOption[] = [
     soft: "bg-rose-50",
     text: "text-rose-700",
     border: "border-rose-200",
+    hoverBorder: "hover:border-rose-200",
     bar: "bg-rose-500",
     glow: "hover:shadow-[0_0_16px_rgba(244,63,94,0.15)]",
   },
@@ -123,6 +133,7 @@ export const PROJECT_COLORS: ProjectColorOption[] = [
     soft: "bg-orange-50",
     text: "text-orange-700",
     border: "border-orange-200",
+    hoverBorder: "hover:border-orange-200",
     bar: "bg-orange-500",
     glow: "hover:shadow-[0_0_16px_rgba(249,115,22,0.15)]",
   },
