@@ -3,8 +3,10 @@ import test from "node:test";
 
 import {
   deleteProjectWorkspace,
+  FORMULA_GRAPH_DRAFT_ID,
   formulaAssessmentSignature,
   loadProjectWorkspace,
+  normalizeFormulaGraphSnapshot,
   normalizeProjectWorkspace,
   saveProjectWorkspace,
   type ProjectWorkspaceDraft,
@@ -336,6 +338,85 @@ test("persists node graphs independently under their owning formula", () => {
   );
   assert.equal(restored?.graphByFormulaId["formula-2"]?.viewport.zoom, 0.8);
   assert.equal(restored?.graphByFormulaId.missing, undefined);
+});
+
+test("persists an intentionally empty node graph instead of restoring defaults", () => {
+  const storage = new MemoryStorage();
+  const workspace = draft("Empty graph");
+  workspace.mode = "nodes";
+  workspace.graphByFormulaId = {
+    "formula-1": {
+      nodes: [],
+      edges: [],
+      viewport: { x: 25, y: -15, zoom: 1.35 },
+    },
+  };
+
+  assert.equal(saveProjectWorkspace(1, workspace, storage), true);
+  const restored = loadProjectWorkspace(1, storage);
+
+  assert.ok(restored);
+  assert.equal(restored.mode, "nodes");
+  assert.equal(Object.hasOwn(restored.graphByFormulaId, "formula-1"), true);
+  assert.deepEqual(restored.graphByFormulaId["formula-1"].nodes, []);
+  assert.deepEqual(restored.graphByFormulaId["formula-1"].edges, []);
+  assert.deepEqual(
+    restored.graphByFormulaId["formula-1"].viewport,
+    { x: 25, y: -15, zoom: 1.35 },
+  );
+});
+
+test("persists a project graph draft when the workspace has no formula", () => {
+  const storage = new MemoryStorage();
+  const workspace: ProjectWorkspaceDraft = {
+    ...draft("Standalone graph"),
+    formulas: [],
+    activeFormulaId: "",
+    mode: "nodes",
+    graphByFormulaId: {
+      [FORMULA_GRAPH_DRAFT_ID]: {
+        nodes: [
+          {
+            id: "s1",
+            type: "substance",
+            position: { x: 90, y: 140 },
+            data: { name: "Ethanol", smiles: "CCO", concentration: 40 },
+          },
+        ],
+        edges: [],
+        viewport: { x: 5, y: -12, zoom: 1.15 },
+      },
+    },
+  };
+
+  assert.equal(saveProjectWorkspace(77, workspace, storage), true);
+  const restored = loadProjectWorkspace(77, storage);
+
+  assert.ok(restored);
+  assert.equal(restored.activeFormulaId, "");
+  assert.equal(
+    restored.graphByFormulaId[FORMULA_GRAPH_DRAFT_ID]?.nodes[0].data.smiles,
+    "CCO",
+  );
+  assert.deepEqual(
+    restored.graphByFormulaId[FORMULA_GRAPH_DRAFT_ID]?.viewport,
+    { x: 5, y: -12, zoom: 1.15 },
+  );
+});
+
+test("normalizes an empty graph snapshot as valid project data", () => {
+  assert.deepEqual(
+    normalizeFormulaGraphSnapshot({
+      nodes: [],
+      edges: [{ id: "orphan", source: "missing-a", target: "missing-b" }],
+      viewport: { x: 0, y: 0, zoom: 1 },
+    }),
+    {
+      nodes: [],
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+    },
+  );
 });
 
 test("sanitizes corrupt node graph data during restore", () => {

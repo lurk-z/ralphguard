@@ -498,12 +498,12 @@ export default function SubstanceLibraryPage({
       className={`${active ? "flex" : "hidden"} absolute inset-0 z-50 min-h-0 flex-col bg-slate-50`}
     >
       {toolbarHost && createPortal(
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <div className="shrink-0 text-[13px] font-semibold text-slate-700">
+        <div className="substance-library-toolbar flex min-w-0 flex-1 items-center gap-3">
+          <div className="substance-library-toolbar-title shrink-0 text-[13px] font-semibold text-slate-700">
             <span className="whitespace-nowrap">คลังสารเคมีทั้งหมด</span>
           </div>
 
-          <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 focus-within:border-brand/60 focus-within:bg-white focus-within:ring-2 focus-within:ring-brand/10">
+          <label className="substance-library-toolbar-search flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 focus-within:border-brand/60 focus-within:bg-white focus-within:ring-2 focus-within:ring-brand/10">
             <Search className="size-3.5 shrink-0 text-slate-400" />
             <span className="sr-only">ค้นหาสาร</span>
             <input
@@ -528,14 +528,14 @@ export default function SubstanceLibraryPage({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="flex h-9 min-w-32 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 hover:border-brand/40 hover:bg-teal-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20"
+                className="substance-library-toolbar-category flex h-9 min-w-32 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 hover:border-brand/40 hover:bg-teal-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20"
                 aria-label={`กรองประเภทสาร: ${category === "all" ? "ทุกประเภท" : category}`}
               >
                 <span className="flex min-w-0 items-center gap-2">
                   <SemanticIcon name={selectedCategoryIcon} className="size-3.5 shrink-0 text-brand" />
-                  <span className="truncate">{category === "all" ? "ทุกประเภท" : category}</span>
+                  <span className="substance-library-toolbar-category-label truncate">{category === "all" ? "ทุกประเภท" : category}</span>
                 </span>
-                <SemanticIcon name="chevron-down" className="size-3.5 shrink-0 text-slate-400" />
+                <SemanticIcon name="chevron-down" className="substance-library-toolbar-category-chevron size-3.5 shrink-0 text-slate-400" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="assess-scrollbar max-h-72 w-72 overflow-y-auto p-1.5">
@@ -570,10 +570,12 @@ export default function SubstanceLibraryPage({
           <button
             type="button"
             onClick={openCreateEditor}
-            className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-xs font-semibold text-white shadow-sm hover:bg-brand-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 focus-visible:ring-offset-2"
+            aria-label="เพิ่มสารเปล่า"
+            title="เพิ่มสารเปล่า"
+            className="substance-library-toolbar-add flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-xs font-semibold text-white shadow-sm hover:bg-brand-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 focus-visible:ring-offset-2"
           >
             <Plus className="size-4" />
-            เพิ่มสารเปล่า
+            <span className="substance-library-toolbar-add-label">เพิ่มสารเปล่า</span>
           </button>
         </div>,
         toolbarHost,
@@ -762,7 +764,7 @@ function VirtualSubstanceList({
   return (
     <div
       ref={viewportRef}
-      className="assess-scrollbar min-h-0 flex-1 overflow-y-auto bg-slate-50 px-5 pb-6 pt-3"
+      className="substance-library-list assess-scrollbar min-h-0 flex-1 overflow-y-auto bg-slate-50 px-5 pb-6 pt-3"
       onScroll={(event) => {
         const nextTop = event.currentTarget.scrollTop;
         if (frameRef.current) window.cancelAnimationFrame(frameRef.current);

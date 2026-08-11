@@ -104,6 +104,7 @@ import {
   type LocalSubstance,
 } from "@/lib/substance-library-local";
 import {
+  FORMULA_GRAPH_DRAFT_ID,
   loadProjectWorkspace,
   formulaAssessmentSignature,
   saveProjectWorkspace,
@@ -142,7 +143,7 @@ const FormulaGraph = dynamic(() => import("@/components/FormulaGraph"), {
 });
 
 type Mode = WorkspaceMode;
-type PrimaryNavigationItem = "assessment" | "substances" | "templates";
+type PrimaryNavigationItem = "assessment" | "substances";
 
 const REGIONS: { value: Region; label: string; icon: SemanticIconName }[] = [
   { value: "forearm", label: "ท่อนแขน", icon: "muscle" },
@@ -258,6 +259,8 @@ export default function StudioPage() {
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH);
   const [isLeftSidebarResizing, setIsLeftSidebarResizing] = useState(false);
   const [formulaSidebarCollapsed, setFormulaSidebarCollapsed] = useState(false);
+  const [isCompactWorkspace, setIsCompactWorkspace] = useState(false);
+  const [compactPanel, setCompactPanel] = useState<"formula" | "inspector" | null>(null);
   const [activeNavigationItem, setActiveNavigationItem] =
     useState<PrimaryNavigationItem>("assessment");
   const [projectId, setProjectId] = useState<number | null>(null);
@@ -318,10 +321,21 @@ export default function StudioPage() {
   );
   const activeFormula = formulas.find((f) => f.id === activeId);
   const formula = activeFormula?.items ?? [];
+  const graphOwnerId = activeFormula?.id ?? FORMULA_GRAPH_DRAFT_ID;
 
   useEffect(() => {
     if (formulaSidebarCollapsed) setLibraryTargetFormulaId(null);
   }, [formulaSidebarCollapsed]);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1279px)");
+    const syncViewport = () => {
+      setIsCompactWorkspace(media.matches);
+      if (!media.matches) setCompactPanel(null);
+    };
+    syncViewport();
+    media.addEventListener("change", syncViewport);
+    return () => media.removeEventListener("change", syncViewport);
+  }, []);
   useEffect(() => {
     if (!manualSubstanceTargetFormulaId || manualRegistryItems.length > 0) return;
     const controller = new AbortController();
@@ -407,6 +421,8 @@ export default function StudioPage() {
   const [graphByFormulaId, setGraphByFormulaId] = useState<
     Record<string, FormulaGraphSnapshot>
   >({});
+  const graphByFormulaIdRef = useRef(graphByFormulaId);
+  graphByFormulaIdRef.current = graphByFormulaId;
   const [submittingFormulaIds, setSubmittingFormulaIds] = useState<string[]>([]);
   const assessmentGenerationByFormulaId = useRef<Record<string, number>>({});
   const assessmentStartControllerByFormulaId = useRef<Record<string, AbortController>>({});
@@ -421,9 +437,8 @@ export default function StudioPage() {
     DEFAULT_DEVELOPER_TEST_SCORES,
   );
 
-  // Paint snapshots must never outlive their formula. This also repairs older
-  // workspace drafts that may contain an orphan mask after the last card was
-  // deleted while no formula was selected.
+  // Formula-owned snapshots must never outlive their formula. The standalone
+  // project Graph draft is intentionally retained when no formula is selected.
   useEffect(() => {
     const validFormulaIds = new Set(formulas.map((formulaItem) => formulaItem.id));
     setPaintByFormulaId((previous) => {
@@ -432,6 +447,16 @@ export default function StudioPage() {
       const nextPaint = { ...previous };
       orphanIds.forEach((formulaId) => delete nextPaint[formulaId]);
       return nextPaint;
+    });
+    setGraphByFormulaId((previous) => {
+      const orphanIds = Object.keys(previous).filter(
+        (formulaId) =>
+          formulaId !== FORMULA_GRAPH_DRAFT_ID && !validFormulaIds.has(formulaId),
+      );
+      if (orphanIds.length === 0) return previous;
+      const nextGraph = { ...previous };
+      orphanIds.forEach((formulaId) => delete nextGraph[formulaId]);
+      return nextGraph;
     });
   }, [formulas]);
 
@@ -529,6 +554,35 @@ export default function StudioPage() {
   );
   const latestWorkspaceDraft = useRef(workspaceDraft);
   latestWorkspaceDraft.current = workspaceDraft;
+  const previewGraphSnapshot = (
+    formulaId: string,
+    snapshot: FormulaGraphSnapshot,
+  ) => {
+    const ownerExists =
+      formulaId === FORMULA_GRAPH_DRAFT_ID
+      || latestWorkspaceDraft.current.formulas.some((formula) => formula.id === formulaId);
+    if (!formulaId || !ownerExists) return false;
+    const nextGraphByFormulaId = {
+      ...graphByFormulaIdRef.current,
+      [formulaId]: snapshot,
+    };
+    graphByFormulaIdRef.current = nextGraphByFormulaId;
+    latestWorkspaceDraft.current = {
+      ...latestWorkspaceDraft.current,
+      graphByFormulaId: nextGraphByFormulaId,
+    };
+    return true;
+  };
+  const commitGraphSnapshot = (
+    formulaId: string,
+    snapshot: FormulaGraphSnapshot,
+  ) => {
+    if (!previewGraphSnapshot(formulaId, snapshot)) return;
+    setGraphByFormulaId((previous) => ({
+      ...previous,
+      [formulaId]: snapshot,
+    }));
+  };
 
   // Save a sanitized, project-scoped draft after meaningful workspace changes.
   // Hydration must finish first so the default React state can never overwrite
@@ -1203,12 +1257,6 @@ export default function StudioPage() {
           delete nextPaint[currentFormula.id];
           return nextPaint;
         });
-        setGraphByFormulaId((previous) => {
-          if (!(currentFormula.id in previous)) return previous;
-          const nextGraph = { ...previous };
-          delete nextGraph[currentFormula.id];
-          return nextGraph;
-        });
       }
       setFormulas((previous) =>
         previous.map((formulaItem) =>
@@ -1282,21 +1330,6 @@ export default function StudioPage() {
       return next;
     });
     setRecentlyCreatedFormulaId(id);
-  };
-  const syncFormulaFromGraph = (formulaId: string, items: FormulaItem[]) => {
-    const current = latestWorkspaceDraft.current.formulas.find(
-      (formula) => formula.id === formulaId,
-    );
-    if (!current) return;
-    if (formulaGraphItemsSignature(current.items) === formulaGraphItemsSignature(items)) {
-      return;
-    }
-    invalidateFormulaAssessment(formulaId);
-    setFormulas((previous) =>
-      previous.map((formula) =>
-        formula.id === formulaId ? { ...formula, items } : formula,
-      ),
-    );
   };
   const selectFormula = (id: string) => {
     const selected = formulas.find((item) => item.id === id);
@@ -1902,10 +1935,15 @@ export default function StudioPage() {
   };
 
   const toggleFormulaSidebar = () => {
+    if (isCompactWorkspace) {
+      setCompactPanel((current) => (current === "formula" ? null : "formula"));
+      return;
+    }
     setFormulaSidebarCollapsed((collapsed) => !collapsed);
   };
 
   const changePrimaryNavigation = (item: PrimaryNavigationItem) => {
+    setCompactPanel(null);
     if (item === activeNavigationItem) return;
     setActiveNavigationItem(item);
   };
@@ -1954,7 +1992,8 @@ export default function StudioPage() {
   return (
     <div
       ref={workspaceShellRef}
-      className={`app-light relative grid h-screen grid-rows-[3.5rem_minmax(0,1fr)] overflow-hidden bg-background text-foreground ${isLeftSidebarResizing ? "select-none" : ""}`}
+      data-compact-panel={compactPanel ?? "none"}
+      className={`assess-workspace-shell app-light relative grid h-screen grid-rows-[3.5rem_minmax(0,1fr)] overflow-hidden bg-background text-foreground ${isLeftSidebarResizing ? "select-none" : ""}`}
       style={
         {
           "--navigation-sidebar-width": `${NAVIGATION_SIDEBAR_WIDTH}px`,
@@ -1970,14 +2009,14 @@ export default function StudioPage() {
       <TooltipProvider delayDuration={350}>
         <nav
           aria-label="เมนูหลัก"
-          className="relative z-50 col-start-1 row-span-2 row-start-1 flex h-screen min-h-0 flex-col items-center border-r border-border bg-card px-1 py-2.5"
+          className="assess-primary-navigation relative z-50 col-start-1 row-span-2 row-start-1 flex h-screen min-h-0 flex-col items-center border-r border-border bg-card px-1 py-2.5"
         >
           <Tooltip>
             <TooltipTrigger asChild>
               <a
                 href="/projects"
                 aria-label="กลับไปหน้าโปรเจกต์ทั้งหมด"
-                className="grid size-11 shrink-0 place-items-center rounded-xl transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                className="assess-navigation-logo grid size-11 shrink-0 place-items-center rounded-xl transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
               >
                 <img
                   src="/icons/logo.png"
@@ -1990,14 +2029,13 @@ export default function StudioPage() {
             <TooltipContent side="right">กลับไปหน้าโปรเจกต์ทั้งหมด</TooltipContent>
           </Tooltip>
 
-          <div className="my-2 h-px w-8 bg-border" />
+          <div className="assess-navigation-divider my-2 h-px w-8 bg-border" />
 
-          <div className="flex flex-col items-center gap-1.5">
+          <div className="assess-navigation-items flex flex-col items-center gap-1.5">
             {(
               [
                 { id: "assessment", label: "แสดงผลการประเมิน", icon: "chart" },
                 { id: "substances", label: "คลังสารเคมีทั้งหมด", icon: "flask" },
-                { id: "templates", label: "รูปแบบสารเริ่มต้น", icon: "puzzle" },
               ] as {
                 id: PrimaryNavigationItem;
                 label: string;
@@ -2031,10 +2069,10 @@ export default function StudioPage() {
 
       {/* Formula panel header */}
       <div
-        className={`relative z-40 col-start-2 row-start-1 flex min-w-0 items-center border-b border-border bg-card ${formulaSidebarCollapsed ? "justify-center px-0" : "border-r px-3"
+        className={`assess-formula-header relative z-40 col-start-2 row-start-1 flex min-w-0 items-center border-b border-border bg-card ${formulaSidebarCollapsed && !isCompactWorkspace ? "justify-center px-0" : "border-r px-3"
           }`}
       >
-        {!formulaSidebarCollapsed && (
+        {(!formulaSidebarCollapsed || isCompactWorkspace) && (
           <div className="flex h-full min-w-0 flex-1 items-center">
             {editingProjectName && project ? (
               <input
@@ -2075,12 +2113,12 @@ export default function StudioPage() {
         <button
           type="button"
           onClick={toggleFormulaSidebar}
-          aria-label={formulaSidebarCollapsed ? "ขยายกล่องสูตร" : "ย่อกล่องสูตร"}
-          title={formulaSidebarCollapsed ? "ขยายกล่องสูตร" : "ย่อกล่องสูตร"}
-          className={`grid size-9 shrink-0 place-items-center text-slate-500 transition-colors hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${formulaSidebarCollapsed ? "bg-transparent" : "ml-2 rounded-lg hover:bg-slate-100"
+          aria-label={isCompactWorkspace ? "ปิดกล่องสูตร" : formulaSidebarCollapsed ? "ขยายกล่องสูตร" : "ย่อกล่องสูตร"}
+          title={isCompactWorkspace ? "ปิดกล่องสูตร" : formulaSidebarCollapsed ? "ขยายกล่องสูตร" : "ย่อกล่องสูตร"}
+          className={`grid size-9 shrink-0 place-items-center text-slate-500 transition-colors hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${formulaSidebarCollapsed && !isCompactWorkspace ? "bg-transparent" : "ml-2 rounded-lg hover:bg-slate-100"
             }`}
         >
-          {formulaSidebarCollapsed ? (
+          {formulaSidebarCollapsed && !isCompactWorkspace ? (
             <PanelLeftOpen className="size-4" />
           ) : (
             <PanelLeftClose className="size-4" />
@@ -2099,7 +2137,7 @@ export default function StudioPage() {
         title="ลากเพื่อปรับความกว้างแถบสูตร"
         onPointerDown={beginLeftSidebarResize}
         onKeyDown={resizeLeftSidebarWithKeyboard}
-        className={`group absolute inset-y-0 z-50 w-2 -translate-x-1/2 touch-none cursor-col-resize focus-visible:outline-none ${formulaSidebarCollapsed ? "pointer-events-none opacity-0" : "opacity-100"
+        className={`assess-formula-resizer group absolute inset-y-0 z-50 w-2 -translate-x-1/2 touch-none cursor-col-resize focus-visible:outline-none ${formulaSidebarCollapsed ? "pointer-events-none opacity-0" : "opacity-100"
           }`}
         style={{
           left: "calc(var(--navigation-sidebar-width) + var(--left-sidebar-width))",
@@ -2115,7 +2153,18 @@ export default function StudioPage() {
       </div>
 
       {/* Main content top app bar */}
-      <header className="sticky top-0 z-40 col-start-3 row-start-1 flex min-w-0 items-center border-b border-border bg-card px-4 shadow-sm">
+      <header className="assess-main-header sticky top-0 z-40 col-start-3 row-start-1 flex min-w-0 items-center justify-between gap-2 border-b border-border bg-card px-4 shadow-sm">
+        {activeNavigationItem === "assessment" && (
+          <button
+            type="button"
+            onClick={() => setCompactPanel((current) => (current === "formula" ? null : "formula"))}
+            aria-label="เปิดกล่องสูตร"
+            aria-expanded={compactPanel === "formula"}
+            className="assess-compact-trigger grid size-11 shrink-0 place-items-center rounded-xl text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          >
+            <PanelLeftOpen className="size-4" />
+          </button>
+        )}
         {/* Primary modes stay visually centered regardless of left/right actions. */}
         {activeNavigationItem === "assessment" ? (
           <div className="absolute left-1/2 top-1/2 flex max-w-[calc(100%-8rem)] -translate-x-1/2 -translate-y-1/2 items-center rounded-xl bg-muted p-1">
@@ -2145,71 +2194,95 @@ export default function StudioPage() {
               );
             })}
           </div>
-        ) : activeNavigationItem === "substances" ? (
-          <div id="substance-library-toolbar-host" className="flex min-w-0 flex-1 items-center" />
         ) : (
-          <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 text-sm font-semibold text-slate-700">
-            <SemanticIcon name="puzzle" className="size-4 text-brand" />
-            <span>รูปแบบสารเริ่มต้น</span>
-          </div>
+          <div id="substance-library-toolbar-host" className="flex min-w-0 flex-1 items-center" />
+        )}
+        {activeNavigationItem === "assessment" && (
+          <button
+            type="button"
+            onClick={() => setCompactPanel((current) => (current === "inspector" ? null : "inspector"))}
+            aria-label="เปิดผลการทดสอบและผู้ช่วย AI"
+            aria-expanded={compactPanel === "inspector"}
+            className="assess-compact-trigger grid size-11 shrink-0 place-items-center rounded-xl text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          >
+            <SemanticIcon name="chart" className="size-4" />
+          </button>
         )}
       </header>
 
       {/* Right sidebar header */}
       {activeNavigationItem === "assessment" && (
-      <div className="relative z-40 col-start-4 row-start-1 flex items-center justify-between gap-3 border-b border-l border-border bg-card px-4">
-        <div className="flex min-w-0 items-center rounded-lg bg-slate-100 p-1" role="tablist" aria-label="เนื้อหาแถบด้านขวา">
-          {(
-            [
-              ["results", "ผลการทดสอบ", "chart"],
-              ["assistant", "ผู้ช่วย AI", "message"],
-            ] as ["results" | "assistant", string, SemanticIconName][]
-          ).map(([tab, label, icon]) => {
-            const active = rightInspectorTab === tab;
-            return (
-              <button
-                key={tab}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setRightInspectorTab(tab)}
-                className={`flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[10px] transition-colors ${active
-                  ? "bg-white font-semibold text-brand-dark shadow-sm"
-                  : "text-slate-500 hover:text-slate-800"
-                  }`}
-              >
-                <SemanticIcon name={icon} className="size-3" />
-                <span className="truncate">{label}</span>
-              </button>
-            );
-          })}
+        <div className="assess-inspector-header relative z-40 col-start-4 row-start-1 flex items-center justify-between gap-3 border-b border-l border-border bg-card px-4">
+          <div className="flex min-w-0 items-center rounded-lg bg-slate-100 p-1" role="tablist" aria-label="เนื้อหาแถบด้านขวา">
+            {(
+              [
+                ["results", "ผลการทดสอบ", "chart"],
+                ["assistant", "ผู้ช่วย AI", "message"],
+              ] as ["results" | "assistant", string, SemanticIconName][]
+            ).map(([tab, label, icon]) => {
+              const active = rightInspectorTab === tab;
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setRightInspectorTab(tab)}
+                  className={`flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[10px] transition-colors ${active
+                    ? "bg-white font-semibold text-brand-dark shadow-sm"
+                    : "text-slate-500 hover:text-slate-800"
+                    }`}
+                >
+                  <SemanticIcon name={icon} className="size-3" />
+                  <span className="truncate">{label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={exportPdf}
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 transition-colors hover:border-brand/50 hover:bg-teal-50 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+            title="ส่งออกรายงาน PDF จากข้อมูลการประเมิน"
+          >
+            <SemanticIcon name="file" className="size-3.5" />
+            PDF
+          </button>
+          <button
+            type="button"
+            onClick={() => setCompactPanel(null)}
+            aria-label="ปิดผลการทดสอบและผู้ช่วย AI"
+            className="assess-compact-trigger size-9 shrink-0 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          >
+            <SemanticIcon name="x" className="size-4" />
+          </button>
         </div>
+      )}
+
+      {compactPanel && (
         <button
           type="button"
-          onClick={exportPdf}
-          className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 transition-colors hover:border-brand/50 hover:bg-teal-50 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
-          title="ส่งออกรายงาน PDF จากข้อมูลการประเมิน"
-        >
-          <SemanticIcon name="file" className="size-3.5" />
-          PDF
-        </button>
-      </div>
+          aria-label="ปิดแผงด้านข้าง"
+          onClick={() => setCompactPanel(null)}
+          className="assess-compact-backdrop fixed inset-0 z-[55] bg-slate-950/25"
+        />
       )}
 
       {/* Four independent columns */}
       <div className="contents">
         {/* Left panel — Pages + Layers */}
         <aside
-          aria-hidden={formulaSidebarCollapsed}
+          aria-hidden={isCompactWorkspace ? compactPanel !== "formula" : formulaSidebarCollapsed}
+          inert={isCompactWorkspace && compactPanel !== "formula" ? ("true" as unknown as boolean) : undefined}
           onClick={(event) => {
             if (event.target === event.currentTarget) clearFormulaSelection();
           }}
-          className={`assess-scrollbar relative z-40 col-start-2 row-start-2 flex h-full min-h-0 w-full flex-col ${formulaSidebarCollapsed
-            ? `pointer-events-none overflow-hidden border-r-0 ${activeNavigationItem === "assessment" && mode === "assess" ? "bg-[#F4F1EE]" : "bg-background"}`
+          className={`assess-formula-panel assess-scrollbar relative z-40 col-start-2 row-start-2 flex h-full min-h-0 w-full flex-col ${formulaSidebarCollapsed && !isCompactWorkspace
+            ? `pointer-events-none overflow-hidden border-r-0 ${activeNavigationItem === "assessment" && mode === "assess" ? "bg-[#F8FAFC]" : "bg-background"}`
             : "overflow-y-auto border-r border-border bg-card opacity-100"
             }`}
         >
-          {!formulaSidebarCollapsed && (
+          {(!formulaSidebarCollapsed || isCompactWorkspace) && (
             <>
               <Section
                 title="กล่องสูตร"
@@ -2600,7 +2673,7 @@ export default function StudioPage() {
         </aside>
 
         {/* Center canvas */}
-        <main className="relative col-start-3 row-start-2 flex min-h-0 min-w-0 overflow-hidden bg-background">
+        <main className="assess-center-canvas relative col-start-3 row-start-2 flex min-h-0 min-w-0 overflow-hidden bg-background">
           <SubstanceLibraryPage
             active={activeNavigationItem === "substances"}
             activeFormulaName={activeFormula?.name}
@@ -2621,12 +2694,6 @@ export default function StudioPage() {
               });
             }}
           />
-          {activeNavigationItem === "templates" && (
-            <section
-              aria-label="รูปแบบสารเริ่มต้น"
-              className="absolute inset-0 z-50 bg-background"
-            />
-          )}
           {mode === "assess" && (
             <Viewport
               paintOwnerKey={`${projectId ?? "standalone"}:${activeId}`}
@@ -2664,10 +2731,10 @@ export default function StudioPage() {
               aria-hidden={activeNavigationItem !== "assessment"}
               // React 18 expects inert to be serialized, while its typings still model a boolean.
               inert={activeNavigationItem !== "assessment" ? ("true" as unknown as boolean) : undefined}
-              className="absolute right-0 top-4 z-20 flex items-start"
+              className={`assess-trend-drawer absolute right-0 top-4 z-20 flex items-start ${showTrend ? "assess-trend-open" : ""}`}
             >
-              <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showTrend ? "w-[420px]" : "w-0"}`}>
-                <div className="assess-scrollbar max-h-[calc(100vh-6rem)] w-[420px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-l-2xl border border-r-0 border-slate-200 bg-white p-4 text-slate-800 shadow-xl">
+              <div className={`assess-trend-width overflow-hidden transition-all duration-300 ease-in-out ${showTrend ? "is-open" : ""}`}>
+                <div className="assess-trend-panel assess-scrollbar max-h-[calc(100vh-6rem)] w-full overflow-y-auto rounded-l-2xl border border-r-0 border-slate-200 bg-white p-4 text-slate-800 shadow-xl">
                   <div className="mb-4 flex items-start gap-3">
                     <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-teal-50 text-lg"><SemanticIcon name="chart" className="size-4" /></span>
                     <div>
@@ -2814,7 +2881,7 @@ export default function StudioPage() {
               <div className="group relative">
                 <button
                   onClick={() => setShowTrend((s) => !s)}
-                  className={`grid size-10 place-items-center rounded-l-xl border border-r-0 border-slate-200 text-base shadow-card transition ${showTrend ? "bg-brand text-white" : "bg-white text-slate-600 hover:text-brand"
+                  className={`assess-trend-trigger grid size-10 place-items-center rounded-l-xl border border-r-0 border-slate-200 text-base shadow-card transition ${showTrend ? "bg-brand text-white" : "bg-white text-slate-600 hover:text-brand"
                     }`}
                 >
                   <SemanticIcon name="chart" className="size-4" />
@@ -2827,23 +2894,32 @@ export default function StudioPage() {
           )}
           {mode === "nodes" && (
             <div className="absolute inset-0">
-              <div className="absolute left-4 top-3 z-10 text-xs font-semibold text-slate-800/60">
-                Assessment Node Graph <span className="font-normal text-slate-800/40">· in-silico pipeline</span>
-              </div>
               <FormulaGraph
-                key={`${projectId ?? "standalone"}:${activeId}`}
-                seed={formula}
+                key={`${projectId ?? "standalone"}:${graphOwnerId}`}
+                seed={activeFormula?.items ?? []}
                 region={activeFormula?.region ?? region}
                 projectId={projectId}
-                snapshot={graphByFormulaId[activeId] ?? null}
-                onSnapshotChange={(snapshot) => {
-                  setGraphByFormulaId((previous) => ({
-                    ...previous,
-                    [activeId]: snapshot,
-                  }));
-                }}
-                onFormulaChange={(items) => syncFormulaFromGraph(activeId, items)}
+                snapshot={graphByFormulaId[graphOwnerId] ?? null}
+                onSnapshotPreview={(snapshot) =>
+                  previewGraphSnapshot(graphOwnerId, snapshot)
+                }
+                onSnapshotChange={(snapshot) =>
+                  commitGraphSnapshot(graphOwnerId, snapshot)
+                }
                 onSaveFormula={saveGraphAsFormula}
+                syncWithSeed={Boolean(activeFormula)}
+                onRegionChange={(nextRegion) => {
+                  setRegion(nextRegion);
+                  if (!activeFormula) return;
+                  invalidateFormulaAssessment(graphOwnerId);
+                  setFormulas((previous) =>
+                    previous.map((formulaItem) =>
+                      formulaItem.id === graphOwnerId
+                        ? { ...formulaItem, region: nextRegion }
+                        : formulaItem,
+                    ),
+                  );
+                }}
               />
             </div>
           )}
@@ -2901,362 +2977,366 @@ export default function StudioPage() {
 
         {/* Right inspector */}
         {activeNavigationItem === "assessment" && (
-        <aside className="col-start-4 row-start-2 flex h-full min-h-0 w-full flex-col overflow-hidden border-l border-border bg-card">
-          {mode === "trust" ? (
-            <div className="p-4 text-xs leading-relaxed text-slate-800/55">
-              เลือก <b>Pages › ประเมินความเสี่ยง</b> เพื่อแก้สูตรและดูผลบนหุ่น 3D
-            </div>
-          ) : (
-            <>
-              <div
-                role="tabpanel"
-                aria-label="ผลการทดสอบ"
-                className={`${rightInspectorTab === "results" ? "flex" : "hidden"} assess-scrollbar h-full min-h-0 flex-col overflow-y-auto`}
-              >
-                <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm">
-                  <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="เลือกช่วงเวลาจำลอง">
-                    {DAY_LABELS.map((d, i) => (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => setDayIdx(i)}
-                        aria-pressed={i === dayIdx}
-                        className={`h-8 rounded-lg border text-[11px] transition-colors ${i === dayIdx ? "border-brand bg-brand font-semibold text-white" : "border-slate-200 bg-slate-50 text-slate-600 hover:border-brand/40 hover:bg-teal-50 hover:text-brand-dark"
-                          }`}
-                      >
-                        Day {d}
-                      </button>
-                    ))}
-                  </div>
-
-                </div>
-
-                <Section
-                  title="ผลคัดกรองจากแบบจำลอง"
-
+          <aside
+            aria-hidden={isCompactWorkspace ? compactPanel !== "inspector" : undefined}
+            inert={isCompactWorkspace && compactPanel !== "inspector" ? ("true" as unknown as boolean) : undefined}
+            className="assess-right-inspector col-start-4 row-start-2 flex h-full min-h-0 w-full flex-col overflow-hidden border-l border-border bg-card"
+          >
+            {mode === "trust" ? (
+              <div className="p-4 text-xs leading-relaxed text-slate-800/55">
+                เลือก <b>Pages › ประเมินความเสี่ยง</b> เพื่อแก้สูตรและดูผลบนหุ่น 3D
+              </div>
+            ) : (
+              <>
+                <div
+                  role="tabpanel"
+                  aria-label="ผลการทดสอบ"
+                  className={`${rightInspectorTab === "results" ? "flex" : "hidden"} assess-scrollbar h-full min-h-0 flex-col overflow-y-auto`}
                 >
-                  {developerTestEnabled && (
-                    <div className="mb-3 flex gap-2 rounded-xl border border-violet-200 bg-violet-50 p-2.5 text-[10px] leading-relaxed text-violet-800">
-                      <SemanticIcon name="flask" className="mt-0.5 size-3.5 shrink-0" />
-                      <span><b>โหมดทดสอบนักพัฒนาเปิดอยู่</b><br />ภาพบนโมเดลใช้ค่าทดสอบ แต่ข้อมูลผลด้านล่างยังเป็นผลจากระบบ</span>
-                    </div>
-                  )}
-
-                  {error && (
-                    <div className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-[11px] leading-relaxed text-rose-700">
-                      <SemanticIcon name="alert" className="mt-0.5 size-4 shrink-0" />
-                      <div><div className="font-semibold">ประเมินไม่สำเร็จ</div><div className="mt-0.5 text-rose-600">{error}</div></div>
-                    </div>
-                  )}
-
-                  {!completed && !error && !developerTestEnabled && (
-                    <div className="grid place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">
-                      <span className="grid size-10 place-items-center rounded-xl bg-white text-slate-400 shadow-sm">
-                        <SemanticIcon name={assessing || jobId ? "timer" : "flask"} className={`size-5 ${assessing ? "animate-spin motion-reduce:animate-none" : ""}`} />
-                      </span>
-                      <div className="mt-3 text-sm font-semibold text-slate-700">{assessing || jobId ? "กำลังประเมินสูตร" : "ยังไม่มีผลคัดกรอง"}</div>
-                      <p className="mt-1 max-w-56 text-[11px] leading-relaxed text-slate-500">
-                        {assessing || jobId
-                          ? "ระบบกำลังประมวลผลสูตรและตรวจสอบความครอบคลุมของข้อมูล"
-                          : hasActivePaint
-                            ? "รอยทาพร้อมแล้ว กดเริ่มประเมินที่แถบเครื่องมือด้านล่าง"
-                            : "เตรียมสูตรให้พร้อม แล้วทาสูตรลงบนบริเวณที่ต้องการประเมิน"}
-                      </p>
-                    </div>
-                  )}
-
-                  {completed && endpoints && (
-                    <div className="space-y-3">
-                      {formulaCoverage && formulaCoverage.coverage_percentage < 100 && (
-                        <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[10px] leading-relaxed text-amber-900">
-                          <SemanticIcon name="alert" className="mt-0.5 size-4 shrink-0 text-amber-600" />
-                          <div>
-                            <div className="font-semibold">ผลนี้ยังไม่ครอบคลุมทั้งสูตร</div>
-                            <div className="mt-0.5 text-amber-800">ประเมินได้ {formulaCoverage.coverage_percentage}% · ยังประเมินไม่ได้ {formulaCoverage.unresolved_ingredients} รายการ</div>
-                          </div>
-                        </div>
-                      )}
-
-                      {lowConfidence && (
-                        <div className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-[10px] leading-relaxed text-rose-800">
-                          <SemanticIcon name="shield" className="mt-0.5 size-4 shrink-0 text-rose-600" />
-                          <span><b>ควรตรวจสอบผลเพิ่มเติม</b><br />มีข้อมูลนอกขอบเขตแบบจำลอง อย่าตีความคะแนนต่ำว่าปลอดภัยโดยอัตโนมัติ</span>
-                        </div>
-                      )}
-
-                      {primaryRiskLayer && (
-                        <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-3.5">
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <div className="text-[10px] font-medium text-slate-500">Day {DAY_LABELS[dayIdx]}</div>
-                              <div className="mt-1 text-sm font-semibold text-slate-900">{primaryRiskLayer.label}</div>
-                            </div>
-                            <div className="text-right">
-                              <div className="font-mono text-xl font-semibold tabular-nums text-slate-900">{Math.round(primaryRiskLayer.score)}<span className="text-xs font-medium text-slate-400">/100</span></div>
-                              <div className="mt-0.5 text-[10px] font-semibold" style={{ color: BAND_HEX[primaryRiskLayer.band] }}>ระดับ{BAND_LABEL[primaryRiskLayer.band]}</div>
-                            </div>
-                          </div>
-                          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200/70">
-                            <div className="h-full rounded-full" style={{ width: `${Math.min(100, primaryRiskLayer.score)}%`, background: BAND_HEX[primaryRiskLayer.band] }} />
-                          </div>
-                        </div>
-                      )}
-
-                      {[
-                        { title: "ผลประเมิน", description: activeRegionLabel, layers: paintLayers.filter((layer) => layer.key !== "acute") },
-                        { title: "ผลเชิงระบบ", description: "ไม่ผูกกับตำแหน่งที่ทา", layers: paintLayers.filter((layer) => layer.key === "acute") },
-                      ].map((group) => (
-                        <div key={group.title}>
-                          <div className="mb-1.5 flex items-center justify-between gap-2">
-                            <div className="text-[11px] font-semibold text-slate-700">{group.title}</div>
-                            <div className="text-[9px] text-slate-400">{group.description}</div>
-                          </div>
-                          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                            {group.layers.map((layer, index) => {
-                              const confidence = endpoints[layer.key]?.confidence;
-                              return (
-                                <div key={layer.key} className={`p-3 ${index > 0 ? "border-t border-slate-100" : ""}`}>
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <div className="truncate text-[11px] font-medium text-slate-700">{layer.label}</div>
-                                      <div className="mt-1 text-[9px] text-slate-400">
-                                        ความน่าเชื่อถือของโมเดล {confidence ? (CONF_TH[confidence.level] ?? confidence.level) : "ไม่มีข้อมูล"}
-                                        {confidence?.in_domain === false ? " · นอกขอบเขต" : ""}
-                                      </div>
-                                    </div>
-                                    <div className="shrink-0 text-right">
-                                      <div className="font-mono text-sm font-semibold tabular-nums text-slate-800">{Math.round(layer.score)}<span className="text-[9px] font-medium text-slate-400">/100</span></div>
-                                      <div className="text-[9px] font-semibold" style={{ color: BAND_HEX[layer.band] }}>ระดับ{BAND_LABEL[layer.band]}</div>
-                                    </div>
-                                  </div>
-                                  <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-100">
-                                    <div className="h-full rounded-full" style={{ width: `${Math.min(100, layer.score)}%`, background: BAND_HEX[layer.band] }} />
-                                  </div>
-                                  {layer.key === "acute" && (
-                                    <div className="mt-2.5 border-t border-slate-100 pt-2.5">
-                                      <p className="text-[9px] leading-relaxed text-slate-500">
-                                        สารอาจถูกดูดซึมและส่งผลต่อร่างกาย จึงไม่แสดงเป็นรอยเฉพาะจุดบนโมเดล
-                                      </p>
-                                      <details className="group/acute mt-2 rounded-lg bg-slate-50">
-                                        <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-2 text-[9px] font-medium text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/30">
-                                          <SemanticIcon name="shield" className="size-3.5 shrink-0 text-slate-400" />
-                                          <span className="flex-1">อ่านเพิ่มเติม</span>
-                                          <ChevronDown className="size-3 text-slate-400 transition-transform group-open/acute:rotate-180" />
-                                        </summary>
-                                        <div className="space-y-2 border-t border-slate-200/70 px-2.5 py-2.5 text-[9px] leading-relaxed text-slate-500">
-                                          <p><span className="font-medium text-slate-700">หมายถึงอะไร:</span> ความเสี่ยงจากการสัมผัสในช่วงเวลาสั้น เมื่อสารเข้าสู่ร่างกายผ่านผิวหนัง</p>
-                                          <p><span className="font-medium text-slate-700">อาการที่อาจพบ:</span> ขึ้นอยู่กับชนิดและปริมาณสาร เช่น เวียนศีรษะ คลื่นไส้ หายใจลำบาก หรืออ่อนแรง</p>
-                                          <p><span className="font-medium text-slate-700">ต่างจากการระคายเคืองผิว:</span> การระคายเคืองเกิดเฉพาะจุดและอาจเห็นรอยแดง แสบ หรือบวม แต่ผลนี้เป็นผลต่อร่างกายและอาจไม่มีรอยบนผิว</p>
-                                          <p className="rounded-md bg-white px-2 py-1.5 text-slate-500"><span className="font-medium text-slate-700">การอ่านคะแนน:</span> เป็นดัชนีคัดกรองจากแบบจำลอง ไม่ใช่โอกาสเกิดอาการจริงหรือคำวินิจฉัยทางการแพทย์</p>
-                                        </div>
-                                      </details>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="rounded-xl border border-slate-200 bg-white p-3">
-                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500"><SemanticIcon name="shield" className="size-3.5" /> ความน่าเชื่อถือของโมเดล</div>
-                          <div className="mt-1.5 text-sm font-semibold text-slate-800">{resultConfidenceSummary ? (CONF_TH[resultConfidenceSummary.level] ?? resultConfidenceSummary.level) : "ไม่มีข้อมูล"}</div>
-                          <div className="mt-0.5 text-[9px] text-slate-400">{resultConfidenceSummary?.outOfDomainCount ? `นอกขอบเขต ${resultConfidenceSummary.outOfDomainCount} ด้าน` : "ตรวจจากขอบเขตและความสอดคล้อง"}</div>
-                        </div>
-
-                        <div className="rounded-xl border border-slate-200 bg-white p-3">
-                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500"><SemanticIcon name="target" className="size-3.5" /> ความครอบคลุมสูตร</div>
-                          <div className="mt-1.5 text-sm font-semibold text-slate-800">{formulaCoverage ? `${formulaCoverage.coverage_percentage}%` : "ไม่มีข้อมูล"}</div>
-                          <div className="mt-0.5 text-[9px] text-slate-400">{formulaCoverage ? `${formulaCoverage.total_ingredients - formulaCoverage.unresolved_ingredients}/${formulaCoverage.total_ingredients} รายการ` : "ไม่มีข้อมูลส่วนผสม"}</div>
-                        </div>
-                      </div>
-
-                      <details className="group rounded-xl border border-slate-200 bg-slate-50/70">
-                        <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[11px] font-semibold text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30">
-                          <SemanticIcon name="shield" className="size-3.5 text-slate-500" />
-                          <span className="flex-1">ดูที่มาและข้อจำกัดของผล</span>
-                          <ChevronDown className="size-3.5 text-slate-400 transition-transform group-open:rotate-180" />
-                        </summary>
-                        <div className="space-y-2 border-t border-slate-200 px-3 py-3">
-                          {ENDPOINTS.map((ep) => {
-                            const confidence = endpoints[ep]?.confidence;
-                            if (!confidence) return null;
-                            return (
-                              <div key={ep} className="text-[10px] leading-relaxed text-slate-600">
-                                <div className="font-medium text-slate-700">{ENDPOINT_LABEL_TH[ep]} · ความน่าเชื่อถือ {CONF_TH[confidence.level] ?? confidence.level}</div>
-                                <div className="mt-0.5 text-slate-500">{confidence.reason_th}</div>
-                              </div>
-                            );
-                          })}
-                          <div className="rounded-lg bg-white p-2.5 text-[9px] leading-relaxed text-slate-500">
-                            {assessment.result?.disclaimer_th || "ผลนี้เป็นการคัดกรองจากแบบจำลองคอมพิวเตอร์ ไม่ใช่ผลการทดลองทางคลินิกหรือคำวินิจฉัยทางการแพทย์"}
-                          </div>
-                        </div>
-                      </details>
-                    </div>
-                  )}
-
-                  {/* AI — auto-adjust ratios for a realistic / safest result */}
-                  {formula.some((it) => it.smiles.trim() && !isWaterItem(it)) && (
-                    <div className="mt-3">
-                      <button
-                        onClick={optimizeFormula}
-                        disabled={optBusy}
-                        className="w-full rounded-lg border border-brand/40 bg-teal-50 py-1.5 text-xs font-medium text-brand-dark transition hover:bg-teal-100 disabled:opacity-60"
-                      >
-                        <span className="inline-flex items-center justify-center gap-1"><SemanticIcon name={optBusy ? "timer" : "bot"} className="size-3.5" /> {optBusy ? "กำลังให้ AI วิเคราะห์…" : "ให้ AI เสนออัตราส่วนใหม่"}</span>
-                      </button>
-                      {optMsg && <div className="mt-1 text-[10px] leading-snug text-slate-500">{optMsg}</div>}
-                      {pendingOptimization && (
-                        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
-                          <div className="mb-1 text-[10px] font-semibold text-amber-800">ตรวจสอบข้อเสนอ</div>
-                          <div className="space-y-1">
-                            {pendingOptimization.map((item, index) => {
-                              const old = formula.find((current) => current.smiles === item.smiles)?.concentration ?? 0;
-                              return (
-                                <div key={`${item.smiles}-${index}`} className="flex items-center gap-1 text-[10px] text-amber-900">
-                                  <span className="min-w-0 flex-1 truncate">{item.name || item.smiles}</span>
-                                  <span className="font-mono text-amber-600">{old}% → {item.concentration}%</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                          <div className="mt-2 flex gap-1.5">
-                            <button
-                              onClick={() => {
-                                invalidateFormulaAssessment(activeId);
-                                setFormula(pendingOptimization);
-                                setPendingOptimization(null);
-                                setOptMsg("ยืนยันอัตราส่วนใหม่แล้ว กด Run เพื่อประเมิน");
-                              }}
-                              className="flex-1 rounded bg-brand px-2 py-1 text-[10px] font-semibold text-white"
-                            >
-                              ยืนยัน
-                            </button>
-                            <button
-                              onClick={() => { setPendingOptimization(null); setOptMsg(null); }}
-                              className="rounded border border-amber-200 bg-white px-2 py-1 text-[10px] text-amber-800"
-                            >
-                              ยกเลิก
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <details className="group mt-3 rounded-xl border border-dashed border-violet-200 bg-violet-50/40 print:hidden" open={developerTestEnabled}>
-                    <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[10px] font-semibold text-violet-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300">
-                      <SemanticIcon name="flask" className="size-3.5" />
-                      <span className="flex-1">เครื่องมือทดสอบสำหรับผู้พัฒนา</span>
-                      <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
-                    </summary>
-                    <div className="border-t border-violet-100 px-3 py-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-[9px] leading-relaxed text-violet-700">ปรับเฉพาะภาพ 3D ไม่ส่ง API และไม่แก้ผลจริง</div>
+                  <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm">
+                    <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="เลือกช่วงเวลาจำลอง">
+                      {DAY_LABELS.map((d, i) => (
                         <button
+                          key={d}
                           type="button"
-                          onClick={() => {
-                            setDeveloperTestEnabled((enabled) => {
-                              if (enabled) setEraseMode(false);
-                              return !enabled;
-                            });
-                          }}
-                          aria-pressed={developerTestEnabled}
-                          className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[10px] font-semibold transition ${developerTestEnabled
-                            ? "bg-violet-700 text-white hover:bg-violet-800"
-                            : "border border-violet-300 bg-white text-violet-700 hover:bg-violet-100"
+                          onClick={() => setDayIdx(i)}
+                          aria-pressed={i === dayIdx}
+                          className={`h-8 rounded-lg border text-[11px] transition-colors ${i === dayIdx ? "border-brand bg-brand font-semibold text-white" : "border-slate-200 bg-slate-50 text-slate-600 hover:border-brand/40 hover:bg-teal-50 hover:text-brand-dark"
                             }`}
                         >
-                          {developerTestEnabled ? "ปิดการทดสอบ" : "เปิดทดสอบ"}
+                          Day {d}
                         </button>
-                      </div>
-                      {developerTestEnabled && (
-                        <div className="mt-3 space-y-2 border-t border-violet-100 pt-3">
-                          <div className="flex flex-wrap gap-1">
-                            {[0, 30, 55, 85].map((score) => (
-                              <button
-                                key={score}
-                                type="button"
-                                onClick={() => setDeveloperTestScores({ skin: score, eye: score, sens: score, acute: score })}
-                                className="rounded-md border border-violet-200 bg-white px-2 py-1 text-[9px] font-medium text-violet-700 hover:bg-violet-100"
-                              >
-                                ทุกค่า {score}
-                              </button>
-                            ))}
-                            <button
-                              type="button"
-                              onClick={() => setDeveloperTestScores(DEFAULT_DEVELOPER_TEST_SCORES)}
-                              className="ml-auto rounded-md px-2 py-1 text-[9px] font-medium text-slate-500 hover:bg-white"
-                            >
-                              คืนค่า 50
-                            </button>
-                          </div>
-                          {ENDPOINTS.map((ep) => {
-                            const score = developerTestScores[ep];
-                            const band = bandOf(score);
-                            return (
-                              <label key={ep} className="grid grid-cols-[1fr_46px] items-center gap-x-2 gap-y-1">
-                                <span className="flex items-center justify-between text-[10px] text-slate-700">
-                                  <span>{ENDPOINT_LABEL_TH[ep]}</span>
-                                  <span className="font-mono font-semibold tabular-nums" style={{ color: BAND_HEX[band] }}>{score} · {BAND_LABEL[band]}</span>
-                                </span>
-                                <input
-                                  aria-label={`${ENDPOINT_LABEL_TH[ep]} (0 ถึง 100)`}
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  step={1}
-                                  value={score}
-                                  onChange={(event) => {
-                                    const next = Math.max(0, Math.min(100, Number(event.target.value) || 0));
-                                    setDeveloperTestScores((current) => ({ ...current, [ep]: next }));
-                                  }}
-                                  className="row-span-2 h-8 rounded-lg border border-violet-200 bg-white px-1 text-center font-mono text-[11px] font-semibold text-violet-800 outline-none focus:border-violet-500"
-                                />
-                                <input
-                                  aria-label={`เลื่อนค่า${ENDPOINT_LABEL_TH[ep]}`}
-                                  type="range"
-                                  min={0}
-                                  max={100}
-                                  step={1}
-                                  value={score}
-                                  onChange={(event) => setDeveloperTestScores((current) => ({ ...current, [ep]: Number(event.target.value) }))}
-                                  className="h-1.5 w-full cursor-pointer accent-violet-600"
-                                />
-                              </label>
-                            );
-                          })}
-                        </div>
-                      )}
+                      ))}
                     </div>
-                  </details>
-                </Section>
 
-              </div>
-              <div
-                role="tabpanel"
-                aria-label="ผู้ช่วย AI"
-                className={`${rightInspectorTab === "assistant" ? "flex" : "hidden"} h-full min-h-0 flex-col`}
-              >
-                <VoiceAssistant
-                  productName={productName}
-                  layers={paintLayers}
-                  ready={completed}
-                  formula={formula}
-                  coverage={formulaCoverage ? {
-                    percentage: formulaCoverage.coverage_percentage,
-                    unresolved: formulaCoverage.unresolved_ingredients,
-                  } : undefined}
-                  onImportFormula={importFormula}
-                  onAction={runAssistantAction}
-                />
-              </div>
-            </>
-          )}
-        </aside>
+                  </div>
+
+                  <Section
+                    title="ผลคัดกรองจากแบบจำลอง"
+
+                  >
+                    {developerTestEnabled && (
+                      <div className="mb-3 flex gap-2 rounded-xl border border-violet-200 bg-violet-50 p-2.5 text-[10px] leading-relaxed text-violet-800">
+                        <SemanticIcon name="flask" className="mt-0.5 size-3.5 shrink-0" />
+                        <span><b>โหมดทดสอบนักพัฒนาเปิดอยู่</b><br />ภาพบนโมเดลใช้ค่าทดสอบ แต่ข้อมูลผลด้านล่างยังเป็นผลจากระบบ</span>
+                      </div>
+                    )}
+
+                    {error && (
+                      <div className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-[11px] leading-relaxed text-rose-700">
+                        <SemanticIcon name="alert" className="mt-0.5 size-4 shrink-0" />
+                        <div><div className="font-semibold">ประเมินไม่สำเร็จ</div><div className="mt-0.5 text-rose-600">{error}</div></div>
+                      </div>
+                    )}
+
+                    {!completed && !error && !developerTestEnabled && (
+                      <div className="grid place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">
+                        <span className="grid size-10 place-items-center rounded-xl bg-white text-slate-400 shadow-sm">
+                          <SemanticIcon name={assessing || jobId ? "timer" : "flask"} className={`size-5 ${assessing ? "animate-spin motion-reduce:animate-none" : ""}`} />
+                        </span>
+                        <div className="mt-3 text-sm font-semibold text-slate-700">{assessing || jobId ? "กำลังประเมินสูตร" : "ยังไม่มีผลคัดกรอง"}</div>
+                        <p className="mt-1 max-w-56 text-[11px] leading-relaxed text-slate-500">
+                          {assessing || jobId
+                            ? "ระบบกำลังประมวลผลสูตรและตรวจสอบความครอบคลุมของข้อมูล"
+                            : hasActivePaint
+                              ? "รอยทาพร้อมแล้ว กดเริ่มประเมินที่แถบเครื่องมือด้านล่าง"
+                              : "เตรียมสูตรให้พร้อม แล้วทาสูตรลงบนบริเวณที่ต้องการประเมิน"}
+                        </p>
+                      </div>
+                    )}
+
+                    {completed && endpoints && (
+                      <div className="space-y-3">
+                        {formulaCoverage && formulaCoverage.coverage_percentage < 100 && (
+                          <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[10px] leading-relaxed text-amber-900">
+                            <SemanticIcon name="alert" className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                            <div>
+                              <div className="font-semibold">ผลนี้ยังไม่ครอบคลุมทั้งสูตร</div>
+                              <div className="mt-0.5 text-amber-800">ประเมินได้ {formulaCoverage.coverage_percentage}% · ยังประเมินไม่ได้ {formulaCoverage.unresolved_ingredients} รายการ</div>
+                            </div>
+                          </div>
+                        )}
+
+                        {lowConfidence && (
+                          <div className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-[10px] leading-relaxed text-rose-800">
+                            <SemanticIcon name="shield" className="mt-0.5 size-4 shrink-0 text-rose-600" />
+                            <span><b>ควรตรวจสอบผลเพิ่มเติม</b><br />มีข้อมูลนอกขอบเขตแบบจำลอง อย่าตีความคะแนนต่ำว่าปลอดภัยโดยอัตโนมัติ</span>
+                          </div>
+                        )}
+
+                        {primaryRiskLayer && (
+                          <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-3.5">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className="text-[10px] font-medium text-slate-500">Day {DAY_LABELS[dayIdx]}</div>
+                                <div className="mt-1 text-sm font-semibold text-slate-900">{primaryRiskLayer.label}</div>
+                              </div>
+                              <div className="text-right">
+                                <div className="font-mono text-xl font-semibold tabular-nums text-slate-900">{Math.round(primaryRiskLayer.score)}<span className="text-xs font-medium text-slate-400">/100</span></div>
+                                <div className="mt-0.5 text-[10px] font-semibold" style={{ color: BAND_HEX[primaryRiskLayer.band] }}>ระดับ{BAND_LABEL[primaryRiskLayer.band]}</div>
+                              </div>
+                            </div>
+                            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200/70">
+                              <div className="h-full rounded-full" style={{ width: `${Math.min(100, primaryRiskLayer.score)}%`, background: BAND_HEX[primaryRiskLayer.band] }} />
+                            </div>
+                          </div>
+                        )}
+
+                        {[
+                          { title: "ผลประเมิน", description: activeRegionLabel, layers: paintLayers.filter((layer) => layer.key !== "acute") },
+                          { title: "ผลเชิงระบบ", description: "ไม่ผูกกับตำแหน่งที่ทา", layers: paintLayers.filter((layer) => layer.key === "acute") },
+                        ].map((group) => (
+                          <div key={group.title}>
+                            <div className="mb-1.5 flex items-center justify-between gap-2">
+                              <div className="text-[11px] font-semibold text-slate-700">{group.title}</div>
+                              <div className="text-[9px] text-slate-400">{group.description}</div>
+                            </div>
+                            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                              {group.layers.map((layer, index) => {
+                                const confidence = endpoints[layer.key]?.confidence;
+                                return (
+                                  <div key={layer.key} className={`p-3 ${index > 0 ? "border-t border-slate-100" : ""}`}>
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <div className="truncate text-[11px] font-medium text-slate-700">{layer.label}</div>
+                                        <div className="mt-1 text-[9px] text-slate-400">
+                                          ความน่าเชื่อถือของโมเดล {confidence ? (CONF_TH[confidence.level] ?? confidence.level) : "ไม่มีข้อมูล"}
+                                          {confidence?.in_domain === false ? " · นอกขอบเขต" : ""}
+                                        </div>
+                                      </div>
+                                      <div className="shrink-0 text-right">
+                                        <div className="font-mono text-sm font-semibold tabular-nums text-slate-800">{Math.round(layer.score)}<span className="text-[9px] font-medium text-slate-400">/100</span></div>
+                                        <div className="text-[9px] font-semibold" style={{ color: BAND_HEX[layer.band] }}>ระดับ{BAND_LABEL[layer.band]}</div>
+                                      </div>
+                                    </div>
+                                    <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-100">
+                                      <div className="h-full rounded-full" style={{ width: `${Math.min(100, layer.score)}%`, background: BAND_HEX[layer.band] }} />
+                                    </div>
+                                    {layer.key === "acute" && (
+                                      <div className="mt-2.5 border-t border-slate-100 pt-2.5">
+                                        <p className="text-[9px] leading-relaxed text-slate-500">
+                                          สารอาจถูกดูดซึมและส่งผลต่อร่างกาย จึงไม่แสดงเป็นรอยเฉพาะจุดบนโมเดล
+                                        </p>
+                                        <details className="group/acute mt-2 rounded-lg bg-slate-50">
+                                          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-2 text-[9px] font-medium text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/30">
+                                            <SemanticIcon name="shield" className="size-3.5 shrink-0 text-slate-400" />
+                                            <span className="flex-1">อ่านเพิ่มเติม</span>
+                                            <ChevronDown className="size-3 text-slate-400 transition-transform group-open/acute:rotate-180" />
+                                          </summary>
+                                          <div className="space-y-2 border-t border-slate-200/70 px-2.5 py-2.5 text-[9px] leading-relaxed text-slate-500">
+                                            <p><span className="font-medium text-slate-700">หมายถึงอะไร:</span> ความเสี่ยงจากการสัมผัสในช่วงเวลาสั้น เมื่อสารเข้าสู่ร่างกายผ่านผิวหนัง</p>
+                                            <p><span className="font-medium text-slate-700">อาการที่อาจพบ:</span> ขึ้นอยู่กับชนิดและปริมาณสาร เช่น เวียนศีรษะ คลื่นไส้ หายใจลำบาก หรืออ่อนแรง</p>
+                                            <p><span className="font-medium text-slate-700">ต่างจากการระคายเคืองผิว:</span> การระคายเคืองเกิดเฉพาะจุดและอาจเห็นรอยแดง แสบ หรือบวม แต่ผลนี้เป็นผลต่อร่างกายและอาจไม่มีรอยบนผิว</p>
+                                            <p className="rounded-md bg-white px-2 py-1.5 text-slate-500"><span className="font-medium text-slate-700">การอ่านคะแนน:</span> เป็นดัชนีคัดกรองจากแบบจำลอง ไม่ใช่โอกาสเกิดอาการจริงหรือคำวินิจฉัยทางการแพทย์</p>
+                                          </div>
+                                        </details>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="rounded-xl border border-slate-200 bg-white p-3">
+                            <div className="flex items-center gap-1.5 text-[10px] text-slate-500"><SemanticIcon name="shield" className="size-3.5" /> ความน่าเชื่อถือของโมเดล</div>
+                            <div className="mt-1.5 text-sm font-semibold text-slate-800">{resultConfidenceSummary ? (CONF_TH[resultConfidenceSummary.level] ?? resultConfidenceSummary.level) : "ไม่มีข้อมูล"}</div>
+                            <div className="mt-0.5 text-[9px] text-slate-400">{resultConfidenceSummary?.outOfDomainCount ? `นอกขอบเขต ${resultConfidenceSummary.outOfDomainCount} ด้าน` : "ตรวจจากขอบเขตและความสอดคล้อง"}</div>
+                          </div>
+
+                          <div className="rounded-xl border border-slate-200 bg-white p-3">
+                            <div className="flex items-center gap-1.5 text-[10px] text-slate-500"><SemanticIcon name="target" className="size-3.5" /> ความครอบคลุมสูตร</div>
+                            <div className="mt-1.5 text-sm font-semibold text-slate-800">{formulaCoverage ? `${formulaCoverage.coverage_percentage}%` : "ไม่มีข้อมูล"}</div>
+                            <div className="mt-0.5 text-[9px] text-slate-400">{formulaCoverage ? `${formulaCoverage.total_ingredients - formulaCoverage.unresolved_ingredients}/${formulaCoverage.total_ingredients} รายการ` : "ไม่มีข้อมูลส่วนผสม"}</div>
+                          </div>
+                        </div>
+
+                        <details className="group rounded-xl border border-slate-200 bg-slate-50/70">
+                          <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[11px] font-semibold text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30">
+                            <SemanticIcon name="shield" className="size-3.5 text-slate-500" />
+                            <span className="flex-1">ดูที่มาและข้อจำกัดของผล</span>
+                            <ChevronDown className="size-3.5 text-slate-400 transition-transform group-open:rotate-180" />
+                          </summary>
+                          <div className="space-y-2 border-t border-slate-200 px-3 py-3">
+                            {ENDPOINTS.map((ep) => {
+                              const confidence = endpoints[ep]?.confidence;
+                              if (!confidence) return null;
+                              return (
+                                <div key={ep} className="text-[10px] leading-relaxed text-slate-600">
+                                  <div className="font-medium text-slate-700">{ENDPOINT_LABEL_TH[ep]} · ความน่าเชื่อถือ {CONF_TH[confidence.level] ?? confidence.level}</div>
+                                  <div className="mt-0.5 text-slate-500">{confidence.reason_th}</div>
+                                </div>
+                              );
+                            })}
+                            <div className="rounded-lg bg-white p-2.5 text-[9px] leading-relaxed text-slate-500">
+                              {assessment.result?.disclaimer_th || "ผลนี้เป็นการคัดกรองจากแบบจำลองคอมพิวเตอร์ ไม่ใช่ผลการทดลองทางคลินิกหรือคำวินิจฉัยทางการแพทย์"}
+                            </div>
+                          </div>
+                        </details>
+                      </div>
+                    )}
+
+                    {/* AI — auto-adjust ratios for a realistic / safest result */}
+                    {formula.some((it) => it.smiles.trim() && !isWaterItem(it)) && (
+                      <div className="mt-3">
+                        <button
+                          onClick={optimizeFormula}
+                          disabled={optBusy}
+                          className="w-full rounded-lg border border-brand/40 bg-teal-50 py-1.5 text-xs font-medium text-brand-dark transition hover:bg-teal-100 disabled:opacity-60"
+                        >
+                          <span className="inline-flex items-center justify-center gap-1"><SemanticIcon name={optBusy ? "timer" : "bot"} className="size-3.5" /> {optBusy ? "กำลังให้ AI วิเคราะห์…" : "ให้ AI เสนออัตราส่วนใหม่"}</span>
+                        </button>
+                        {optMsg && <div className="mt-1 text-[10px] leading-snug text-slate-500">{optMsg}</div>}
+                        {pendingOptimization && (
+                          <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
+                            <div className="mb-1 text-[10px] font-semibold text-amber-800">ตรวจสอบข้อเสนอ</div>
+                            <div className="space-y-1">
+                              {pendingOptimization.map((item, index) => {
+                                const old = formula.find((current) => current.smiles === item.smiles)?.concentration ?? 0;
+                                return (
+                                  <div key={`${item.smiles}-${index}`} className="flex items-center gap-1 text-[10px] text-amber-900">
+                                    <span className="min-w-0 flex-1 truncate">{item.name || item.smiles}</span>
+                                    <span className="font-mono text-amber-600">{old}% → {item.concentration}%</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="mt-2 flex gap-1.5">
+                              <button
+                                onClick={() => {
+                                  invalidateFormulaAssessment(activeId);
+                                  setFormula(pendingOptimization);
+                                  setPendingOptimization(null);
+                                  setOptMsg("ยืนยันอัตราส่วนใหม่แล้ว กด Run เพื่อประเมิน");
+                                }}
+                                className="flex-1 rounded bg-brand px-2 py-1 text-[10px] font-semibold text-white"
+                              >
+                                ยืนยัน
+                              </button>
+                              <button
+                                onClick={() => { setPendingOptimization(null); setOptMsg(null); }}
+                                className="rounded border border-amber-200 bg-white px-2 py-1 text-[10px] text-amber-800"
+                              >
+                                ยกเลิก
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <details className="group mt-3 rounded-xl border border-dashed border-violet-200 bg-violet-50/40 print:hidden" open={developerTestEnabled}>
+                      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[10px] font-semibold text-violet-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300">
+                        <SemanticIcon name="flask" className="size-3.5" />
+                        <span className="flex-1">เครื่องมือทดสอบสำหรับผู้พัฒนา</span>
+                        <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="border-t border-violet-100 px-3 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-[9px] leading-relaxed text-violet-700">ปรับเฉพาะภาพ 3D ไม่ส่ง API และไม่แก้ผลจริง</div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDeveloperTestEnabled((enabled) => {
+                                if (enabled) setEraseMode(false);
+                                return !enabled;
+                              });
+                            }}
+                            aria-pressed={developerTestEnabled}
+                            className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[10px] font-semibold transition ${developerTestEnabled
+                              ? "bg-violet-700 text-white hover:bg-violet-800"
+                              : "border border-violet-300 bg-white text-violet-700 hover:bg-violet-100"
+                              }`}
+                          >
+                            {developerTestEnabled ? "ปิดการทดสอบ" : "เปิดทดสอบ"}
+                          </button>
+                        </div>
+                        {developerTestEnabled && (
+                          <div className="mt-3 space-y-2 border-t border-violet-100 pt-3">
+                            <div className="flex flex-wrap gap-1">
+                              {[0, 30, 55, 85].map((score) => (
+                                <button
+                                  key={score}
+                                  type="button"
+                                  onClick={() => setDeveloperTestScores({ skin: score, eye: score, sens: score, acute: score })}
+                                  className="rounded-md border border-violet-200 bg-white px-2 py-1 text-[9px] font-medium text-violet-700 hover:bg-violet-100"
+                                >
+                                  ทุกค่า {score}
+                                </button>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => setDeveloperTestScores(DEFAULT_DEVELOPER_TEST_SCORES)}
+                                className="ml-auto rounded-md px-2 py-1 text-[9px] font-medium text-slate-500 hover:bg-white"
+                              >
+                                คืนค่า 50
+                              </button>
+                            </div>
+                            {ENDPOINTS.map((ep) => {
+                              const score = developerTestScores[ep];
+                              const band = bandOf(score);
+                              return (
+                                <label key={ep} className="grid grid-cols-[1fr_46px] items-center gap-x-2 gap-y-1">
+                                  <span className="flex items-center justify-between text-[10px] text-slate-700">
+                                    <span>{ENDPOINT_LABEL_TH[ep]}</span>
+                                    <span className="font-mono font-semibold tabular-nums" style={{ color: BAND_HEX[band] }}>{score} · {BAND_LABEL[band]}</span>
+                                  </span>
+                                  <input
+                                    aria-label={`${ENDPOINT_LABEL_TH[ep]} (0 ถึง 100)`}
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    step={1}
+                                    value={score}
+                                    onChange={(event) => {
+                                      const next = Math.max(0, Math.min(100, Number(event.target.value) || 0));
+                                      setDeveloperTestScores((current) => ({ ...current, [ep]: next }));
+                                    }}
+                                    className="row-span-2 h-8 rounded-lg border border-violet-200 bg-white px-1 text-center font-mono text-[11px] font-semibold text-violet-800 outline-none focus:border-violet-500"
+                                  />
+                                  <input
+                                    aria-label={`เลื่อนค่า${ENDPOINT_LABEL_TH[ep]}`}
+                                    type="range"
+                                    min={0}
+                                    max={100}
+                                    step={1}
+                                    value={score}
+                                    onChange={(event) => setDeveloperTestScores((current) => ({ ...current, [ep]: Number(event.target.value) }))}
+                                    className="h-1.5 w-full cursor-pointer accent-violet-600"
+                                  />
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                  </Section>
+
+                </div>
+                <div
+                  role="tabpanel"
+                  aria-label="ผู้ช่วย AI"
+                  className={`${rightInspectorTab === "assistant" ? "flex" : "hidden"} h-full min-h-0 flex-col`}
+                >
+                  <VoiceAssistant
+                    productName={productName}
+                    layers={paintLayers}
+                    ready={completed}
+                    formula={formula}
+                    coverage={formulaCoverage ? {
+                      percentage: formulaCoverage.coverage_percentage,
+                      unresolved: formulaCoverage.unresolved_ingredients,
+                    } : undefined}
+                    onImportFormula={importFormula}
+                    onAction={runAssistantAction}
+                  />
+                </div>
+              </>
+            )}
+          </aside>
         )}
       </div>
 
@@ -3600,7 +3680,7 @@ export default function StudioPage() {
 
       <SubstanceLibraryDrawer
         open={Boolean(libraryTargetFormulaId)}
-        leftOffset={NAVIGATION_SIDEBAR_WIDTH + leftSidebarWidth}
+        leftOffset={isCompactWorkspace ? 0 : NAVIGATION_SIDEBAR_WIDTH + leftSidebarWidth}
         selectedItems={
           formulas.find((formulaItem) => formulaItem.id === libraryTargetFormulaId)?.items ?? []
         }
@@ -3739,7 +3819,7 @@ function SubstanceLibraryTrigger({
       className={`group flex h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-l-lg border border-dashed bg-white px-2.5 transition-colors focus:outline-none focus:ring-2 focus:ring-brand/20 ${disabled
         ? "cursor-not-allowed border-slate-200 text-slate-300"
         : "border-brand/40 text-brand hover:border-brand hover:bg-teal-50"
-      }`}
+        }`}
       aria-label={disabled ? "กำลังเปิดหน้าคลังสารเคมีทั้งหมด" : "เปิดคลังสาร"}
       aria-haspopup="dialog"
     >
@@ -4118,7 +4198,7 @@ function SubstanceLibraryDrawer({
                               className={`group/star grid size-7 shrink-0 place-items-center bg-transparent p-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 ${favorite
                                 ? "text-amber-500 opacity-100"
                                 : "text-slate-400 opacity-0 group-hover:opacity-100 hover:text-amber-500 focus-visible:opacity-100 focus-visible:text-amber-500"
-                              }`}
+                                }`}
                             >
                               <SemanticIcon
                                 name="star"
@@ -4330,7 +4410,7 @@ function Viewport({
             eraseMode={eraseMode}
             brushSizePct={brushSizePct}
             clearPaintRequest={clearPaintRequest}
-            background="#F4F1EE"
+            background="#F8FAFC"
             initialPaint={initialPaint}
             onPaintChange={onPaintChange}
             occupiedPaint={occupiedPaint}

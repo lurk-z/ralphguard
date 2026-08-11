@@ -261,3 +261,281 @@ html {
   width: 0;
   height: 0;
 }
+
+/* Assessment workspace: the 3D canvas stays primary on iPad and mobile. */
+.assess-compact-trigger,
+.assess-compact-backdrop {
+  display: none;
+}
+
+.assess-trend-width {
+  width: 0;
+}
+
+.assess-trend-width.is-open {
+  width: 420px;
+}
+
+@media (max-width: 1023px) {
+  .substance-library-toolbar {
+    gap: 0.5rem;
+  }
+
+  .substance-library-toolbar-title,
+  .substance-library-toolbar-category-label,
+  .substance-library-toolbar-category-chevron,
+  .substance-library-toolbar-add-label {
+    display: none;
+  }
+
+  .substance-library-toolbar-category,
+  .substance-library-toolbar-add {
+    width: 2.75rem;
+    min-width: 2.75rem;
+    height: 2.75rem;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .substance-library-toolbar-search {
+    height: 2.75rem;
+  }
+}
+
+@media (max-width: 1279px) {
+  .assess-workspace-shell {
+    grid-template-columns: var(--navigation-sidebar-width) minmax(0, 1fr) !important;
+  }
+
+  .assess-main-header,
+  .assess-center-canvas {
+    grid-column: 2;
+  }
+
+  .assess-main-header {
+    padding-inline: 0.5rem;
+  }
+
+  .assess-compact-trigger {
+    display: grid;
+  }
+
+  .assess-compact-backdrop {
+    display: block;
+  }
+
+  .assess-formula-resizer {
+    display: none;
+  }
+
+  .assess-formula-header,
+  .assess-formula-panel,
+  .assess-inspector-header,
+  .assess-right-inspector {
+    position: fixed;
+    z-index: 70;
+    width: min(22.5rem, calc(100vw - var(--navigation-sidebar-width)));
+    box-shadow: 0 16px 40px rgb(15 23 42 / 0.16);
+  }
+
+  .assess-formula-header,
+  .assess-inspector-header {
+    top: 0;
+    height: 3.5rem;
+  }
+
+  .assess-formula-panel,
+  .assess-right-inspector {
+    top: 3.5rem;
+    bottom: 0;
+    height: auto;
+  }
+
+  .assess-formula-header,
+  .assess-formula-panel {
+    left: var(--navigation-sidebar-width);
+    visibility: hidden;
+    transform: translateX(-100%);
+  }
+
+  .assess-inspector-header,
+  .assess-right-inspector {
+    right: 0;
+    visibility: hidden;
+    transform: translateX(100%);
+  }
+
+  .assess-workspace-shell[data-compact-panel="formula"] .assess-formula-header,
+  .assess-workspace-shell[data-compact-panel="formula"] .assess-formula-panel,
+  .assess-workspace-shell[data-compact-panel="inspector"] .assess-inspector-header,
+  .assess-workspace-shell[data-compact-panel="inspector"] .assess-right-inspector {
+    visibility: visible;
+    transform: translateX(0);
+  }
+
+  .assess-trend-width.is-open {
+    width: min(420px, calc(100vw - var(--navigation-sidebar-width) - 3rem));
+  }
+}
+
+@media (max-width: 767px) {
+  .assess-workspace-shell {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: 3.5rem minmax(0, 1fr);
+    padding-bottom: 3.5rem;
+  }
+
+  .assess-main-header,
+  .assess-center-canvas {
+    grid-column: 1;
+  }
+
+  .assess-primary-navigation {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 80;
+    width: 100%;
+    height: 3.5rem;
+    min-height: 3.5rem;
+    flex-direction: row;
+    justify-content: center;
+    border-top: 1px solid hsl(var(--border));
+    border-right: 0;
+    padding: 0.375rem 0.75rem;
+  }
+
+  .assess-navigation-logo,
+  .assess-navigation-divider {
+    display: none;
+  }
+
+  .assess-navigation-items {
+    flex-direction: row;
+    gap: 0.75rem;
+  }
+
+  .assess-formula-header,
+  .assess-formula-panel,
+  .assess-inspector-header,
+  .assess-right-inspector {
+    left: 0;
+    right: 0;
+    width: 100%;
+  }
+
+  .assess-formula-panel,
+  .assess-right-inspector {
+    bottom: 3.5rem;
+  }
+
+  .assess-formula-header,
+  .assess-formula-panel {
+    transform: translateX(-100%);
+  }
+
+  .assess-inspector-header,
+  .assess-right-inspector {
+    transform: translateX(100%);
+  }
+
+  .substance-library-toolbar-search {
+    padding-inline: 0.625rem;
+  }
+
+  .substance-library-list {
+    padding-inline: 0.75rem;
+  }
+
+  .assess-trend-drawer.assess-trend-open {
+    inset: 0;
+    z-index: 50;
+    align-items: stretch;
+  }
+
+  .assess-trend-open .assess-trend-width,
+  .assess-trend-open .assess-trend-panel {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+  }
+
+  .assess-trend-open .assess-trend-panel {
+    border: 0;
+    border-radius: 0;
+    padding: 0.875rem 0.875rem 5rem;
+    box-shadow: none;
+  }
+
+  .assess-trend-open .assess-trend-trigger {
+    display: none;
+  }
+
+  .formula-graph-toolbar {
+    height: 3.5rem;
+    gap: 0.5rem;
+    padding-inline: 0.5rem;
+  }
+
+  .formula-graph-toolbar-primary {
+    gap: 0.375rem;
+  }
+
+  .formula-graph-node-button {
+    width: 2.5rem;
+    height: 2.5rem;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .formula-graph-node-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .formula-graph-toolbar-utilities {
+    gap: 0.375rem;
+  }
+
+  .formula-graph-picker {
+    width: min(22rem, calc(100vw - 1.5rem));
+  }
+}
+
+/* React Flow controls inside the assessment Nodes workspace. */
+.formula-graph-controls {
+  overflow: hidden;
+  border: 1px solid rgb(226 232 240) !important;
+  border-radius: 0.75rem !important;
+  background: white !important;
+  box-shadow: 0 6px 18px rgb(15 23 42 / 0.08) !important;
+}
+
+.formula-graph-controls button {
+  width: 2rem !important;
+  height: 2rem !important;
+  border-bottom-color: rgb(241 245 249) !important;
+  background: white !important;
+  color: rgb(71 85 105) !important;
+}
+
+.formula-graph-controls button:hover {
+  background: rgb(240 253 250) !important;
+  color: rgb(0 159 165) !important;
+}
+
+.formula-graph-controls button:last-child {
+  border-bottom: 0 !important;
+}
+
+.formula-graph-minimap {
+  overflow: hidden;
+  border-radius: 0.75rem !important;
+  box-shadow: 0 6px 18px rgb(15 23 42 / 0.08) !important;
+}

@@ -8,6 +8,9 @@ const MAX_PAINT_MASK_LENGTH = 1_500_000;
 const MAX_GRAPH_NODES = 200;
 const MAX_GRAPH_EDGES = 500;
 
+/** Project-level Graph draft used when no Formula Panel card is selected. */
+export const FORMULA_GRAPH_DRAFT_ID = "__node_graph_draft__";
+
 export type WorkspaceMode = "assess" | "nodes" | "trust";
 
 export type WorkspaceFormula = {
@@ -196,7 +199,6 @@ export function normalizeFormulaGraphSnapshot(value: unknown): FormulaGraphSnaps
     });
   }
 
-  if (!nodes.length) return null;
   const edges: FormulaGraphEdgeSnapshot[] = [];
   const edgeIds = new Set<string>();
   for (const rawEdge of value.edges.slice(0, MAX_GRAPH_EDGES)) {
@@ -388,7 +390,7 @@ export function normalizeProjectWorkspace(value: unknown): ProjectWorkspace | nu
   const graphByFormulaId: Record<string, FormulaGraphSnapshot> = {};
   if (isRecord(value.graphByFormulaId)) {
     for (const [formulaId, rawSnapshot] of Object.entries(value.graphByFormulaId)) {
-      if (!seenIds.has(formulaId)) continue;
+      if (formulaId !== FORMULA_GRAPH_DRAFT_ID && !seenIds.has(formulaId)) continue;
       const snapshot = normalizeFormulaGraphSnapshot(rawSnapshot);
       if (snapshot) graphByFormulaId[formulaId] = snapshot;
     }
