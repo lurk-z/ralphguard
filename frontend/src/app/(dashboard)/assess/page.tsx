@@ -2754,7 +2754,7 @@ export default function StudioPage() {
         </aside>
 
         {/* Center canvas */}
-        <main className="assess-center-canvas relative col-start-3 row-start-2 flex min-h-0 min-w-0 overflow-hidden bg-background">
+        <main className="assess-center-canvas relative col-start-3 row-start-2 flex min-h-0 min-w-0 overflow-hidden">
           <SubstanceLibraryPage
             active={activeNavigationItem === "substances"}
             activeFormulaName={activeFormula?.name}
@@ -3072,7 +3072,7 @@ export default function StudioPage() {
                   }}
                   className="flex h-11 min-w-[7.5rem] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-brand px-4 text-xs font-semibold text-white transition-colors hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50 md:h-9 md:min-w-28 md:text-[12px]"
                 >
-                  <SemanticIcon name={assessing || completed ? "refresh" : "play"} className={`size-4 ${assessing ? "animate-spin motion-reduce:animate-none" : ""}`} />
+                  <SemanticIcon name={assessing || completed ? "refresh" : "play"} className="size-4" />
                   <span>เริ่มประเมิน</span>
                 </button>
                 </div>
@@ -3138,7 +3138,7 @@ export default function StudioPage() {
                     {!completed && !error && !developerTestEnabled && (
                       <div className="grid place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">
                         <span className="grid size-10 place-items-center rounded-xl bg-white text-slate-400 shadow-sm">
-                          <SemanticIcon name={assessing || jobId ? "timer" : "flask"} className={`size-5 ${assessing ? "animate-spin motion-reduce:animate-none" : ""}`} />
+                          <SemanticIcon name={assessing || jobId ? "timer" : "flask"} className="size-5" />
                         </span>
                         <div className="mt-3 text-sm font-semibold text-slate-700">{assessing || jobId ? "กำลังประเมินสูตร" : "ยังไม่มีผลคัดกรอง"}</div>
                         <p className="mt-1 max-w-56 text-[11px] leading-relaxed text-slate-500">
@@ -4744,7 +4744,7 @@ function Viewport({
       inert={!active ? ("true" as unknown as boolean) : undefined}
       className="relative order-2 h-full min-w-0 flex-1"
     >
-      <div className="relative h-full w-full bg-[#F4F1EE]">
+      <div className="relative h-full w-full">
         <div className="absolute left-4 top-4 z-10 flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-2.5 shadow-sm backdrop-blur">
           <span className={`grid size-6 shrink-0 place-items-center rounded-lg ${activeFormulaName ? "bg-teal-50 text-brand" : "bg-slate-100 text-slate-400"}`}>
             <SemanticIcon
