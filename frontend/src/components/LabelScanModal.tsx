@@ -138,29 +138,33 @@ const OcrIngredientRow = memo(function OcrIngredientRow({
     <SubstanceHoverCard
       name={item.name}
       smiles={item.smiles}
-      className="grid grid-cols-[32px_minmax(0,1fr)_90px] items-center gap-2 border-t border-slate-100 px-3 py-2.5"
+      className="grid grid-cols-[24px_minmax(0,1fr)_72px] items-center gap-x-2 border-t border-slate-100 px-2 py-2.5 sm:grid-cols-[32px_minmax(0,1fr)_90px] sm:px-3"
     >
       <input
         type="checkbox"
         checked={item.selected}
         onChange={(event) => onPatch(index, { selected: event.target.checked })}
-        className="size-4 accent-teal-600"
+        className="size-4 justify-self-center accent-teal-600"
         aria-label={`เลือก ${item.name}`}
       />
       <div className="flex min-w-0 items-center gap-2">
         <OcrSubstanceThumbnail name={item.name} smiles={item.smiles} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
+          <div className="flex min-w-0 items-center gap-1.5">
             <span className="shrink-0 text-[9px] font-medium tabular-nums text-slate-400">{index + 1}.</span>
-            <span className="truncate text-xs font-semibold text-slate-700">{item.name}</span>
+            <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700" title={item.name}>{item.name}</span>
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1">
             <span className={`rounded px-1 py-0.5 text-[8px] ${item.source === "registry" ? "bg-violet-50 text-violet-700" : "bg-teal-50 text-teal-700"}`}>
               {item.source === "registry" ? "Registry" : "Curated"}
             </span>
             <span className={`shrink-0 rounded px-1 py-0.5 text-[8px] ${item.estimated ? "bg-cyan-50 text-cyan-700" : "bg-slate-100 text-slate-500"}`}>
               {item.estimated ? "ระบบประมาณ" : "แก้ไขแล้ว"}
             </span>
+            <span className="min-w-0 flex-1 truncate font-mono text-[8px] text-slate-400 sm:text-[9px]" title={item.smiles}>
+              {item.smiles}
+            </span>
           </div>
-          <div className="mt-0.5 truncate font-mono text-[9px] text-slate-400" title={item.smiles}>{item.smiles}</div>
         </div>
       </div>
       <div className="relative">
@@ -563,7 +567,7 @@ export default function LabelScanModal({
 
   return (
     <div
-      className="fixed inset-0 z-[60] grid animate-in place-items-center bg-slate-900/30 p-4 fade-in-0 duration-150 backdrop-blur-sm motion-reduce:animate-none"
+      className="fixed inset-0 z-[120] flex items-center justify-center overflow-y-auto bg-slate-900/30 p-3 backdrop-blur-sm animate-in fade-in-0 duration-150 motion-reduce:animate-none sm:p-4"
       onClick={close}
     >
       <style>{`
@@ -573,10 +577,10 @@ export default function LabelScanModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="label-scan-title"
-        className={`flex max-h-[90vh] animate-in flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl fade-in-0 zoom-in-95 duration-150 motion-reduce:animate-none ${phase === "done" && usable ? "w-[min(96vw,1040px)]" : "w-[min(94vw,640px)]"}`}
+        className={`my-auto flex max-h-[calc(100dvh-1.5rem)] w-full animate-in flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl fade-in-0 zoom-in-95 duration-150 motion-reduce:animate-none sm:max-h-[calc(100dvh-2rem)] ${phase === "done" && usable ? "max-w-[1040px]" : "max-w-[640px]"}`}
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex items-start gap-3 border-b border-slate-200 px-5 py-4">
+        <header className="flex shrink-0 items-start gap-3 border-b border-slate-200 px-4 py-3 sm:px-5 sm:py-4">
           <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-teal-50 text-brand">
             <SemanticIcon name="camera" className="size-4" />
           </span>
@@ -598,7 +602,7 @@ export default function LabelScanModal({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4">
           {phase === "idle" && (
             <div className="space-y-3">
               <div className="rounded-xl bg-slate-50 px-3 py-2.5 text-[11px] leading-4 text-slate-500">
@@ -607,7 +611,7 @@ export default function LabelScanModal({
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                className="flex min-h-52 w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-brand/40 bg-white px-6 text-slate-500 transition-colors hover:border-brand hover:bg-teal-50/40 focus:outline-none focus:ring-2 focus:ring-brand/20"
+                className="flex min-h-40 w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-brand/40 bg-white px-4 text-slate-500 transition-colors hover:border-brand hover:bg-teal-50/40 focus:outline-none focus:ring-2 focus:ring-brand/20 sm:min-h-52 sm:px-6"
               >
                 <span className="grid size-11 place-items-center rounded-xl bg-teal-50 text-brand">
                   <SemanticIcon name="image" className="size-6" />
@@ -710,10 +714,13 @@ export default function LabelScanModal({
                       <span className="shrink-0 text-[10px] text-slate-400">เลือก {selected.length}/{drafts.length}</span>
                     </div>
                     <div className="overflow-hidden rounded-xl border border-slate-200 lg:max-h-[430px] lg:overflow-y-auto">
-                      <div className="sticky top-0 z-10 grid grid-cols-[32px_minmax(0,1fr)_90px] gap-2 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      <div className="sticky top-0 z-10 grid grid-cols-[24px_minmax(0,1fr)_72px] gap-2 bg-slate-50 px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:grid-cols-[32px_minmax(0,1fr)_90px] sm:px-3">
                         <span />
                         <span>สารที่ตรวจพบ</span>
-                        <span className="text-right">ความเข้มข้น</span>
+                        <span className="text-right">
+                          <span className="sm:hidden">%</span>
+                          <span className="hidden sm:inline">ความเข้มข้น</span>
+                        </span>
                       </div>
                       {drafts.map((item, index) => (
                         <OcrIngredientRow
@@ -849,7 +856,7 @@ export default function LabelScanModal({
           )}
         </div>
 
-        <footer className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
+        <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-200 px-4 py-3 sm:px-5">
           <input
             ref={fileRef}
             type="file"

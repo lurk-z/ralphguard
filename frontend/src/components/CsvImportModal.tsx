@@ -159,17 +159,17 @@ export default function CsvImportModal({
 
   return (
     <div
-      className="fixed inset-0 z-[60] grid animate-in place-items-center bg-slate-900/30 p-4 fade-in-0 duration-150 backdrop-blur-sm motion-reduce:animate-none"
+      className="fixed inset-0 z-[120] flex items-center justify-center overflow-y-auto bg-slate-900/30 p-3 backdrop-blur-sm animate-in fade-in-0 duration-150 motion-reduce:animate-none sm:p-4"
       onClick={close}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="csv-import-title"
-        className={`flex max-h-[90vh] animate-in flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl fade-in-0 zoom-in-95 duration-150 motion-reduce:animate-none ${items.length ? "w-[min(94vw,860px)]" : "w-[min(94vw,640px)]"}`}
+        className={`my-auto flex max-h-[calc(100dvh-1.5rem)] w-full animate-in flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl fade-in-0 zoom-in-95 duration-150 motion-reduce:animate-none sm:max-h-[calc(100dvh-2rem)] ${items.length ? "max-w-[860px]" : "max-w-[640px]"}`}
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex items-start gap-3 border-b border-slate-200 px-5 py-4">
+        <header className="flex shrink-0 items-start gap-3 border-b border-slate-200 px-4 py-3 sm:px-5 sm:py-4">
           <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-teal-50 text-brand">
             <SemanticIcon name="file-spreadsheet" className="size-4" />
           </span>
@@ -189,7 +189,7 @@ export default function CsvImportModal({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4">
           <div className="mb-3 flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
             <div className="min-w-0 text-[11px] leading-4 text-slate-500">
               คอลัมน์ที่ใช้: <span className="font-medium text-slate-700">name, smiles, concentration</span>
@@ -208,7 +208,7 @@ export default function CsvImportModal({
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="flex min-h-52 w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-brand/40 bg-white px-6 text-slate-500 transition-colors hover:border-brand hover:bg-teal-50/40 focus:outline-none focus:ring-2 focus:ring-brand/20"
+              className="flex min-h-40 w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-brand/40 bg-white px-4 text-slate-500 transition-colors hover:border-brand hover:bg-teal-50/40 focus:outline-none focus:ring-2 focus:ring-brand/20 sm:min-h-52 sm:px-6"
             >
               <span className="grid size-11 place-items-center rounded-xl bg-teal-50 text-brand">
                 <SemanticIcon name="upload" className="size-5" />
@@ -219,7 +219,7 @@ export default function CsvImportModal({
           )}
 
           {busy && (
-            <div className="grid min-h-52 place-items-center rounded-xl border border-slate-200 bg-slate-50">
+            <div className="grid min-h-40 place-items-center rounded-xl border border-slate-200 bg-slate-50 sm:min-h-52">
               <div className="text-center">
                 <span className="mx-auto grid size-10 animate-pulse place-items-center rounded-xl bg-teal-50 text-brand motion-reduce:animate-none">
                   <SemanticIcon name="file-spreadsheet" className="size-5" />
@@ -291,7 +291,7 @@ export default function CsvImportModal({
           )}
         </div>
 
-        <footer className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
+        <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-200 px-4 py-3 sm:px-5">
           <input
             ref={fileRef}
             type="file"

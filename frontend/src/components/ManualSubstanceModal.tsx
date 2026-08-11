@@ -45,21 +45,21 @@ export default function ManualSubstanceModal({
 
   return (
     <div
-      className="fixed inset-0 z-[120] grid animate-in place-items-center bg-slate-900/30 p-4 fade-in-0 duration-150 backdrop-blur-sm motion-reduce:animate-none"
+      className="fixed inset-0 z-[120] flex items-center justify-center overflow-y-auto bg-slate-900/30 p-3 backdrop-blur-sm animate-in fade-in-0 duration-150 motion-reduce:animate-none sm:p-4"
       onClick={() => !busy && onClose()}
     >
       <form
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-[min(94vw,440px)] animate-in overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl fade-in-0 zoom-in-95 duration-150 motion-reduce:animate-none"
+        className="my-auto flex max-h-[calc(100dvh-1.5rem)] w-full max-w-[440px] animate-in flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl fade-in-0 zoom-in-95 duration-150 motion-reduce:animate-none sm:max-h-[calc(100dvh-2rem)]"
         onSubmit={(event) => {
           event.preventDefault();
           onSubmit();
         }}
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex items-start gap-3 border-b border-slate-200 px-5 py-4">
+        <header className="flex shrink-0 items-start gap-3 border-b border-slate-200 px-4 py-3 sm:px-5 sm:py-4">
           <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-teal-50 text-brand">
             <Plus className="size-4" />
           </span>
@@ -78,7 +78,7 @@ export default function ManualSubstanceModal({
           </button>
         </header>
 
-        <div className="space-y-4 px-5 py-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4">
           <div className="relative">
             <label htmlFor={nameId} className="mb-1.5 block text-xs font-medium text-slate-600">
               ชื่อสาร
@@ -175,7 +175,7 @@ export default function ManualSubstanceModal({
           )}
         </div>
 
-        <footer className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
+        <footer className="grid shrink-0 grid-cols-2 gap-2 border-t border-slate-200 px-4 py-3 sm:flex sm:justify-end sm:px-5">
           <button
             type="button"
             onClick={onClose}

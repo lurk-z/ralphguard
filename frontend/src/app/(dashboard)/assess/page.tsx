@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
+  ArrowLeft,
   ChevronDown,
   Copy,
   Eraser,
@@ -82,7 +83,7 @@ import {
   assessmentPollResponseIsCurrent,
 } from "@/lib/assessment-polling";
 import {
-  describeOcrSkippedItems,
+import {
   prepareOcrFormulaReplacement,
 } from "@/lib/formula-ocr";
 import { formulaGraphItemsSignature } from "@/lib/formula-graph";
@@ -255,11 +256,13 @@ const clampLeftSidebarWidth = (width: number) =>
 export default function StudioPage() {
   const router = useRouter();
   const workspaceShellRef = useRef<HTMLDivElement>(null);
+  const mobileBrushControlRef = useRef<HTMLDivElement>(null);
   const leftSidebarWidthRef = useRef(LEFT_SIDEBAR_DEFAULT_WIDTH);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH);
   const [isLeftSidebarResizing, setIsLeftSidebarResizing] = useState(false);
   const [formulaSidebarCollapsed, setFormulaSidebarCollapsed] = useState(false);
   const [isCompactWorkspace, setIsCompactWorkspace] = useState(false);
+  const [isMobileWorkspace, setIsMobileWorkspace] = useState(false);
   const [compactPanel, setCompactPanel] = useState<"formula" | "inspector" | null>(null);
   const [activeNavigationItem, setActiveNavigationItem] =
     useState<PrimaryNavigationItem>("assessment");
@@ -275,6 +278,7 @@ export default function StudioPage() {
   const [templateRisk, setTemplateRisk] = useState<"all" | "low" | "mid" | "high">("all");
   const [eraseMode, setEraseMode] = useState(false);
   const [brushSizeControlPct, setBrushSizeControlPct] = useState(50);
+  const [mobileBrushSliderOpen, setMobileBrushSliderOpen] = useState(false);
   const brushSizePct = paintBrushRenderSize(brushSizeControlPct);
   const [clearPaintRequest, setClearPaintRequest] = useState(0);
   const [showTrend, setShowTrend] = useState(false);
@@ -285,6 +289,8 @@ export default function StudioPage() {
   const [activeId, setActiveId] = useState("");
   const [editingFormulaId, setEditingFormulaId] = useState<string | null>(null);
   const [libraryTargetFormulaId, setLibraryTargetFormulaId] = useState<string | null>(null);
+  const [compactAddMethodsFormulaId, setCompactAddMethodsFormulaId] = useState<string | null>(null);
+  const [compactFormulaSettingsId, setCompactFormulaSettingsId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [productTypeMenuOpen, setProductTypeMenuOpen] = useState(false);
   const [customProductType, setCustomProductType] = useState("");
@@ -328,13 +334,19 @@ export default function StudioPage() {
   }, [formulaSidebarCollapsed]);
   useEffect(() => {
     const media = window.matchMedia("(max-width: 1279px)");
+    const mobileMedia = window.matchMedia("(max-width: 767px)");
     const syncViewport = () => {
       setIsCompactWorkspace(media.matches);
+      setIsMobileWorkspace(mobileMedia.matches);
       if (!media.matches) setCompactPanel(null);
     };
     syncViewport();
     media.addEventListener("change", syncViewport);
-    return () => media.removeEventListener("change", syncViewport);
+    mobileMedia.addEventListener("change", syncViewport);
+    return () => {
+      media.removeEventListener("change", syncViewport);
+      mobileMedia.removeEventListener("change", syncViewport);
+    };
   }, []);
   useEffect(() => {
     if (!manualSubstanceTargetFormulaId || manualRegistryItems.length > 0) return;
@@ -777,6 +789,18 @@ export default function StudioPage() {
   useEffect(() => {
     if (!hasActivePaint) setEraseMode(false);
   }, [activeId, hasActivePaint]);
+  useEffect(() => {
+    if (!paintReady) setMobileBrushSliderOpen(false);
+  }, [paintReady]);
+  useEffect(() => {
+    if (!mobileBrushSliderOpen) return;
+    const closeMobileBrushSlider = (event: PointerEvent) => {
+      if (mobileBrushControlRef.current?.contains(event.target as Node)) return;
+      setMobileBrushSliderOpen(false);
+    };
+    document.addEventListener("pointerdown", closeMobileBrushSlider);
+    return () => document.removeEventListener("pointerdown", closeMobileBrushSlider);
+  }, [mobileBrushSliderOpen]);
 
   // Per-substance confidence / applicability-domain (worst endpoint), keyed by SMILES.
   const subConf = useMemo(() => {
@@ -1634,16 +1658,36 @@ export default function StudioPage() {
         ),
       );
 
-      const unresolved = context.recognizedNoStructure.map((name) => `${name} (ไม่มี SMILES)`);
-      const unselected = context.unselected.map((name) => `${name} (ไม่ได้เลือก)`);
-      const unmatched = context.unmatched.map((name) => `${name} (จับคู่ไม่ได้)`);
-      const skipped = describeOcrSkippedItems(prepared.skipped);
-      const notImported = [skipped, ...unresolved, ...unselected, ...unmatched].filter(Boolean);
-      toast.success(`นำเข้า ${prepared.items.length} สารแล้ว`, {
-        description: notImported.length
-          ? `ไม่ได้นำเข้า: ${notImported.join(", ")}`
-          : "แทนที่รายการเดิมในกล่องสูตรที่เริ่มสแกน",
-      });
+      const skippedReasonCounts = prepared.skipped.reduce<Record<string, number>>(
+        (counts, item) => ({ ...counts, [item.reason]: (counts[item.reason] ?? 0) + 1 }),
+        {},
+      );
+      const omittedGroups = [
+        { label: "ไม่มี SMILES", count: (skippedReasonCounts["missing-smiles"] ?? 0) + context.recognizedNoStructure.length },
+        { label: "ไม่ได้เลือก", count: context.unselected.length },
+        { label: "จับคู่ไม่ได้", count: context.unmatched.length },
+        { label: "รายการซ้ำ", count: skippedReasonCounts.duplicate ?? 0 },
+        { label: "ความเข้มข้นไม่ถูกต้อง", count: skippedReasonCounts["invalid-concentration"] ?? 0 },
+        { label: "น้ำฐาน", count: skippedReasonCounts.water ?? 0 },
+        { label: "เกินจำนวนที่รองรับ", count: skippedReasonCounts["item-limit"] ?? 0 },
+      ].filter((group) => group.count > 0);
+      const omittedCount = omittedGroups.reduce((sum, group) => sum + group.count, 0);
+
+      if (omittedCount > 0) {
+        toast.warning(`นำเข้า ${prepared.items.length} สารสำเร็จ`, {
+          description: (
+            <div className="space-y-1">
+              <p>ข้าม {omittedCount} รายการ</p>
+              <p>{omittedGroups.map((group) => `${group.label} ${group.count}`).join(" · ")}</p>
+            </div>
+          ),
+          duration: 6000,
+        });
+      } else {
+        toast.success(`นำเข้า ${prepared.items.length} สารสำเร็จ`, {
+          description: "แทนที่รายการเดิมในกล่องสูตรที่เริ่มสแกนแล้ว",
+        });
+      }
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : "นำเข้าผล OCR ไม่สำเร็จ");
     }
@@ -1993,7 +2037,7 @@ export default function StudioPage() {
     <div
       ref={workspaceShellRef}
       data-compact-panel={compactPanel ?? "none"}
-      className={`assess-workspace-shell app-light relative grid h-screen grid-rows-[3.5rem_minmax(0,1fr)] overflow-hidden bg-background text-foreground ${isLeftSidebarResizing ? "select-none" : ""}`}
+      className={`assess-workspace-shell app-light relative grid h-screen grid-rows-[3.5rem_minmax(0,1fr)] overflow-hidden bg-background text-foreground ${activeNavigationItem === "assessment" && compactPanel === null ? "assess-mobile-focus-mode" : ""} ${activeNavigationItem === "assessment" && compactPanel === "inspector" ? "assess-mobile-inspector-mode" : ""} ${isLeftSidebarResizing ? "select-none" : ""}`}
       style={
         {
           "--navigation-sidebar-width": `${NAVIGATION_SIDEBAR_WIDTH}px`,
@@ -2043,14 +2087,25 @@ export default function StudioPage() {
               }[]
             ).map((item) => {
               const active = activeNavigationItem === item.id;
+              const navigationLabel =
+                isMobileWorkspace && item.id === "assessment"
+                  ? "กล่องสูตร"
+                  : item.label;
               return (
                 <Tooltip key={item.id}>
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      aria-label={item.label}
+                      aria-label={navigationLabel}
                       aria-current={active ? "page" : undefined}
-                      onClick={() => changePrimaryNavigation(item.id)}
+                      onClick={() => {
+                        if (isMobileWorkspace && item.id === "assessment") {
+                          setActiveNavigationItem("assessment");
+                          setCompactPanel("formula");
+                          return;
+                        }
+                        changePrimaryNavigation(item.id);
+                      }}
                       className={`grid size-9 place-items-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${active
                         ? "bg-teal-50 text-brand"
                         : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
@@ -2059,7 +2114,7 @@ export default function StudioPage() {
                       <SemanticIcon name={item.icon} className="size-3.5" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="right">{item.label}</TooltipContent>
+                  <TooltipContent side="right">{navigationLabel}</TooltipContent>
                 </Tooltip>
               );
             })}
@@ -2213,13 +2268,13 @@ export default function StudioPage() {
       {/* Right sidebar header */}
       {activeNavigationItem === "assessment" && (
         <div className="assess-inspector-header relative z-40 col-start-4 row-start-1 flex items-center justify-between gap-3 border-b border-l border-border bg-card px-4">
-          <div className="flex min-w-0 items-center rounded-lg bg-slate-100 p-1" role="tablist" aria-label="เนื้อหาแถบด้านขวา">
+          <div className="assess-inspector-tabs flex min-w-0 items-center rounded-lg bg-slate-100 p-1" role="tablist" aria-label="เนื้อหาแถบด้านขวา">
             {(
               [
-                ["results", "ผลการทดสอบ", "chart"],
-                ["assistant", "ผู้ช่วย AI", "message"],
-              ] as ["results" | "assistant", string, SemanticIconName][]
-            ).map(([tab, label, icon]) => {
+                ["results", "ผลทดสอบ"],
+                ["assistant", "ผู้ช่วย AI"],
+              ] as ["results" | "assistant", string][]
+            ).map(([tab, label]) => {
               const active = rightInspectorTab === tab;
               return (
                 <button
@@ -2233,7 +2288,6 @@ export default function StudioPage() {
                     : "text-slate-500 hover:text-slate-800"
                     }`}
                 >
-                  <SemanticIcon name={icon} className="size-3" />
                   <span className="truncate">{label}</span>
                 </button>
               );
@@ -2242,7 +2296,7 @@ export default function StudioPage() {
           <button
             type="button"
             onClick={exportPdf}
-            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 transition-colors hover:border-brand/50 hover:bg-teal-50 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+            className="hidden h-8 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 transition-colors hover:border-brand/50 hover:bg-teal-50 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 md:flex"
             title="ส่งออกรายงาน PDF จากข้อมูลการประเมิน"
           >
             <SemanticIcon name="file" className="size-3.5" />
@@ -2399,48 +2453,63 @@ export default function StudioPage() {
                             {f.items.length} สาร
                           </span>
 
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <button
-                                type="button"
-                                aria-label={`ตั้งค่า ${f.name}`}
-                                title="ตั้งค่าสูตร"
-                                onClick={(event) => event.stopPropagation()}
-                                className="grid size-8 shrink-0 place-items-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
-                              >
-                                <Settings className="size-4" />
-                              </button>
-                            </PopoverTrigger>
-                            <PopoverContent side="right" align="start" className="w-44 p-1.5">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  selectFormula(f.id);
-                                  openEditFormula(f);
-                                }}
-                                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-slate-700 transition hover:bg-slate-100"
-                              >
-                                <SemanticIcon name="pencil" className="size-3.5" />
-                                แก้ไขสูตร
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => duplicateFormula(f)}
-                                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-slate-700 transition hover:bg-slate-100"
-                              >
-                                <Copy className="size-3.5" />
-                                คัดลอกและวาง
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => requestDeleteFormula(f)}
-                                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-rose-600 transition hover:bg-rose-50"
-                              >
-                                <SemanticIcon name="trash" className="size-3.5" />
-                                ลบสูตร
-                              </button>
-                            </PopoverContent>
-                          </Popover>
+                          {isCompactWorkspace ? (
+                            <button
+                              type="button"
+                              aria-label={`ตั้งค่า ${f.name}`}
+                              title="ตั้งค่าสูตร"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setCompactFormulaSettingsId(f.id);
+                              }}
+                              className="grid size-8 shrink-0 place-items-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+                            >
+                              <Settings className="size-4" />
+                            </button>
+                          ) : (
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  aria-label={`ตั้งค่า ${f.name}`}
+                                  title="ตั้งค่าสูตร"
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="grid size-8 shrink-0 place-items-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+                                >
+                                  <Settings className="size-4" />
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent side="right" align="start" className="w-44 p-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    selectFormula(f.id);
+                                    openEditFormula(f);
+                                  }}
+                                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-slate-700 transition hover:bg-slate-100"
+                                >
+                                  <SemanticIcon name="pencil" className="size-3.5" />
+                                  แก้ไขสูตร
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => duplicateFormula(f)}
+                                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-slate-700 transition hover:bg-slate-100"
+                                >
+                                  <Copy className="size-3.5" />
+                                  คัดลอกและวาง
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => requestDeleteFormula(f)}
+                                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-rose-600 transition hover:bg-rose-50"
+                                >
+                                  <SemanticIcon name="trash" className="size-3.5" />
+                                  ลบสูตร
+                                </button>
+                              </PopoverContent>
+                            </Popover>
+                          )}
 
                           <button
                             type="button"
@@ -2586,42 +2655,54 @@ export default function StudioPage() {
                                   onOpen={() => setLibraryTargetFormulaId(f.id)}
                                   disabled={activeNavigationItem === "substances"}
                                 />
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <button
-                                      type="button"
-                                      aria-label="วิธีเพิ่มสารอื่น"
-                                      title="วิธีเพิ่มสารอื่น"
-                                      className="grid h-9 w-9 shrink-0 place-items-center rounded-r-lg border border-l-0 border-dashed border-brand/40 bg-white text-brand transition-colors hover:bg-teal-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
-                                    >
-                                      <ChevronDown className="size-3.5" />
-                                    </button>
-                                  </PopoverTrigger>
-                                  <PopoverContent side="right" align="end" className="w-48 p-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={() => openManualSubstance(f.id)}
-                                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-slate-700 transition hover:bg-slate-100"
-                                    >
-                                      <Plus className="size-3.5" /> เพิ่มสารเปล่า
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => openLabelScan(f.id)}
-                                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-slate-700 transition hover:bg-slate-100"
-                                    >
-                                      <SemanticIcon name="camera" className="size-3.5" /> OCR รูปฉลาก
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => openCsvImport(f.id)}
-                                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-slate-700 transition hover:bg-slate-100"
-                                    >
-                                      <SemanticIcon name="file-spreadsheet" className="size-3.5" />
-                                      นำเข้า CSV
-                                    </button>
-                                  </PopoverContent>
-                                </Popover>
+                                {isCompactWorkspace ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setCompactAddMethodsFormulaId(f.id)}
+                                    aria-label="วิธีเพิ่มสารอื่น"
+                                    title="วิธีเพิ่มสารอื่น"
+                                    className="grid h-9 w-9 shrink-0 place-items-center rounded-r-lg border border-l-0 border-dashed border-brand/40 bg-white text-brand transition-colors hover:bg-teal-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+                                  >
+                                    <ChevronDown className="size-3.5" />
+                                  </button>
+                                ) : (
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <button
+                                        type="button"
+                                        aria-label="วิธีเพิ่มสารอื่น"
+                                        title="วิธีเพิ่มสารอื่น"
+                                        className="grid h-9 w-9 shrink-0 place-items-center rounded-r-lg border border-l-0 border-dashed border-brand/40 bg-white text-brand transition-colors hover:bg-teal-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+                                      >
+                                        <ChevronDown className="size-3.5" />
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent side="right" align="end" className="w-48 p-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => openManualSubstance(f.id)}
+                                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-slate-700 transition hover:bg-slate-100"
+                                      >
+                                        <Plus className="size-3.5" /> เพิ่มสารเปล่า
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => openLabelScan(f.id)}
+                                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-slate-700 transition hover:bg-slate-100"
+                                      >
+                                        <SemanticIcon name="camera" className="size-3.5" /> OCR รูปฉลาก
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => openCsvImport(f.id)}
+                                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-slate-700 transition hover:bg-slate-100"
+                                      >
+                                        <SemanticIcon name="file-spreadsheet" className="size-3.5" />
+                                        นำเข้า CSV
+                                      </button>
+                                    </PopoverContent>
+                                  </Popover>
+                                )}
                               </div>
 
                             </div>
@@ -2731,11 +2812,11 @@ export default function StudioPage() {
               aria-hidden={activeNavigationItem !== "assessment"}
               // React 18 expects inert to be serialized, while its typings still model a boolean.
               inert={activeNavigationItem !== "assessment" ? ("true" as unknown as boolean) : undefined}
-              className={`assess-trend-drawer absolute right-0 top-4 z-20 flex items-start ${showTrend ? "assess-trend-open" : ""}`}
+              className={`assess-trend-drawer absolute right-0 top-4 z-50 flex items-start ${showTrend ? "assess-trend-open" : ""}`}
             >
               <div className={`assess-trend-width overflow-hidden transition-all duration-300 ease-in-out ${showTrend ? "is-open" : ""}`}>
                 <div className="assess-trend-panel assess-scrollbar max-h-[calc(100vh-6rem)] w-full overflow-y-auto rounded-l-2xl border border-r-0 border-slate-200 bg-white p-4 text-slate-800 shadow-xl">
-                  <div className="mb-4 flex items-start gap-3">
+                  <div className="assess-trend-header mb-4 flex items-start gap-3">
                     <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-teal-50 text-lg"><SemanticIcon name="chart" className="size-4" /></span>
                     <div>
                       <div className="text-sm font-semibold">แนวโน้มความเสี่ยงตามเวลา</div>
@@ -2752,7 +2833,7 @@ export default function StudioPage() {
                   {completed && trendData.length ? (
                     <>
                       {trendAnalytics && (
-                        <div className="mb-3 grid grid-cols-2 gap-2">
+                        <div className="assess-trend-metrics mb-3 grid grid-cols-2 gap-2">
                           <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5">
                             <div className="flex items-center gap-1.5 text-[9px] font-medium text-slate-500">
                               <SemanticIcon name="arrow-up" className="size-3.5 text-slate-400" />
@@ -2786,12 +2867,12 @@ export default function StudioPage() {
                         </div>
                       )}
 
-                      <div className="rounded-xl border border-slate-200 bg-white px-2 pb-2 pt-2">
+                      <div className="assess-trend-chart rounded-xl border border-slate-200 bg-white px-2 pb-2 pt-2">
                         <div className="px-1 pb-1 text-[9px] font-medium text-slate-500">คะแนนจำลองตามเวลา</div>
-                        <TrendChart data={trendData} lines={trendLines} />
+                        <TrendChart data={trendData} lines={trendLines} compact={isMobileWorkspace} />
                       </div>
 
-                      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+                      <div className="assess-trend-legend mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
                         {trendLines.map((l) => (
                           <span key={l.key} className="flex items-center gap-1 text-[10px] text-slate-500">
                             <span className="h-0.5 w-4 rounded" style={{ background: l.color }} />
@@ -2801,7 +2882,7 @@ export default function StudioPage() {
                       </div>
 
                       {trendAnalytics && (
-                        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="assess-trend-table mt-3 rounded-xl border border-slate-200 bg-white p-3">
                           <div className="mb-2 flex items-center justify-between gap-2">
                             <div className="text-[10px] font-semibold text-slate-700">ระดับความเสี่ยงแต่ละช่วงเวลา</div>
                             <div className="text-[9px] text-slate-400">สีเข้ม = คะแนนสูงขึ้น</div>
@@ -2823,7 +2904,7 @@ export default function StudioPage() {
                                     <div
                                       key={`${item.endpoint}-${DAY_LABELS[index]}`}
                                       title={`${item.label} · Day ${DAY_LABELS[index]}: ${score}/100 ระดับ${BAND_LABEL[band]}`}
-                                      className="grid h-7 place-items-center rounded-md border text-[9px] font-semibold tabular-nums"
+                                      className="assess-trend-score-cell grid h-7 place-items-center rounded-md border text-[9px] font-semibold tabular-nums"
                                       style={{
                                         borderColor: `${BAND_HEX[band]}38`,
                                         backgroundColor: `${BAND_HEX[band]}14`,
@@ -2840,21 +2921,7 @@ export default function StudioPage() {
                         </div>
                       )}
 
-                      {trendAnalytics && (
-                        <div className="mt-3 rounded-xl border border-teal-100 bg-teal-50/60 px-3 py-2.5">
-                          <div className="flex items-start gap-2">
-                            <SemanticIcon name="chart" className="mt-0.5 size-3.5 shrink-0 text-brand" />
-                            <div>
-                              <div className="text-[10px] font-semibold text-slate-700">สรุปแนวโน้ม Day 1 → Day 7</div>
-                              <p className="mt-0.5 text-[9px] leading-relaxed text-slate-500">
-                                เพิ่มขึ้น {trendAnalytics.directions.increasing} ด้าน · ลดลง {trendAnalytics.directions.decreasing} ด้าน · คงที่ {trendAnalytics.directions.stable} ด้าน
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="mt-3 overflow-hidden rounded-full border border-slate-200">
+                      <div className="assess-trend-scale mt-3 overflow-hidden rounded-full border border-slate-200">
                         <div className="grid h-1.5 grid-cols-4">
                           <span className="bg-green-600" />
                           <span className="bg-amber-500" />
@@ -2862,10 +2929,10 @@ export default function StudioPage() {
                           <span className="bg-red-800" />
                         </div>
                       </div>
-                      <div className="mt-1 flex justify-between text-[9px] text-slate-400">
+                      <div className="assess-trend-scale mt-1 flex justify-between text-[9px] text-slate-400">
                         <span>0 · ต่ำ</span><span>25</span><span>50</span><span>75</span><span>100 · รุนแรง</span>
                       </div>
-                      <p className="mt-3 text-[9px] leading-relaxed text-slate-400">
+                      <p className="assess-trend-disclaimer mt-3 text-[9px] leading-relaxed text-slate-400">
                         กราฟนี้เป็นผลจำลองจากแบบจำลอง QSAR สำหรับการคัดกรองเบื้องต้น ไม่ใช่ผลการทดลองทางคลินิก
                       </p>
                     </>
@@ -2927,15 +2994,53 @@ export default function StudioPage() {
 
           {/* Paint follows formula readiness; assessment follows paint ownership. */}
           {mode === "assess" && (
-            <div className="pointer-events-none absolute bottom-4 right-4 z-40 print:hidden">
-              <div className="pointer-events-auto flex items-center gap-0.5 rounded-xl border border-slate-200 bg-white p-1">
+            <div className="pointer-events-none absolute bottom-3 left-1/2 z-40 -translate-x-1/2 print:hidden md:bottom-4 md:left-auto md:right-4 md:translate-x-0">
+              <div className="pointer-events-auto flex w-[calc(100vw-1.5rem)] max-w-[22rem] flex-col rounded-xl border border-slate-200 bg-white p-1.5 md:w-auto md:max-w-none md:p-1">
+                {paintReady && (
+                  <div ref={mobileBrushControlRef} className="w-full border-b border-slate-100 pb-1">
+                    <button
+                      type="button"
+                      aria-expanded={mobileBrushSliderOpen}
+                      aria-controls="brush-size-slider"
+                      onClick={() => setMobileBrushSliderOpen((open) => !open)}
+                      className="flex h-9 w-full items-center justify-between rounded-lg px-3 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 md:text-[11px]"
+                    >
+                      <span>ขนาดรอย</span>
+                      <span className="tabular-nums text-brand">{brushSizeControlPct}%</span>
+                    </button>
+                    {mobileBrushSliderOpen && (
+                      <div
+                        id="brush-size-slider"
+                        className="px-3 pb-1 pt-1"
+                      >
+                        <Slider
+                          aria-label="ปรับขนาดรอยทา"
+                          min={PAINT_BRUSH_CONTROL_MIN}
+                          max={PAINT_BRUSH_CONTROL_MAX}
+                          step={1}
+                          value={[brushSizeControlPct]}
+                          onValueChange={(values) => {
+                            const nextValue = values[0];
+                            if (typeof nextValue === "number") setBrushSizeControlPct(nextValue);
+                          }}
+                          className="h-8 touch-none [&_[role=slider]]:size-6 [&_[role=slider]]:border-2 [&_[role=slider]]:bg-white"
+                        />
+                        <div className="flex justify-between text-[10px] text-slate-400">
+                          <span>10%</span>
+                          <span>100%</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="flex w-full items-center justify-center gap-1 md:w-auto md:gap-0.5">
                 <button
                   type="button"
                   onClick={() => setEraseMode((value) => !value)}
                   disabled={!activeFormula || !hasActivePaint}
                   title={!activeFormula ? "เลือกกล่องสูตรก่อน" : !hasActivePaint ? "สูตรที่เลือกยังไม่มีรอยทา" : eraseMode ? "ปิดโหมดลบ" : "เปิดยางลบแบบระบาย"}
                   aria-pressed={eraseMode}
-                  className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition ${eraseMode
+                  className={`flex h-11 min-w-[5.25rem] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-xs font-semibold transition md:h-8 md:min-w-0 md:px-2.5 md:text-[11px] ${eraseMode
                     ? "bg-slate-900 text-white"
                     : "text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
                     }`}
@@ -2950,7 +3055,7 @@ export default function StudioPage() {
                   }}
                   disabled={!activeFormula || !hasActivePaint}
                   title={!activeFormula ? "เลือกกล่องสูตรก่อน" : !hasActivePaint ? "สูตรที่เลือกยังไม่มีรอยทา" : `ลบรอยทาทั้งหมดของ ${activeFormula.name}`}
-                  className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold text-slate-600 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-600"
+                  className="flex h-11 min-w-[5.25rem] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-xs font-semibold text-slate-600 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-600 md:h-8 md:min-w-0 md:px-2.5 md:text-[11px]"
                 >
                   <SemanticIcon name="trash" className="size-3.5" />
                   ลบทั้งหมด
@@ -2965,11 +3070,12 @@ export default function StudioPage() {
                     setEraseMode(false); // กดประเมิน = กลับมาโหมด paint ผลลัพธ์
                     run();
                   }}
-                  className="flex h-9 min-w-28 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-[12px] font-semibold text-white transition-colors hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-11 min-w-[7.5rem] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-brand px-4 text-xs font-semibold text-white transition-colors hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50 md:h-9 md:min-w-28 md:text-[12px]"
                 >
                   <SemanticIcon name={assessing || completed ? "refresh" : "play"} className={`size-4 ${assessing ? "animate-spin motion-reduce:animate-none" : ""}`} />
                   <span>เริ่มประเมิน</span>
                 </button>
+                </div>
               </div>
             </div>
           )}
@@ -3315,6 +3421,17 @@ export default function StudioPage() {
                     </details>
                   </Section>
 
+                  <div className="border-t border-slate-200 bg-white px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 md:hidden">
+                    <button
+                      type="button"
+                      onClick={exportPdf}
+                      className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 transition-colors hover:border-brand/50 hover:bg-teal-50 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+                    >
+                      <SemanticIcon name="file" className="size-4" />
+                      PDF
+                    </button>
+                  </div>
+
                 </div>
                 <div
                   role="tabpanel"
@@ -3343,14 +3460,14 @@ export default function StudioPage() {
       {/* Create-formula modal (centered, blurred backdrop) */}
       {showCreate && (
         <div
-          className="fixed inset-0 z-50 grid animate-in place-items-center bg-slate-900/30 p-3 fade-in-0 duration-200 backdrop-blur-sm motion-reduce:animate-none sm:p-4"
+          className="fixed inset-0 z-[120] flex items-center justify-center overflow-y-auto bg-slate-900/30 p-3 backdrop-blur-sm animate-in fade-in-0 duration-200 motion-reduce:animate-none sm:p-4"
           onClick={closeFormulaEditor}
         >
           <form
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-formula-title"
-            className={`flex max-h-[calc(100dvh-1.5rem)] animate-in flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-200 motion-reduce:animate-none ${formulaDetailsEditingId ? "w-[min(94vw,520px)]" : "w-[min(94vw,740px)]"}`}
+            className={`my-auto flex max-h-[calc(100dvh-1.5rem)] w-full animate-in flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-200 motion-reduce:animate-none sm:max-h-[calc(100dvh-2rem)] ${formulaDetailsEditingId ? "max-w-[520px]" : "max-w-[740px]"}`}
             onSubmit={(event) => {
               event.preventDefault();
               createFormula();
@@ -3418,7 +3535,7 @@ export default function StudioPage() {
                       <PopoverContent
                         align="start"
                         sideOffset={6}
-                        className="w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-1.5rem)] rounded-xl border-slate-200 p-1.5 shadow-lg"
+                        className="z-[140] w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-1.5rem)] rounded-xl border-slate-200 p-1.5 shadow-lg"
                       >
                         <div className="px-2 pb-1.5 pt-1 text-[10px] font-medium text-slate-500">เลือกประเภทผลิตภัณฑ์</div>
                         <div className="grid grid-cols-2 gap-1">
@@ -3500,7 +3617,7 @@ export default function StudioPage() {
                               <TooltipContent
                                 side="bottom"
                                 sideOffset={7}
-                                className="max-w-64 border border-slate-200 bg-white px-3 py-2 font-normal text-slate-800 shadow-lg"
+                                className="z-[140] max-w-64 border border-slate-200 bg-white px-3 py-2 font-normal text-slate-800 shadow-lg"
                               >
                                 <div className="font-normal">ทดสอบบริเวณ{option.label}</div>
                                 <div className="mt-0.5 text-[10px] font-normal leading-4 text-slate-600">
@@ -3556,7 +3673,7 @@ export default function StudioPage() {
                       <PopoverContent
                         align="start"
                         sideOffset={6}
-                        className="w-[var(--radix-popover-trigger-width)] min-w-72 overflow-hidden rounded-xl border-slate-200 p-0 shadow-xl"
+                        className="z-[140] w-[var(--radix-popover-trigger-width)] min-w-72 overflow-hidden rounded-xl border-slate-200 p-0 shadow-xl"
                       >
                         <div className="border-b border-slate-100 px-3 py-2.5">
                           <p className="text-xs font-normal text-slate-800">เลือกรูปแบบสารเริ่มต้น</p>
@@ -3680,7 +3797,12 @@ export default function StudioPage() {
 
       <SubstanceLibraryDrawer
         open={Boolean(libraryTargetFormulaId)}
-        leftOffset={isCompactWorkspace ? 0 : NAVIGATION_SIDEBAR_WIDTH + leftSidebarWidth}
+        compact={isCompactWorkspace}
+        mobile={isMobileWorkspace}
+        formulaName={
+          formulas.find((formulaItem) => formulaItem.id === libraryTargetFormulaId)?.name ?? "สูตร"
+        }
+        leftOffset={isCompactWorkspace ? NAVIGATION_SIDEBAR_WIDTH : NAVIGATION_SIDEBAR_WIDTH + leftSidebarWidth}
         selectedItems={
           formulas.find((formulaItem) => formulaItem.id === libraryTargetFormulaId)?.items ?? []
         }
@@ -3694,6 +3816,151 @@ export default function StudioPage() {
           removeFormulaItem(libraryTargetFormulaId, index);
         }}
       />
+
+      <Sheet
+        open={Boolean(compactFormulaSettingsId)}
+        onOpenChange={(open) => {
+          if (!open) setCompactFormulaSettingsId(null);
+        }}
+      >
+        <SheetContent
+          side="bottom"
+          showCloseButton={false}
+          overlayClassName="z-[100] bg-slate-950/30"
+          className="z-[110] gap-0 rounded-t-2xl border-slate-200 bg-white p-0 shadow-2xl data-[state=closed]:duration-150 data-[state=open]:duration-150 sm:left-1/2 sm:max-w-md sm:-translate-x-1/2"
+          aria-label="ตั้งค่าสูตร"
+        >
+          <SheetTitle className="sr-only">ตั้งค่าสูตร</SheetTitle>
+          <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-slate-200" />
+          <div className="border-b border-slate-100 px-4 pb-3 pt-2">
+            <div className="text-sm font-semibold text-slate-800">ตั้งค่าสูตร</div>
+            <div className="mt-0.5 truncate text-[11px] text-slate-400">
+              {formulas.find((formulaItem) => formulaItem.id === compactFormulaSettingsId)?.name ?? "สูตร"}
+            </div>
+          </div>
+          <div className="grid gap-1.5 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                const targetFormula = formulas.find((formulaItem) => formulaItem.id === compactFormulaSettingsId);
+                if (!targetFormula) return;
+                setCompactFormulaSettingsId(null);
+                selectFormula(targetFormula.id);
+                openEditFormula(targetFormula);
+              }}
+              className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+            >
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-600">
+                <SemanticIcon name="pencil" className="size-4" />
+              </span>
+              แก้ไขสูตร
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const targetFormula = formulas.find((formulaItem) => formulaItem.id === compactFormulaSettingsId);
+                if (!targetFormula) return;
+                setCompactFormulaSettingsId(null);
+                duplicateFormula(targetFormula);
+              }}
+              className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+            >
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-600">
+                <Copy className="size-4" />
+              </span>
+              คัดลอกและวาง
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const targetFormula = formulas.find((formulaItem) => formulaItem.id === compactFormulaSettingsId);
+                if (!targetFormula) return;
+                setCompactFormulaSettingsId(null);
+                requestDeleteFormula(targetFormula);
+              }}
+              className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-rose-600 transition-colors hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
+            >
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-rose-50 text-rose-500">
+                <SemanticIcon name="trash" className="size-4" />
+              </span>
+              ลบสูตร
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet
+        open={Boolean(compactAddMethodsFormulaId)}
+        onOpenChange={(open) => {
+          if (!open) setCompactAddMethodsFormulaId(null);
+        }}
+      >
+        <SheetContent
+          side="bottom"
+          showCloseButton={false}
+          overlayClassName="z-[100] bg-slate-950/30"
+          className="z-[110] gap-0 rounded-t-2xl border-slate-200 bg-white p-0 shadow-2xl data-[state=closed]:duration-150 data-[state=open]:duration-150 sm:left-1/2 sm:max-w-md sm:-translate-x-1/2"
+          aria-label="วิธีเพิ่มสารอื่น"
+        >
+          <SheetTitle className="sr-only">วิธีเพิ่มสารอื่น</SheetTitle>
+          <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-slate-200" />
+          <div className="border-b border-slate-100 px-4 pb-3 pt-2">
+            <div className="text-sm font-semibold text-slate-800">วิธีเพิ่มสารอื่น</div>
+            <div className="mt-0.5 text-[11px] text-slate-400">
+              เลือกวิธีเพิ่มสารลงใน{
+                formulas.find((formulaItem) => formulaItem.id === compactAddMethodsFormulaId)?.name ?? "สูตร"
+              }
+            </div>
+          </div>
+          <div className="grid gap-1.5 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                const formulaId = compactAddMethodsFormulaId;
+                if (!formulaId) return;
+                setCompactAddMethodsFormulaId(null);
+                openManualSubstance(formulaId);
+              }}
+              className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+            >
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-teal-50 text-brand">
+                <Plus className="size-4" />
+              </span>
+              เพิ่มสารเปล่า
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const formulaId = compactAddMethodsFormulaId;
+                if (!formulaId) return;
+                setCompactAddMethodsFormulaId(null);
+                openLabelScan(formulaId);
+              }}
+              className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+            >
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-teal-50 text-brand">
+                <SemanticIcon name="camera" className="size-4" />
+              </span>
+              OCR รูปฉลาก
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const formulaId = compactAddMethodsFormulaId;
+                if (!formulaId) return;
+                setCompactAddMethodsFormulaId(null);
+                openCsvImport(formulaId);
+              }}
+              className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+            >
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-teal-50 text-brand">
+                <SemanticIcon name="file-spreadsheet" className="size-4" />
+              </span>
+              นำเข้า CSV
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <AlertDialog
         open={Boolean(formulaPendingDeletion)}
@@ -3831,6 +4098,9 @@ function SubstanceLibraryTrigger({
 
 function SubstanceLibraryDrawer({
   open,
+  compact,
+  mobile,
+  formulaName,
   leftOffset,
   selectedItems,
   onClose,
@@ -3838,6 +4108,9 @@ function SubstanceLibraryDrawer({
   onRemove,
 }: {
   open: boolean;
+  compact: boolean;
+  mobile: boolean;
+  formulaName: string;
   leftOffset: number;
   selectedItems: FormulaItem[];
   onClose: () => void;
@@ -3852,12 +4125,14 @@ function SubstanceLibraryDrawer({
   const [favoriteSubstanceKeys, setFavoriteSubstanceKeys] = useState<string[]>([]);
   const [visibleItemCount, setVisibleItemCount] = useState(SUBSTANCE_LIBRARY_PAGE_SIZE);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [compactCategorySheetOpen, setCompactCategorySheetOpen] = useState(false);
 
   useEffect(() => {
     if (!open) {
       setQuery("");
       setCategory("all");
       setDetailOpen(false);
+      setCompactCategorySheetOpen(false);
     }
     setVisibleItemCount(SUBSTANCE_LIBRARY_PAGE_SIZE);
   }, [open]);
@@ -4021,6 +4296,7 @@ function SubstanceLibraryDrawer({
   };
 
   return (
+    <>
     <Sheet
       open={open}
       onOpenChange={(nextOpen) => {
@@ -4030,22 +4306,50 @@ function SubstanceLibraryDrawer({
       <SheetContent
         side="left"
         showCloseButton={false}
-        overlayClassName="z-10 bg-transparent"
+        overlayClassName={compact ? "z-[80] bg-slate-950/20" : "z-10 bg-transparent"}
         onInteractOutside={(event) => {
           if (detailOpen) event.preventDefault();
         }}
         aria-label="คลังสาร RalphGuard"
-        className="z-20 flex w-80 max-w-none flex-col gap-0 overflow-hidden border-r border-border bg-card p-0 pl-7 shadow-xl sm:max-w-none"
-        style={{
-          left: leftOffset - 28,
-          top: 56,
-          height: "calc(100vh - 56px)",
-          maxWidth: `calc(100vw - ${leftOffset - 28}px)`,
-          animationDuration: "180ms",
-          transitionDuration: "180ms",
-        }}
+        className={mobile
+          ? "z-[90] flex w-screen max-w-none flex-col gap-0 overflow-hidden border-0 bg-card p-0 shadow-none data-[state=closed]:animate-none data-[state=open]:animate-none sm:max-w-none"
+          : `${compact ? "z-[90]" : "z-20"} flex w-80 max-w-none flex-col gap-0 overflow-hidden border-r border-border bg-card p-0 pl-7 shadow-xl sm:max-w-none`}
+        style={mobile
+          ? {
+            left: 0,
+            top: 0,
+            width: "100vw",
+            height: "100dvh",
+            maxWidth: "100vw",
+            animationDuration: "0ms",
+            transitionDuration: "0ms",
+          }
+          : {
+            left: leftOffset - 28,
+            top: 56,
+            height: "calc(100vh - 56px)",
+            maxWidth: `calc(100vw - ${leftOffset - 28}px)`,
+            animationDuration: "180ms",
+            transitionDuration: "180ms",
+          }}
       >
         <SheetTitle className="sr-only">คลังสาร</SheetTitle>
+        {mobile && (
+          <div className="flex min-h-14 items-center gap-2 border-b border-border px-3">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={`กลับไป${formulaName}`}
+              className="grid size-11 shrink-0 place-items-center rounded-xl text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+            >
+              <ArrowLeft className="size-4" />
+            </button>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-slate-800">คลังสาร</div>
+              <div className="truncate text-[10px] text-slate-400">เพิ่มสารลงใน {formulaName}</div>
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-slate-50/70 px-3 focus-within:border-brand/60 focus-within:ring-2 focus-within:ring-brand/10">
             <Search className="size-3.5 shrink-0 text-slate-400" />
@@ -4063,6 +4367,17 @@ function SubstanceLibraryDrawer({
               <span aria-label="กำลังโหลดคลังสาร" className="size-2 shrink-0 animate-pulse rounded-full bg-brand" />
             )}
           </label>
+          {compact ? (
+            <button
+              type="button"
+              onClick={() => setCompactCategorySheetOpen(true)}
+              aria-label={`กรองสารตามประเภท: ${category === "all" ? "ทุกประเภท" : category}`}
+              title={category === "all" ? "ทุกประเภท" : category}
+              className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-card text-brand outline-none transition-colors hover:border-brand/40 hover:bg-teal-50/40 focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/10"
+            >
+              <SemanticIcon name={selectedCategoryIcon} className="size-3.5" />
+            </button>
+          ) : (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -4075,9 +4390,9 @@ function SubstanceLibraryDrawer({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
-              side="right"
-              align="start"
-              sideOffset={26}
+              side={mobile ? "bottom" : "right"}
+              align={mobile ? "end" : "start"}
+              sideOffset={mobile ? 6 : 26}
               collisionPadding={12}
               className="z-[110] max-h-64 w-56 overflow-y-auto p-1.5"
             >
@@ -4111,11 +4426,12 @@ function SubstanceLibraryDrawer({
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+          )}
         </div>
 
         <div
           aria-busy={registryLoading}
-          className="min-h-0 flex-1 overflow-y-auto px-4 pb-4"
+          className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
           onScroll={(event) => {
             const viewport = event.currentTarget;
             const nearBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 180;
@@ -4230,6 +4546,64 @@ function SubstanceLibraryDrawer({
         </div>
       </SheetContent>
     </Sheet>
+
+    <Sheet
+      open={open && compact && compactCategorySheetOpen}
+      onOpenChange={(nextOpen) => setCompactCategorySheetOpen(nextOpen)}
+    >
+      <SheetContent
+        side="bottom"
+        showCloseButton={false}
+        overlayClassName="z-[100] bg-slate-950/30"
+        className="z-[110] flex max-h-[70dvh] flex-col gap-0 rounded-t-2xl border-slate-200 bg-white p-0 shadow-2xl data-[state=closed]:duration-150 data-[state=open]:duration-150 sm:left-1/2 sm:max-w-md sm:-translate-x-1/2"
+        aria-label="เลือกประเภทสาร"
+      >
+        <SheetTitle className="sr-only">เลือกประเภทสาร</SheetTitle>
+        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-200" />
+        <div className="shrink-0 border-b border-slate-100 px-4 pb-3 pt-2">
+          <div className="text-sm font-semibold text-slate-800">ประเภทสาร</div>
+          <div className="mt-0.5 text-[11px] text-slate-400">เลือกประเภทที่ต้องการแสดง</div>
+        </div>
+        <div className="assess-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2">
+          <button
+            type="button"
+            onClick={() => {
+              setCategory("all");
+              setVisibleItemCount(SUBSTANCE_LIBRARY_PAGE_SIZE);
+              setCompactCategorySheetOpen(false);
+            }}
+            className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${category === "all" ? "bg-teal-50 font-semibold text-brand" : "text-slate-700 hover:bg-slate-100"}`}
+          >
+            <SemanticIcon name="beaker" className="size-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">ทุกประเภท</span>
+            {category === "all" && <SemanticIcon name="check" className="size-4 shrink-0" />}
+          </button>
+          {categories.map((categoryName) => {
+            const selected = category === categoryName;
+            return (
+              <button
+                key={categoryName}
+                type="button"
+                onClick={() => {
+                  setCategory(categoryName);
+                  setVisibleItemCount(SUBSTANCE_LIBRARY_PAGE_SIZE);
+                  setCompactCategorySheetOpen(false);
+                }}
+                className={`mt-1 flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${selected ? "bg-teal-50 font-semibold text-brand" : "text-slate-700 hover:bg-slate-100"}`}
+              >
+                <SemanticIcon
+                  name={categoryIconByName.get(categoryName) ?? "package"}
+                  className="size-4 shrink-0"
+                />
+                <span className="min-w-0 flex-1 truncate">{categoryName}</span>
+                {selected && <SemanticIcon name="check" className="size-4 shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      </SheetContent>
+    </Sheet>
+    </>
   );
 }
 
@@ -4459,32 +4833,48 @@ function TrustReport() {
   const pct = (x: number | null | undefined) => (x == null ? "—" : x.toFixed(2));
 
   return (
-    <div className="absolute inset-0 overflow-y-auto p-8">
-      <div className="mx-auto max-w-3xl rounded-2xl border border-slate-200 bg-white p-8 shadow-card">
-        <h1 className="font-display text-2xl font-bold">ความน่าเชื่อถือของโมเดล</h1>
-        <p className="mt-2 text-sm text-slate-800/60">
+    <div className="absolute inset-0 overflow-x-hidden overflow-y-auto p-3 sm:p-8">
+      <div className="mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-4 shadow-card sm:p-8">
+        <h1 className="font-display text-xl font-bold sm:text-2xl">ความน่าเชื่อถือของโมเดล</h1>
+        <p className="mt-2 text-xs leading-relaxed text-slate-800/60 sm:text-sm">
           ทุกการทำนายมาพร้อมตัวชี้วัดประสิทธิภาพ ความไม่แน่นอน และขอบเขตการใช้งาน (Applicability Domain) ตามหลัก OECD สำหรับ QSAR
         </p>
 
-        <div className="mt-6 overflow-hidden rounded-xl border border-slate-200">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-100 text-xs text-slate-800/55">
+        <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 sm:mt-6">
+          <table className="w-full table-fixed text-xs sm:text-sm">
+            <colgroup>
+              <col className="w-[38%] sm:w-auto" />
+              <col className="w-[15.5%] sm:w-auto" />
+              <col className="w-[15.5%] sm:w-auto" />
+              <col className="w-[15.5%] sm:w-auto" />
+              <col className="w-[15.5%] sm:w-auto" />
+            </colgroup>
+            <thead className="bg-slate-100 text-[9px] text-slate-800/55 sm:text-xs">
               <tr>
-                <th className="px-4 py-2.5 text-left">Endpoint</th>
-                <th className="px-4 py-2.5">AUC</th>
-                <th className="px-4 py-2.5">Balanced Acc</th>
-                <th className="px-4 py-2.5">Sensitivity</th>
-                <th className="px-4 py-2.5">Specificity</th>
+                <th className="px-2 py-2.5 text-left sm:px-4">Endpoint</th>
+                <th className="px-1 py-2.5 text-center sm:px-4">AUC</th>
+                <th className="px-1 py-2.5 text-center sm:px-4">
+                  <span className="sm:hidden">Bal.<br />Acc</span>
+                  <span className="hidden sm:inline">Balanced Acc</span>
+                </th>
+                <th className="px-1 py-2.5 text-center sm:px-4">
+                  <span className="sm:hidden">Sens.</span>
+                  <span className="hidden sm:inline">Sensitivity</span>
+                </th>
+                <th className="px-1 py-2.5 text-center sm:px-4">
+                  <span className="sm:hidden">Spec.</span>
+                  <span className="hidden sm:inline">Specificity</span>
+                </th>
               </tr>
             </thead>
             <tbody>
               {metrics?.endpoints.map((m: EndpointMetric) => (
                 <tr key={m.endpoint} className="border-t border-slate-200">
-                  <td className="px-4 py-3">
-                    <span className="font-medium">{m.label_th}</span>{" "}
-                    <span className="font-mono text-xs text-slate-800/40">{m.endpoint}</span>
+                  <td className="px-2 py-3 sm:px-4">
+                    <span className="block break-words font-medium leading-snug">{m.label_th}</span>{" "}
+                    <span className="font-mono text-[9px] text-slate-800/40 sm:text-xs">{m.endpoint}</span>
                     {m.endpoint === "eye" && (
-                      <span className="ml-1.5 rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">preliminary</span>
+                      <span className="ml-1 rounded bg-amber-50 px-1 py-0.5 text-[8px] font-semibold text-amber-700 sm:ml-1.5 sm:px-1.5 sm:text-[9px]">preliminary</span>
                     )}
                     {m.metrics && (
                       <div className="mt-0.5 text-[9px] text-slate-400">
@@ -4492,10 +4882,10 @@ function TrustReport() {
                       </div>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-center font-mono font-semibold text-brand">{pct(m.metrics?.auc)}</td>
-                  <td className="px-4 py-3 text-center font-mono">{pct(m.metrics?.balanced_accuracy)}</td>
-                  <td className="px-4 py-3 text-center font-mono">{pct(m.metrics?.sensitivity)}</td>
-                  <td className="px-4 py-3 text-center font-mono">{pct(m.metrics?.specificity)}</td>
+                  <td className="px-1 py-3 text-center font-mono font-semibold tabular-nums text-brand sm:px-4">{pct(m.metrics?.auc)}</td>
+                  <td className="px-1 py-3 text-center font-mono tabular-nums sm:px-4">{pct(m.metrics?.balanced_accuracy)}</td>
+                  <td className="px-1 py-3 text-center font-mono tabular-nums sm:px-4">{pct(m.metrics?.sensitivity)}</td>
+                  <td className="px-1 py-3 text-center font-mono tabular-nums sm:px-4">{pct(m.metrics?.specificity)}</td>
                 </tr>
               ))}
               {!metrics?.endpoints?.length && (

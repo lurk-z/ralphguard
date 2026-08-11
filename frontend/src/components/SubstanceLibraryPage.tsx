@@ -39,6 +39,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   api,
   apiErrorMessage,
@@ -126,6 +127,7 @@ export default function SubstanceLibraryPage({
 }: SubstanceLibraryPageProps) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
+  const [categorySheetOpen, setCategorySheetOpen] = useState(false);
   const [toolbarHost, setToolbarHost] = useState<HTMLElement | null>(null);
   const [registryItems, setRegistryItems] = useState<IngredientRegistryItem[]>([]);
   const [registryLoading, setRegistryLoading] = useState(false);
@@ -148,6 +150,7 @@ export default function SubstanceLibraryPage({
   useEffect(() => {
     if (!active) {
       setToolbarHost(null);
+      setCategorySheetOpen(false);
       return;
     }
     setToolbarHost(document.getElementById("substance-library-toolbar-host"));
@@ -524,21 +527,32 @@ export default function SubstanceLibraryPage({
             )}
           </label>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="substance-library-toolbar-category flex h-9 min-w-32 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 hover:border-brand/40 hover:bg-teal-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20"
-                aria-label={`กรองประเภทสาร: ${category === "all" ? "ทุกประเภท" : category}`}
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <SemanticIcon name={selectedCategoryIcon} className="size-3.5 shrink-0 text-brand" />
-                  <span className="substance-library-toolbar-category-label truncate">{category === "all" ? "ทุกประเภท" : category}</span>
-                </span>
-                <SemanticIcon name="chevron-down" className="substance-library-toolbar-category-chevron size-3.5 shrink-0 text-slate-400" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="assess-scrollbar max-h-72 w-72 overflow-y-auto p-1.5">
+          <button
+            type="button"
+            onClick={() => setCategorySheetOpen(true)}
+            className="substance-library-toolbar-category flex h-9 min-w-0 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-2.5 text-brand hover:border-brand/40 hover:bg-teal-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 md:hidden"
+            aria-label={`กรองประเภทสาร: ${category === "all" ? "ทุกประเภท" : category}`}
+            aria-expanded={categorySheetOpen}
+          >
+            <SemanticIcon name={selectedCategoryIcon} className="size-3.5" />
+          </button>
+
+          <div className="hidden shrink-0 md:block">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="substance-library-toolbar-category flex h-9 min-w-32 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 hover:border-brand/40 hover:bg-teal-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20"
+                  aria-label={`กรองประเภทสาร: ${category === "all" ? "ทุกประเภท" : category}`}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <SemanticIcon name={selectedCategoryIcon} className="size-3.5 shrink-0 text-brand" />
+                    <span className="substance-library-toolbar-category-label truncate">{category === "all" ? "ทุกประเภท" : category}</span>
+                  </span>
+                  <SemanticIcon name="chevron-down" className="substance-library-toolbar-category-chevron size-3.5 shrink-0 text-slate-400" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="assess-scrollbar max-h-72 w-72 overflow-y-auto p-1.5">
                 <DropdownMenuItem
                   onSelect={() => setCategory("all")}
                   className={`rounded-lg px-2.5 py-2 text-xs ${category === "all" ? "bg-teal-50 font-semibold text-brand" : "text-slate-700"}`}
@@ -564,8 +578,9 @@ export default function SubstanceLibraryPage({
                     </span>
                   </DropdownMenuItem>
                 ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
 
           <button
             type="button"
@@ -580,6 +595,69 @@ export default function SubstanceLibraryPage({
         </div>,
         toolbarHost,
       )}
+
+      <Sheet
+        open={active && categorySheetOpen}
+        onOpenChange={setCategorySheetOpen}
+      >
+        <SheetContent
+          side="bottom"
+          showCloseButton={false}
+          overlayClassName="z-[120] bg-slate-950/30"
+          className="z-[130] flex max-h-[70dvh] flex-col gap-0 rounded-t-2xl border-slate-200 bg-white p-0 shadow-2xl data-[state=closed]:duration-150 data-[state=open]:duration-150"
+          aria-label="เลือกประเภทสาร"
+        >
+          <SheetTitle className="sr-only">เลือกประเภทสาร</SheetTitle>
+          <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-200" />
+          <div className="shrink-0 border-b border-slate-100 px-4 pb-3 pt-2">
+            <div className="text-sm font-semibold text-slate-800">ประเภทสาร</div>
+            <div className="mt-0.5 text-[11px] text-slate-400">เลือกประเภทที่ต้องการแสดง</div>
+          </div>
+          <div className="assess-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setCategory("all");
+                setCategorySheetOpen(false);
+              }}
+              className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${category === "all" ? "bg-teal-50 font-semibold text-brand" : "text-slate-700 hover:bg-slate-100"}`}
+            >
+              <SemanticIcon name="beaker" className="size-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">ทุกประเภท</span>
+              <span className="tabular-nums text-slate-400">
+                {Array.from(categoryCounts.entries())
+                  .reduce((sum, [name, count]) => name === FAVORITE_CATEGORY ? sum : sum + count, 0)
+                  .toLocaleString("th-TH")}
+              </span>
+              {category === "all" && <SemanticIcon name="check" className="size-4 shrink-0" />}
+            </button>
+            {categories.map((categoryName) => {
+              const selected = category === categoryName;
+              return (
+                <button
+                  key={categoryName}
+                  type="button"
+                  onClick={() => {
+                    setCategory(categoryName);
+                    setCategorySheetOpen(false);
+                  }}
+                  className={`mt-1 flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${selected ? "bg-teal-50 font-semibold text-brand" : "text-slate-700 hover:bg-slate-100"}`}
+                >
+                  <SemanticIcon
+                    name={categoryIconByName.get(categoryName) || "package"}
+                    className="size-4 shrink-0"
+                  />
+                  <span className="min-w-0 flex-1 truncate">{categoryName}</span>
+                  <span className="tabular-nums text-slate-400">
+                    {(categoryCounts.get(categoryName) || 0).toLocaleString("th-TH")}
+                  </span>
+                  {selected && <SemanticIcon name="check" className="size-4 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {registryError && (
         <div className="mx-5 mt-3 flex shrink-0 items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
