@@ -270,10 +270,42 @@ html {
 
 .assess-trend-width {
   width: 0;
+  transition: none;
+}
+
+.assess-workspace-shell {
+  --assess-toolbar-clearance: 4.875rem;
+}
+
+.assess-bottom-toolbar {
+  bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 768px) {
+  .assess-bottom-toolbar {
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 .assess-trend-width.is-open {
   width: 420px;
+}
+
+.assess-trend-panel {
+  max-height: calc(100dvh - 4.5rem - var(--assess-toolbar-clearance, 4.875rem) - env(safe-area-inset-bottom, 0px));
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.assess-trend-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: -1rem -1rem 1rem;
+  border-bottom: 1px solid hsl(var(--border));
+  background: rgb(255 255 255 / 0.96);
+  padding: 0.75rem 1rem;
+  backdrop-filter: blur(8px);
 }
 
 @media (max-width: 1023px) {
@@ -302,7 +334,7 @@ html {
   }
 }
 
-@media (max-width: 1279px) {
+@media (max-width: 1399px) {
   .assess-workspace-shell {
     grid-template-columns: var(--navigation-sidebar-width) minmax(0, 1fr) !important;
   }
@@ -329,12 +361,18 @@ html {
   }
 
   .assess-formula-header,
-  .assess-formula-panel,
+  .assess-formula-panel {
+    position: fixed;
+    z-index: 70;
+    width: min(var(--left-sidebar-width), calc(100vw - var(--navigation-sidebar-width)));
+    box-shadow: 0 16px 40px rgb(15 23 42 / 0.16);
+  }
+
   .assess-inspector-header,
   .assess-right-inspector {
     position: fixed;
     z-index: 70;
-    width: min(22.5rem, calc(100vw - var(--navigation-sidebar-width)));
+    width: min(var(--right-inspector-width), calc(100vw - var(--navigation-sidebar-width)));
     box-shadow: 0 16px 40px rgb(15 23 42 / 0.16);
   }
 
@@ -382,36 +420,11 @@ html {
   .assess-workspace-shell {
     grid-template-columns: minmax(0, 1fr) !important;
     grid-template-rows: 3.5rem minmax(0, 1fr);
-    padding-bottom: 3.5rem;
   }
 
   .assess-main-header,
   .assess-center-canvas {
     grid-column: 1;
-  }
-
-  .assess-primary-navigation {
-    position: fixed;
-    inset: auto 0 0 0;
-    z-index: 80;
-    width: 100%;
-    height: 3.5rem;
-    min-height: 3.5rem;
-    flex-direction: row;
-    justify-content: center;
-    border-top: 1px solid hsl(var(--border));
-    border-right: 0;
-    padding: 0.375rem 0.75rem;
-  }
-
-  .assess-workspace-shell.assess-mobile-focus-mode,
-  .assess-workspace-shell.assess-mobile-inspector-mode {
-    padding-bottom: 0;
-  }
-
-  .assess-mobile-focus-mode .assess-primary-navigation,
-  .assess-mobile-inspector-mode .assess-primary-navigation {
-    display: none;
   }
 
   .assess-mobile-inspector-mode .assess-right-inspector {
@@ -428,16 +441,6 @@ html {
     transform: translateX(-50%);
   }
 
-  .assess-navigation-logo,
-  .assess-navigation-divider {
-    display: none;
-  }
-
-  .assess-navigation-items {
-    flex-direction: row;
-    gap: 0.75rem;
-  }
-
   .assess-formula-header,
   .assess-formula-panel,
   .assess-inspector-header,
@@ -449,7 +452,7 @@ html {
 
   .assess-formula-panel,
   .assess-right-inspector {
-    bottom: 3.5rem;
+    bottom: 0;
   }
 
   .assess-formula-header,
@@ -471,11 +474,16 @@ html {
   }
 
   .assess-trend-drawer.assess-trend-open {
-    inset: 0.5rem auto 4.75rem 50%;
+    inset: 0.5rem auto calc(var(--assess-toolbar-clearance, 4.875rem) + env(safe-area-inset-bottom, 0px)) 50%;
     z-index: 50;
     width: min(22rem, calc(100vw - 1rem));
+    max-height: calc(100dvh - 4rem - var(--assess-toolbar-clearance, 4.875rem) - env(safe-area-inset-bottom, 0px));
     transform: translateX(-50%);
     align-items: stretch;
+  }
+
+  .assess-trend-backdrop {
+    display: block;
   }
 
   .assess-trend-drawer .assess-trend-width {
@@ -490,7 +498,8 @@ html {
   }
 
   .assess-trend-open .assess-trend-panel {
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     border: 1px solid hsl(var(--border));
     border-radius: 1rem;
     padding: 0.75rem;
@@ -502,7 +511,8 @@ html {
   }
 
   .assess-trend-open .assess-trend-header {
-    margin-bottom: 0.625rem;
+    margin: -0.75rem -0.75rem 0.625rem;
+    padding: 0.75rem;
   }
 
   .assess-trend-open .assess-trend-metrics {

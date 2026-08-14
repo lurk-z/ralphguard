@@ -83,14 +83,7 @@ export default function ProjectCreateView({
             aria-labelledby="project-information-title"
             className="flex min-w-0 flex-col"
           >
-            <div className="mb-3 md:mb-4">
-              <h2
-                id="project-information-title"
-                className="text-base font-semibold text-foreground md:text-lg"
-              >
-                ข้อมูลโปรเจกต์
-              </h2>
-            </div>
+
 
             <div className="space-y-4">
               <div className="space-y-2">
@@ -180,23 +173,16 @@ export default function ProjectCreateView({
           <section
             data-create-section
             aria-labelledby="project-appearance-title"
-            className="min-w-0 max-w-full overflow-hidden border-t pt-4 md:border-l md:border-t-0 md:pl-7 md:pt-0 lg:pl-9"
+            className="min-w-0 max-w-full border-t pt-4 md:border-l md:border-t-0 md:pl-7 md:pt-0 lg:pl-9"
           >
-            <div className="mb-4">
-              <h2
-                id="project-appearance-title"
-                className="text-sm font-medium text-foreground"
-              >
-                สีและไอคอน
-              </h2>
-            </div>
 
-            <fieldset className="space-y-2">
+
+            <fieldset className="min-w-0 space-y-2">
               <legend className="text-xs font-normal text-muted-foreground">
                 สีประจำโปรเจกต์
               </legend>
-              <div className="max-w-full overflow-hidden rounded-xl bg-muted/30 p-1 md:overflow-visible md:bg-transparent md:p-0">
-                <div className="no-scrollbar flex w-full snap-x snap-proximity gap-1 overflow-x-auto overscroll-x-contain [touch-action:pan-x] md:grid md:grid-cols-5 md:overflow-visible">
+              <div className="max-w-full rounded-xl bg-muted/30 p-1 md:bg-transparent md:p-0">
+                <div className="grid grid-cols-5 gap-1 md:gap-1.5">
                   {PROJECT_COLORS.map((item) => {
                     const selected = item.key === colorKey;
                     return (
@@ -207,7 +193,7 @@ export default function ProjectCreateView({
                         aria-label={`เลือกสี${item.label}`}
                         aria-pressed={selected}
                         className={cn(
-                          "grid size-9 shrink-0 snap-start place-items-center justify-self-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                          "grid size-9 shrink-0 place-items-center justify-self-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                           selected
                             ? "bg-background ring-1 ring-primary/30"
                             : "hover:bg-background/80",
@@ -224,12 +210,12 @@ export default function ProjectCreateView({
               </div>
             </fieldset>
 
-            <fieldset className="mt-4 space-y-2">
+            <fieldset className="mt-4 min-w-0 space-y-2">
               <legend className="text-xs font-normal text-muted-foreground">
                 ไอคอนโปรเจกต์
               </legend>
-              <div className="max-w-full overflow-hidden rounded-xl bg-muted/30 p-1 md:overflow-visible md:bg-transparent md:p-0">
-                <div className="no-scrollbar flex w-full snap-x snap-proximity gap-1 overflow-x-auto overscroll-x-contain [touch-action:pan-x] md:grid md:grid-cols-5 md:overflow-visible">
+              <div className="max-w-full rounded-xl bg-muted/30 p-1 md:bg-transparent md:p-0">
+                <div className="grid grid-cols-5 gap-1 md:gap-1.5">
                   {PROJECT_ICONS.map((item) => {
                     const Icon = item.icon;
                     const selected = item.key === iconKey;
@@ -241,7 +227,7 @@ export default function ProjectCreateView({
                         aria-label={`เลือกไอคอน${item.label}`}
                         aria-pressed={selected}
                         className={cn(
-                          "grid size-10 shrink-0 snap-start place-items-center justify-self-center rounded-lg text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                          "grid size-10 shrink-0 place-items-center justify-self-center rounded-lg text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                           selected
                             ? "bg-background text-primary ring-1 ring-primary/20"
                             : "hover:bg-background/80 hover:text-foreground",

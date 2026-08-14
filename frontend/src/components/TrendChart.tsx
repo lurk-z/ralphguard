@@ -78,8 +78,7 @@ export default function TrendChart({
             strokeWidth={2.5}
             dot={{ r: 3.5, fill: dark ? "#1f2937" : "#fff", strokeWidth: 2 }}
             activeDot={{ r: 5, fill: l.color, stroke: dark ? "#1f2937" : "#fff", strokeWidth: 2 }}
-            isAnimationActive
-            animationDuration={450}
+            isAnimationActive={false}
           />
         ))}
       </LineChart>
