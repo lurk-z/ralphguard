@@ -58,6 +58,10 @@ services:
     volumes:
       - ./backend:/app
       - ./scientific/models:/models:ro
+      # NICE/ICE collectors run in the backend container and write staging/
+      # curated evidence under /data. Bind it to the repository so the
+      # scientific candidate-training scripts see the same files.
+      - ./data:/data
     command: >
       sh -c "alembic upgrade head &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
