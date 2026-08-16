@@ -1,5 +1,8 @@
 import type { IngredientRegistryItem, SubstanceProfile } from "@/lib/api";
 
+const ONLINE_CACHE_LIMIT = 50;
+const onlineSubstanceCache: IngredientRegistryItem[] = [];
+
 function normalizeSearchText(value: string): string {
   return value
     .normalize("NFKC")
@@ -28,6 +31,78 @@ function registryItemNames(item: IngredientRegistryItem): string[] {
   ].filter((value): value is string => Boolean(value?.trim()));
 }
 
+function sameRegistryIdentity(
+  left: IngredientRegistryItem,
+  right: IngredientRegistryItem,
+): boolean {
+  if (left.id === right.id) return true;
+  const leftKey = left.inchikey?.trim();
+  const rightKey = right.inchikey?.trim();
+  if (leftKey && rightKey && leftKey === rightKey) return true;
+  const leftSmiles = left.canonical_smiles?.trim();
+  const rightSmiles = right.canonical_smiles?.trim();
+  return Boolean(leftSmiles && rightSmiles && leftSmiles === rightSmiles);
+}
+
+function registryItemsWithOnlineCache(
+  items: IngredientRegistryItem[],
+): IngredientRegistryItem[] {
+  if (!onlineSubstanceCache.length) return items;
+  const combined = [...items];
+  for (const cached of onlineSubstanceCache) {
+    if (!combined.some((item) => sameRegistryIdentity(item, cached))) {
+      combined.push(cached);
+    }
+  }
+  return combined;
+}
+
+/**
+ * PubChem is used only to resolve an exact molecular identity/structure here.
+ * A resolved PubChem compound is allowed into the formula only when the backend
+ * has already classified it as a QSAR-eligible defined single substance.
+ * Regulatory/toxicity evidence remains a separate reviewed training pipeline.
+ */
+export function manualOnlineSubstanceProblem(
+  item: IngredientRegistryItem,
+): string | null {
+  if (!item.canonical_smiles?.trim() || item.structure_status !== "resolved") {
+    return "พบสารออนไลน์ แต่ยังไม่มีโครงสร้างโมเลกุลที่ยืนยันแล้วสำหรับการประเมิน";
+  }
+  if (item.substance_type !== "defined_single_substance") {
+    return "พบสารออนไลน์ แต่เป็นสารผสม/สารสกัด/องค์ประกอบไม่แน่นอน จึงไม่ใช้ SMILES โมเลกุลเดียวแทนสูตรจริง";
+  }
+  if (!item.qsar_eligible || item.assessment_method !== "qsar") {
+    return "พบสารออนไลน์ แต่โครงสร้างนี้ไม่ผ่านเกณฑ์สำหรับ QSAR ของ RalphGuard";
+  }
+  return null;
+}
+
+/**
+ * Keep a small in-memory cache of PubChem-resolved candidates for the current
+ * browser session. This bridges the asynchronous online lookup back into the
+ * existing synchronous registry matching flow without pretending that the
+ * candidate is a reviewed toxicity-training record.
+ *
+ * Returns a user-facing problem when the candidate must not enter QSAR.
+ */
+export function rememberManualOnlineSubstance(
+  item: IngredientRegistryItem,
+): string | null {
+  const problem = manualOnlineSubstanceProblem(item);
+  if (problem) return problem;
+
+  const existingIndex = onlineSubstanceCache.findIndex((cached) =>
+    sameRegistryIdentity(cached, item),
+  );
+  if (existingIndex >= 0) onlineSubstanceCache.splice(existingIndex, 1);
+  onlineSubstanceCache.unshift(item);
+  if (onlineSubstanceCache.length > ONLINE_CACHE_LIMIT) {
+    onlineSubstanceCache.length = ONLINE_CACHE_LIMIT;
+  }
+  return null;
+}
+
 export function searchManualSubstanceSuggestions(
   items: IngredientRegistryItem[],
   query: string,
@@ -36,7 +111,7 @@ export function searchManualSubstanceSuggestions(
   const normalizedQuery = normalizeSearchText(query);
   if (!normalizedQuery) return [];
 
-  return items
+  return registryItemsWithOnlineCache(items)
     .flatMap((item) => {
       if (!item.canonical_smiles?.trim()) return [];
       const displayName = normalizeSearchText(item.inci_name || item.canonical_name);
@@ -55,8 +130,8 @@ export function searchManualSubstanceSuggestions(
 
 /**
  * Resolves an exact identity from the verified registry already loaded for the
- * autocomplete. This keeps the common "select a suggestion, then add" path
- * local and avoids duplicate profile requests for the same substance.
+ * autocomplete plus QSAR-eligible PubChem candidates resolved during this
+ * browser session. Local reviewed registry rows keep priority over online cache.
  */
 export function resolveManualSubstanceRegistryMatch({
   items,
@@ -67,17 +142,18 @@ export function resolveManualSubstanceRegistryMatch({
   name: string;
   smiles: string;
 }): ManualSubstanceRegistryMatch {
+  const searchableItems = registryItemsWithOnlineCache(items);
   const normalizedName = normalizeSearchText(name);
   const cleanSmiles = smiles.trim();
   const nameMatch = normalizedName
-    ? items.find((item) =>
+    ? searchableItems.find((item) =>
         registryItemNames(item).some(
           (candidate) => normalizeSearchText(candidate) === normalizedName,
         ),
       ) ?? null
     : null;
   const smilesMatch = cleanSmiles
-    ? items.find((item) => item.canonical_smiles?.trim() === cleanSmiles) ?? null
+    ? searchableItems.find((item) => item.canonical_smiles?.trim() === cleanSmiles) ?? null
     : null;
 
   if (normalizedName && cleanSmiles) {
@@ -99,7 +175,7 @@ export function resolveManualSubstanceRegistryMatch({
     ? { item, error: null }
     : {
       item: null,
-      error: "ไม่พบสารนี้ในฐานข้อมูล กรุณาตรวจสอบชื่อหรือ SMILES",
+      error: "ไม่พบสารนี้ในฐานข้อมูลภายในหรือ PubChem กรุณาตรวจสอบชื่อหรือ SMILES",
     };
 }
 
