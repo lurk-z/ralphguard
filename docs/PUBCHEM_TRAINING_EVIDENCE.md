@@ -6,6 +6,8 @@
 2. `experimental_evidence` เก็บ GHS annotation แยกตาม endpoint และแหล่งอ้างอิง
 3. `data/curated/pubchem_verified_<endpoint>.csv` มีเฉพาะหลักฐานที่ผู้ตรวจยืนยันแล้ว หรือ weak label ที่มีแหล่งอิสระตรงกันอย่างน้อยสองแหล่ง
 
+> หลักสำคัญ: **PubChem ใช้ขยาย chemical identity/structure coverage แต่ PubChem structure เพียงอย่างเดียวไม่ใช่ toxicity training label** และการไม่พบ hazard code ไม่ถูกแปลงเป็น label 0
+
 ## การจับคู่ endpoint
 
 | Endpoint | GHS hazard code ที่สร้าง positive candidate |
@@ -48,7 +50,7 @@ docker compose exec backend python scripts/import_global_pubchem_ghs.py --target
 - molecular weight นอกช่วง 30–500
 - heavy atoms นอกช่วง 2–36 ซึ่งครอบคลุมขอบเขตโมเดลปัจจุบัน
 
-ผลการรันล่าสุดตรวจ 1,750 CID และผ่าน 1,302 โครงสร้าง โดยตัด salt 308, inorganic 52, MW นอกช่วง 50, unsupported element 36 และ heavy atoms นอกช่วง 2 รายการ
+ผลการรันล่าสุดที่บันทึกไว้ในโครงการตรวจ 1,750 CID และผ่าน 1,302 โครงสร้าง โดยตัด salt 308, inorganic 52, MW นอกช่วง 50, unsupported element 36 และ heavy atoms นอกช่วง 2 รายการ
 
 Registry API รองรับ pagination เมื่อมีข้อมูลเกิน 500 รายการ:
 
@@ -92,13 +94,68 @@ python scripts/export_verified_pubchem_training.py
 
 จากนั้น `python data_prep.py` จะรวมไฟล์ reviewed เข้ากับ raw dataset เดิม ลบโครงสร้างซ้ำ ตัดโครงสร้างที่ label ขัดแย้ง และบันทึกจำนวนแหล่งข้อมูลลงใน model bundle
 
-## API ที่เพิ่ม
+## ตรวจ Data Leakage ก่อน Retrain
 
+ก่อนสร้างโมเดลรุ่นใหม่ให้รัน:
+
+```powershell
+python scripts/check_training_integrity.py
+```
+
+สคริปต์จะตรวจแต่ละ endpoint ด้วยตัวตนระดับโมเลกุล ไม่ใช่ชื่อสารอย่างเดียว:
+
+- parse และ canonicalize SMILES ด้วย RDKit
+- สร้าง InChI / InChIKey
+- ตรวจโครงสร้างซ้ำภายในชุดฝึก
+- ตรวจโมเลกุลเดียวกันแต่มี label ขัดแย้ง
+- สรุปจำนวน Positive / Negative หลังตัด conflict และ deduplicate
+- สร้าง Bemis–Murcko scaffold เพื่อใช้ประเมิน structural novelty
+- สร้าง manifest ที่ `scientific/models/training_manifests/<endpoint>.csv`
+- สร้างรายงานรวม `scientific/models/training_integrity_report.json`
+
+สำหรับ release candidate ใช้โหมดเข้มงวด:
+
+```powershell
+python scripts/check_training_integrity.py --strict-conflicts --require-all
+```
+
+หากมี independent external dataset ให้วางเป็น:
+
+```text
+data/external/skin.csv
+data/external/eye.csv
+data/external/sens.csv
+data/external/acute.csv
+```
+
+แต่ละไฟล์ต้องมีอย่างน้อย `smiles,label` สคริปต์จะตรวจว่า:
+
+```text
+Train InChIKey ∩ External InChIKey = 0
+```
+
+ถ้ามี exact molecular overlap สคริปต์จะคืน non-zero exit code โดยอัตโนมัติ เพื่อป้องกันการเรียกผลนั้นว่า independent external validation
+
+> Scaffold overlap ไม่เท่ากับ data leakage โดยตรง แต่ใช้บอกว่า external set มี chemical scaffold ใหม่จาก training set มากเพียงใด จึงควรรายงานควบคู่กับ exact identity overlap
+
+## สถานะ Validation ที่ต้องใช้คำให้ถูกต้อง
+
+- `5-fold OOF` = **internal validation** แต่ละสารถูกทำนายโดย fold model ที่ไม่ได้ `.fit()` สารนั้น
+- `Scaffold split` = ทดสอบความสามารถ generalize ไปยังกลุ่มโครงสร้างแกนหลักที่ต่างขึ้น
+- `Independent external validation` = ชุดข้อมูลอิสระที่ไม่ถูกใช้ train/tune และต้องตรวจ exact identity overlap เป็นศูนย์ก่อน
+
+ห้ามเรียก 5-fold OOF ปัจจุบันว่า independent external validation
+
+## API ที่เกี่ยวข้อง
+
+- `POST /api/substances/registry/lookup`
 - `POST /api/substances/registry/{id}/evidence/pubchem`
 - `POST /api/substances/registry/evidence/pubchem/bulk`
 - `GET /api/substances/evidence`
 - `PATCH /api/substances/evidence/{id}/review`
 - `POST /api/substances/evidence/consensus-promote?min_sources=2`
 - `GET /api/substances/training-evidence/export?endpoint=skin`
+- `GET /api/models/metrics`
+- `GET /api/models/info`
 
-อ้างอิง: [PubChem PUG-View](https://pubchem.ncbi.nlm.nih.gov/docs/pug-view), [PubChem PUG REST](https://pubchem.ncbi.nlm.nih.gov/docs/pug-rest) และ [Dynamic Request Throttling](https://pubchem.ncbi.nlm.nih.gov/docs/dynamic-request-throttling)
+อ้างอิง implementation ของ PubChem integration ในโครงการ: PubChem PUG-View, PUG REST และ Dynamic Request Throttling ตามเอกสารที่ลิงก์ไว้ใน source/docs ของโครงการ
