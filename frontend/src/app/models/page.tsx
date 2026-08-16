@@ -9,8 +9,17 @@ function pct(x: number | null | undefined) {
   return x == null ? "—" : `${(x * 100).toFixed(1)}%`;
 }
 
+type EvidenceSourceItem = {
+  provider?: string;
+  role?: string;
+  status?: string;
+  description_th?: string;
+  configured_sources?: Record<string, string>;
+};
+
 type ExtendedModelInfo = ModelInfoPayload & {
   data_integrity_policy?: Record<string, string>;
+  evidence_sources?: Record<string, EvidenceSourceItem>;
   validation_status?: Record<
     string,
     { status: string; description_th: string }
@@ -76,6 +85,7 @@ export default function ModelsPage() {
 
   const extendedInfo = info as ExtendedModelInfo | null;
   const integrityPolicy = extendedInfo?.data_integrity_policy ?? {};
+  const evidenceSources = extendedInfo?.evidence_sources ?? {};
   const validationStatus = extendedInfo?.validation_status ?? {};
 
   return (
@@ -162,6 +172,36 @@ export default function ModelsPage() {
                 <li key={principle} className="leading-snug">{principle}</li>
               ))}
             </ul>
+          </div>
+        </section>
+      )}
+
+      {Object.keys(evidenceSources).length > 0 && (
+        <section className="mb-8">
+          <h2 className="font-display text-lg font-semibold">แหล่งข้อมูลและบทบาทของแต่ละแหล่ง</h2>
+          <p className="mt-1 text-xs text-ink2/55">
+            แยกแหล่งโครงสร้าง, แหล่ง evidence, เครื่องมือ chemistry และเครื่องมือ machine learning ออกจากกัน เพื่อให้ trace ได้ว่าค่าแต่ละส่วนเกิดจากไหน
+          </p>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            {Object.entries(evidenceSources).map(([key, item]) => (
+              <article key={key} className="rounded-lg border border-border bg-panel p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-brand">{key.replaceAll("_", " ")}</div>
+                {(item.provider || item.status) && (
+                  <div className="mt-1 text-sm font-medium text-foreground">
+                    {item.provider ?? item.status}
+                  </div>
+                )}
+                {item.role && <p className="mt-1 text-sm leading-relaxed text-ink2/75">{item.role}</p>}
+                {item.description_th && <p className="mt-1 text-sm leading-relaxed text-ink2/75">{item.description_th}</p>}
+                {item.configured_sources && (
+                  <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-ink2/65">
+                    {Object.entries(item.configured_sources).map(([endpoint, source]) => (
+                      <li key={endpoint}><span className="font-semibold">{endpoint}:</span> {source}</li>
+                    ))}
+                  </ul>
+                )}
+              </article>
+            ))}
           </div>
         </section>
       )}
