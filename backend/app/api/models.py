@@ -1,8 +1,8 @@
 """Model card endpoints — expose QSAR validation metrics + methodology.
 
-These power the judge-facing "model transparency" page and satisfy OECD QSAR
-validation principles (defined endpoint, unambiguous algorithm, applicability
-domain, appropriate measures of goodness-of-fit, mechanistic interpretation).
+The API intentionally separates what has already been validated from what is
+planned.  This prevents the judge-facing UI from presenting internal
+cross-validation as independent external validation.
 """
 import json
 from pathlib import Path
@@ -41,7 +41,7 @@ OECD_PRINCIPLES = [
     "2. An unambiguous algorithm (endpoint-specific features + soft-voting ensemble)",
     "3. A defined domain of applicability (k-NN Tanimoto check)",
     "4. Appropriate measures of goodness-of-fit, robustness and predictivity "
-    "(5-fold out-of-fold metrics; nested-CV study documented separately)",
+    "(5-fold out-of-fold metrics; independent external validation is reported separately when available)",
     "5. A mechanistic interpretation, where possible (structural alerts / SMARTS)",
 ]
 
@@ -56,23 +56,82 @@ METHODOLOGY = {
         "Layer 3 — Structural-alert agreement",
         "Layer 4 — Ensemble member disagreement",
     ],
-    "validation": "5-fold stratified out-of-fold metrics; threshold selected by Youden's J. Nested-CV results are the conservative reportable estimate.",
+    "validation": (
+        "Current production metrics are 5-fold stratified out-of-fold (OOF) estimates. "
+        "Each sample is predicted by a fold model that was not fitted on that sample. "
+        "The current operating threshold is selected from OOF predictions; nested-CV/external results "
+        "must be reported separately when generated."
+    ),
     "limitations": [
-        "Small endpoint-specific datasets; results are screening-level only",
-        "Eye irritation remains preliminary and needs a larger independently sourced external set",
+        "Endpoint-specific datasets remain small; results are screening-level only",
+        "5-fold OOF validation is internal validation, not an independent external test",
+        "Structurally near-duplicate chemicals can still make random stratified folds optimistic; scaffold/external validation is required for stronger novelty testing",
         "Model scores are not calibrated clinical probabilities",
     ],
 }
 
+DATA_INTEGRITY_POLICY = {
+    "identity": (
+        "Canonicalize valid SMILES with RDKit and audit InChIKey/canonical-SMILES identity before training."
+    ),
+    "duplicates": (
+        "The same molecular structure must not be counted repeatedly; duplicate structures are collapsed and contradictory labels are excluded for review."
+    ),
+    "pubchem_role": (
+        "PubChem expands chemical identity/structure coverage. A PubChem structure by itself is not a toxicity training label."
+    ),
+    "missing_evidence": (
+        "Missing GHS/toxicity evidence and 'Not Classified' are not automatically converted to label 0."
+    ),
+    "training_evidence": (
+        "Supplemental PubChem-linked rows enter training only after evidence review: manually verified evidence uses full weight; regulatory consensus weak labels use reduced weight."
+    ),
+    "external_overlap": (
+        "An independent external-validation set must have zero exact molecular-identity overlap with the training pool before its metrics are called external validation."
+    ),
+}
 
-def _load_metrics() -> dict:
-    path = Path(settings.MODELS_DIR) / "validation_report.json"
+VALIDATION_STATUS = {
+    "internal_oof": {
+        "status": "complete",
+        "description_th": "มีผล 5-fold out-of-fold สำหรับโมเดล production ปัจจุบัน",
+    },
+    "exact_structure_dedup_audit": {
+        "status": "tooling_available",
+        "description_th": "มีขั้นตอนตรวจ canonical SMILES / InChIKey ก่อนสร้างชุดฝึกรุ่นใหม่",
+    },
+    "scaffold_validation": {
+        "status": "planned",
+        "description_th": "ยังไม่ใช้เป็นค่าหลักของ production report ปัจจุบัน ต้องรันกับ training dataset รุ่นใหม่",
+    },
+    "independent_external_validation": {
+        "status": "not_completed",
+        "description_th": "ยังไม่มีชุดทดสอบอิสระที่ยืนยันว่าไม่ overlap และใช้เป็นหลักฐาน final external validation",
+    },
+}
+
+
+def _read_json(path: Path) -> dict:
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
     except Exception:
         return {}
+
+
+def _models_dir() -> Path:
+    return Path(settings.MODELS_DIR)
+
+
+def _load_metrics() -> dict:
+    return _read_json(_models_dir() / "validation_report.json")
+
+
+def _load_training_integrity() -> dict:
+    """Optional report produced by scripts/check_training_integrity.py."""
+    return _read_json(_models_dir() / "training_integrity_report.json")
 
 
 @router.get("/metrics")
@@ -85,29 +144,33 @@ async def model_metrics():
             {
                 "endpoint": ep,
                 **meta,
-                "metrics": metrics.get(ep),  # None if models not trained yet
+                "metrics": metrics.get(ep),
             }
         )
     return {
         "available": bool(metrics),
         "endpoints": endpoints,
         "note_th": (
-            "ค่าตารางนี้มาจาก 5-fold out-of-fold evaluation; threshold ถูกเลือกจาก OOF prediction "
-            "จึงควรใช้ผล nested-CV ในรายงานเป็นค่าประมาณหลักที่อนุรักษนิยมกว่า "
-            "และไม่ควรตีความ model score เป็นโอกาสทางคลินิก"
+            "ค่าปัจจุบันเป็น 5-fold out-of-fold internal validation: สารแต่ละรายการถูกทำนายใน fold "
+            "ที่ไม่ได้ใช้รายการนั้นฝึกโมเดล แต่ยังไม่ใช่ independent external validation และไม่ควรตีความ "
+            "model score เป็นความน่าจะเป็นทางคลินิก"
         ),
     }
 
 
 @router.get("/info")
 async def model_info():
-    """Static methodology / OECD-principles card (no DB or files needed)."""
+    """Methodology, evidence policy and current validation status."""
     return {
         "methodology": METHODOLOGY,
         "oecd_principles": OECD_PRINCIPLES,
         "endpoints": ENDPOINT_META,
+        "data_integrity_policy": DATA_INTEGRITY_POLICY,
+        "validation_status": VALIDATION_STATUS,
+        "training_integrity": _load_training_integrity() or None,
         "disclaimer_th": (
             "ผลจากแบบจำลองคอมพิวเตอร์ (in-silico screening) เท่านั้น "
-            "ไม่ใช่การทดสอบทางคลินิกหรือทดแทนการประเมินโดยผู้เชี่ยวชาญ"
+            "ไม่ใช่ผลการทดลองทางคลินิก ไม่ใช่การรับรองความปลอดภัยของผลิตภัณฑ์ "
+            "และไม่ทดแทนการประเมินโดยผู้เชี่ยวชาญ"
         ),
     }
