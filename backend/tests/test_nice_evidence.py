@@ -76,6 +76,13 @@ def test_acute_greater_equal_2000_is_ambiguous_at_boundary():
     assert mapped["mapping_rule"] == "acute_ld50_boundary_ambiguous"
 
 
+def test_acute_greater_equal_2500_maps_negative():
+    record = _record("acute", "Rat Acute Oral Toxicity", ice_endpoint="LD50", ice_value=">= 2500", unit="mg/kg")
+    mapped = harmonize_record(record)
+    assert mapped["candidate_label"] == 0
+    assert mapped["mapping_rule"] == "acute_ld50_lower_above_2000"
+
+
 def test_unknown_acute_unit_requires_review():
     record = _record("acute", "Rat Acute Oral Toxicity", ice_endpoint="LD50", ice_value="250", unit="ppm")
     mapped = harmonize_record(record)
