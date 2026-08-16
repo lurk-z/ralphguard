@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   OCR_SIMULATION_TOTAL_LIMIT,
+  detectDeclaredConcentrationsFromOcrText,
   estimateOcrConcentrations,
 } from "../src/lib/ocr-concentration-estimation.ts";
 
@@ -94,6 +95,30 @@ test("keeps an explicitly declared label percentage exact with high confidence",
       confidence: "high",
     },
   );
+});
+
+test("detects a percentage printed immediately after an OCR ingredient name", () => {
+  const found = detectDeclaredConcentrationsFromOcrText(
+    "Ingredients: Water, Niacinamide 5%, Glycerin, Panthenol 0.5%",
+    [
+      { name: "Niacinamide", smiles: "NIA" },
+      { name: "Panthenol", smiles: "PAN" },
+      { name: "Glycerin", smiles: "GLY" },
+    ],
+  );
+
+  assert.equal(found.get("NIA"), 5);
+  assert.equal(found.get("PAN"), 0.5);
+  assert.equal(found.has("GLY"), false);
+});
+
+test("does not attach an unrelated package percentage to a nearby ingredient", () => {
+  const found = detectDeclaredConcentrationsFromOcrText(
+    "Ingredients: Niacinamide, Glycerin. Clinically tested 95% satisfaction.",
+    [{ name: "Niacinamide", smiles: "NIA" }],
+  );
+
+  assert.equal(found.size, 0);
 });
 
 test("keeps the provisional simulation total below the safety headroom limit", () => {
