@@ -44,6 +44,7 @@ const registryItem = (
   structure_status: "resolved",
   qsar_eligible: true,
   assessment_method: "qsar",
+  provenance: {},
   verification_status: "verified",
   ...overrides,
 });
@@ -132,7 +133,7 @@ test("suggests only displayed registry names that start with the query", () => {
   }).item, null);
 });
 
-test("PubChem-resolved QSAR candidate is available to the existing registry resolver", () => {
+test("pending PubChem single-molecule candidate can be used for provisional runtime screening", () => {
   const azelaicAcid = registryItem(
     90001,
     "Azelaic acid",
@@ -141,7 +142,15 @@ test("PubChem-resolved QSAR candidate is available to the existing registry reso
     {
       pubchem_cid: 2266,
       inchikey: "BDJRBEYXGGNYIS-UHFFFAOYSA-N",
+      qsar_eligible: false,
+      assessment_method: "pending_verification",
       verification_status: "pending",
+      provenance: {
+        pubchem: {
+          cid: 2266,
+          proposed_qsar_eligible: true,
+        },
+      },
     },
   );
 
@@ -153,10 +162,30 @@ test("PubChem-resolved QSAR candidate is available to the existing registry reso
     smiles: "",
   });
   assert.equal(byName.item?.pubchem_cid, 2266);
+  assert.equal(byName.item?.verification_status, "pending");
+  assert.equal(byName.item?.qsar_eligible, false);
   assert.equal(byName.item?.canonical_smiles, "O=C(O)CCCCCCCC(=O)O");
 
   const suggestions = searchManualSubstanceSuggestions([], "azel");
   assert.equal(suggestions[0]?.pubchem_cid, 2266);
+});
+
+test("pending candidate without backend proposed-eligibility provenance is rejected", () => {
+  const unreviewedWithoutGuard = registryItem(
+    90004,
+    "Unqualified candidate",
+    "CCC",
+    [],
+    {
+      qsar_eligible: false,
+      assessment_method: "pending_verification",
+      verification_status: "pending",
+      provenance: { pubchem: { proposed_qsar_eligible: false } },
+    },
+  );
+
+  assert.match(manualOnlineSubstanceProblem(unreviewedWithoutGuard) ?? "", /ไม่ผ่านเกณฑ์/);
+  assert.notEqual(rememberManualOnlineSubstance(unreviewedWithoutGuard), null);
 });
 
 test("online fallback rejects mixtures and non-QSAR structures before caching", () => {
@@ -170,6 +199,7 @@ test("online fallback rejects mixtures and non-QSAR structures before caching", 
       qsar_eligible: false,
       assessment_method: "knowledge_base",
       verification_status: "pending",
+      provenance: { pubchem: { proposed_qsar_eligible: false } },
     },
   );
   const inorganic = registryItem(
@@ -182,6 +212,7 @@ test("online fallback rejects mixtures and non-QSAR structures before caching", 
       qsar_eligible: false,
       assessment_method: "knowledge_base",
       verification_status: "pending",
+      provenance: { pubchem: { proposed_qsar_eligible: false } },
     },
   );
 
