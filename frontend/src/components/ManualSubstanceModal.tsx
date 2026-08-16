@@ -10,6 +10,7 @@ import {
   type IngredientRegistryItem,
 } from "@/lib/api";
 import { rememberManualOnlineSubstance } from "@/lib/manual-substance";
+import { lookupIngredientInPubChemBySmiles } from "@/lib/pubchem-online";
 
 type ManualSubstanceModalProps = {
   title?: string;
@@ -30,7 +31,7 @@ type ManualSubstanceModalProps = {
 
 export default function ManualSubstanceModal({
   title = "เพิ่มสารเปล่า",
-  subtitle = "กรอกชื่อสารหรือ SMILES อย่างน้อยหนึ่งช่อง · ถ้าไม่พบชื่อในคลัง ระบบจะค้น PubChem ให้อัตโนมัติ",
+  subtitle = "กรอกชื่อสารหรือ SMILES อย่างน้อยหนึ่งช่อง · ถ้าไม่พบในคลัง ระบบจะค้น PubChem ให้อัตโนมัติ",
   submitLabel = "ตรวจสอบและเพิ่ม",
   name,
   smiles,
@@ -59,10 +60,7 @@ export default function ManualSubstanceModal({
     const cleanName = name.trim();
     const cleanSmiles = smiles.trim();
 
-    // A supplied SMILES or a previously selected/cached suggestion can be
-    // validated by the existing parent flow immediately. Online fallback is
-    // intentionally name-driven so PubChem remains the identity resolver.
-    if (!cleanName || cleanSmiles) {
+    if (!cleanName && !cleanSmiles) {
       onSubmit();
       return;
     }
@@ -70,16 +68,22 @@ export default function ManualSubstanceModal({
     setOnlineBusy(true);
     setOnlineError(null);
     try {
-      const candidate = await api.lookupIngredientInPubChem(cleanName);
+      // When a SMILES is supplied, exact molecular identity has priority over a
+      // textual name. The backend verifies the returned PubChem identity against
+      // the submitted structure before creating a pending registry candidate.
+      const candidate = cleanSmiles
+        ? await lookupIngredientInPubChemBySmiles(cleanSmiles)
+        : await api.lookupIngredientInPubChem(cleanName);
+
       const problem = rememberManualOnlineSubstance(candidate);
       if (problem) {
         setOnlineError(problem);
         return;
       }
 
-      // Populate the visible form for provenance/readability. The module cache
-      // already makes the candidate available synchronously to the parent
-      // resolver in this same submit cycle.
+      // Populate the form with the resolved PubChem/registry identity. The
+      // module cache makes the same candidate visible synchronously to the
+      // existing parent resolver in this submit cycle.
       onSelectSuggestion(candidate);
       setSuggestionsOpen(false);
       onSubmit();
@@ -225,7 +229,7 @@ export default function ManualSubstanceModal({
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[10px] leading-4 text-slate-500">
             <div className="font-medium text-slate-600">ลำดับการค้นหา: RalphGuard Registry → PubChem</div>
             <div className="mt-1">
-              PubChem ใช้ยืนยันตัวตนและโครงสร้างเท่านั้น สารออนไลน์ใหม่ต้องเป็น defined single substance และผ่าน chemical eligibility ก่อนใช้คัดกรอง QSAR
+              ค้นได้ทั้งชื่อและ SMILES โดย PubChem ใช้ยืนยันตัวตน/โครงสร้าง สารออนไลน์ใหม่ต้องเป็น defined single substance และผ่าน chemical eligibility ก่อนใช้คัดกรอง QSAR
             </div>
             <div className="mt-1 text-slate-400">
               สารที่เพิ่งค้นจาก PubChem ยังมีสถานะ pending จนกว่าจะ review และจะไม่ถูกนำไปเป็น toxicity label หรือข้อมูลฝึกอัตโนมัติ
