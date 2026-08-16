@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
-from urllib.parse import quote
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -73,11 +73,15 @@ def _cache_key(canonical_smiles: str) -> str:
 
 
 def _fetch_pubchem_by_smiles(canonical_smiles: str) -> dict:
-    encoded = quote(canonical_smiles, safe="")
+    # PubChem documents CGI/POST-style input for SMILES containing URL-reserved
+    # characters such as '/', '+', stereochemistry tokens, or charges. Keep the
+    # `smiles` namespace in the path and send the actual structure as an encoded
+    # query argument rather than embedding it into path segments.
+    query = urlencode({"smiles": canonical_smiles})
     with httpx.Client(headers={"User-Agent": "RalphGuard/0.1 PubChem SMILES resolver"}) as client:
         properties = _throttled_get(
             client,
-            f"{PUBCHEM_BASE}/compound/smiles/{encoded}/property/{PUBCHEM_PROPERTIES}/JSON",
+            f"{PUBCHEM_BASE}/compound/smiles/property/{PUBCHEM_PROPERTIES}/JSON?{query}",
         )
         rows = properties.get("PropertyTable", {}).get("Properties", [])
         if not rows:
