@@ -89,13 +89,24 @@ export type IngredientRegistryItem = {
   cas_number?: string | null;
   pubchem_cid?: number | null;
   canonical_smiles?: string | null;
+  inchi?: string | null;
+  inchikey?: string | null;
   molecular_formula?: string | null;
   molecular_weight?: number | null;
   substance_type: string;
   structure_status: string;
   qsar_eligible: boolean;
   assessment_method: string;
+  regulatory_status_th?: Record<string, unknown> | null;
+  provenance?: Record<string, unknown>;
   verification_status: string;
+  registry_version?: number;
+  observation_count?: number;
+  reason_code?: string | null;
+  reason_th?: string | null;
+  first_seen_at?: string;
+  last_seen_at?: string;
+  updated_at?: string;
 };
 
 export type Confidence = {
@@ -246,6 +257,17 @@ export const api = {
     });
     return http<IngredientRegistryItem[]>(`/api/substances/registry?${params.toString()}`, { signal }, 20000);
   },
+
+  lookupIngredientInPubChem: (
+    name: string,
+    refresh = false,
+    signal?: AbortSignal,
+  ) =>
+    http<IngredientRegistryItem>("/api/substances/registry/lookup", {
+      method: "POST",
+      body: JSON.stringify({ name: name.trim(), refresh }),
+      signal,
+    }, 20000),
 
   createAssessment: (
     formula: FormulaItem[],
@@ -419,5 +441,9 @@ export type ModelInfoPayload = {
   methodology: Record<string, unknown> & { limitations?: string[] };
   oecd_principles: string[];
   endpoints: Record<string, { label_en: string; label_th: string; oecd_tg: string }>;
+  data_integrity_policy?: Record<string, string>;
+  evidence_sources?: Record<string, unknown>;
+  validation_status?: Record<string, unknown>;
+  training_integrity?: Record<string, unknown> | null;
   disclaimer_th: string;
 };
