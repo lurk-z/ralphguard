@@ -6,7 +6,14 @@ import { SemanticIcon } from "@/components/SemanticIcon";
 import SubstanceHoverCard from "@/components/SubstanceHoverCard";
 import { substanceDepictionUrl } from "@/lib/api";
 import { SUBSTANCE_FLAT } from "@/lib/catalog";
-import { estimateOcrConcentrations } from "@/lib/ocr-concentration-estimation";
+import {
+  concentrationBasisLabelTh,
+  concentrationConfidenceLabelTh,
+  detectDeclaredConcentrationsFromOcrText,
+  estimateOcrConcentrations,
+  type OcrConcentrationBasis,
+  type OcrConcentrationConfidence,
+} from "@/lib/ocr-concentration-estimation";
 
 export type ScannedItem = {
   name: string;
@@ -25,7 +32,13 @@ type OcrItem = Omit<ScannedItem, "concentration"> & {
 type EditableItem = OcrItem & {
   selected: boolean;
   estimated: boolean;
-  estimateBasis: "catalog-and-order" | "order-only";
+  declaredOnLabel: boolean;
+  estimateBasis: OcrConcentrationBasis;
+  estimateMin: number;
+  estimateMax: number;
+  estimateConfidence: OcrConcentrationConfidence;
+  inOnePercentTail: boolean;
+  orderConstraintApplied: boolean;
 };
 
 type NonQsarItem = {
@@ -96,6 +109,11 @@ const OCR_REFERENCE_BY_SMILES = new Map(
   SUBSTANCE_FLAT.map((item) => [item.smiles.trim(), item.conc]),
 );
 
+const displayPercent = (value: number) =>
+  value >= 10
+    ? value.toFixed(value % 1 === 0 ? 0 : 1)
+    : value.toFixed(value < 1 ? 2 : 1).replace(/0+$/, "").replace(/\.$/, "");
+
 function OcrSubstanceThumbnail({ name, smiles }: { name: string; smiles: string }) {
   const [failed, setFailed] = useState(false);
 
@@ -134,11 +152,22 @@ const OcrIngredientRow = memo(function OcrIngredientRow({
   index: number;
   onPatch: (index: number, patch: Partial<EditableItem>) => void;
 }) {
+  const sourceLabel = item.estimated
+    ? "ระบบประมาณ"
+    : item.declaredOnLabel
+      ? "ฉลากระบุ"
+      : "ผู้ใช้กำหนด";
+  const sourceClass = item.estimated
+    ? "bg-cyan-50 text-cyan-700"
+    : item.declaredOnLabel
+      ? "bg-emerald-50 text-emerald-700"
+      : "bg-slate-100 text-slate-500";
+
   return (
     <SubstanceHoverCard
       name={item.name}
       smiles={item.smiles}
-      className="grid grid-cols-[24px_minmax(0,1fr)_72px] items-center gap-x-2 border-t border-slate-100 px-2 py-2.5 sm:grid-cols-[32px_minmax(0,1fr)_90px] sm:px-3"
+      className="grid grid-cols-[24px_minmax(0,1fr)_108px] items-center gap-x-2 border-t border-slate-100 px-2 py-2.5 sm:grid-cols-[32px_minmax(0,1fr)_142px] sm:px-3"
     >
       <input
         type="checkbox"
@@ -158,34 +187,56 @@ const OcrIngredientRow = memo(function OcrIngredientRow({
             <span className={`rounded px-1 py-0.5 text-[8px] ${item.source === "registry" ? "bg-violet-50 text-violet-700" : "bg-teal-50 text-teal-700"}`}>
               {item.source === "registry" ? "Registry" : "Curated"}
             </span>
-            <span className={`shrink-0 rounded px-1 py-0.5 text-[8px] ${item.estimated ? "bg-cyan-50 text-cyan-700" : "bg-slate-100 text-slate-500"}`}>
-              {item.estimated ? "ระบบประมาณ" : "แก้ไขแล้ว"}
+            <span className={`shrink-0 rounded px-1 py-0.5 text-[8px] ${sourceClass}`}>
+              {sourceLabel}
             </span>
+            {item.inOnePercentTail && item.estimated && (
+              <span className="shrink-0 rounded bg-amber-50 px-1 py-0.5 text-[8px] text-amber-700">≤1% tail</span>
+            )}
             <span className="min-w-0 flex-1 truncate font-mono text-[8px] text-slate-400 sm:text-[9px]" title={item.smiles}>
               {item.smiles}
             </span>
           </div>
         </div>
       </div>
-      <div className="relative">
-        <input
-          type="number"
-          min="0.01"
-          max="100"
-          step="0.1"
-          disabled={!item.selected}
-          value={item.concentration ?? ""}
-          onChange={(event) => {
-            const raw = event.target.value;
-            onPatch(index, {
-              concentration: raw === "" ? null : Number(raw),
-              estimated: false,
-            });
-          }}
-          placeholder="0"
-          className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-2 pr-5 text-right font-mono text-xs outline-none focus:border-brand disabled:bg-slate-50 disabled:text-slate-300"
-        />
-        <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">%</span>
+      <div className="min-w-0">
+        <div className="relative">
+          <input
+            type="number"
+            min="0.01"
+            max="100"
+            step="0.1"
+            disabled={!item.selected}
+            value={item.concentration ?? ""}
+            onChange={(event) => {
+              const raw = event.target.value;
+              onPatch(index, {
+                concentration: raw === "" ? null : Number(raw),
+                estimated: false,
+                declaredOnLabel: false,
+              });
+            }}
+            placeholder="0"
+            className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-2 pr-5 text-right font-mono text-xs outline-none focus:border-brand disabled:bg-slate-50 disabled:text-slate-300"
+          />
+          <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">%</span>
+        </div>
+        {item.estimated ? (
+          <div
+            className="mt-1 truncate text-right text-[8px] leading-3 text-slate-400 sm:text-[9px]"
+            title={`${concentrationBasisLabelTh(item.estimateBasis)} · ความมั่นใจ ${concentrationConfidenceLabelTh(item.estimateConfidence)}`}
+          >
+            ช่วง {displayPercent(item.estimateMin)}–{displayPercent(item.estimateMax)}% · {concentrationConfidenceLabelTh(item.estimateConfidence)}
+          </div>
+        ) : item.declaredOnLabel ? (
+          <div className="mt-1 text-right text-[8px] leading-3 text-emerald-600 sm:text-[9px]">
+            พบ % บนฉลาก · สูง
+          </div>
+        ) : (
+          <div className="mt-1 text-right text-[8px] leading-3 text-slate-400 sm:text-[9px]">
+            ผู้ใช้ยืนยันเอง
+          </div>
+        )}
       </div>
     </SubstanceHoverCard>
   );
@@ -533,14 +584,38 @@ export default function LabelScanModal({
       await wait(80);
       if (requestId !== scanRequestIdRef.current || controller.signal.aborted) return;
       setResult(data);
-      const estimates = estimateOcrConcentrations(data.items, OCR_REFERENCE_BY_SMILES);
-      setDrafts(data.items.map((item, index) => ({
-        ...item,
-        concentration: estimates[index].concentration,
-        selected: true,
-        estimated: true,
-        estimateBasis: estimates[index].estimateBasis,
-      })));
+
+      const detectedDeclared = detectDeclaredConcentrationsFromOcrText(
+        data.consensus_text || data.raw_text,
+        data.items,
+      );
+      const concentrationCandidates = data.items.map((item) => ({
+        name: item.name,
+        smiles: item.smiles,
+        declaredConcentration:
+          item.concentration ?? detectedDeclared.get(item.smiles.trim()) ?? null,
+      }));
+      const estimates = estimateOcrConcentrations(
+        concentrationCandidates,
+        OCR_REFERENCE_BY_SMILES,
+      );
+      setDrafts(data.items.map((item, index) => {
+        const estimate = estimates[index];
+        const declaredOnLabel = estimate.estimateBasis === "label-declared";
+        return {
+          ...item,
+          concentration: estimate.concentration,
+          selected: true,
+          estimated: !declaredOnLabel,
+          declaredOnLabel,
+          estimateBasis: estimate.estimateBasis,
+          estimateMin: estimate.minConcentration,
+          estimateMax: estimate.maxConcentration,
+          estimateConfidence: estimate.confidence,
+          inOnePercentTail: estimate.inOnePercentTail,
+          orderConstraintApplied: estimate.orderConstraintApplied,
+        };
+      }));
     } catch (cause: any) {
       if (cause?.name === "AbortError" || requestId !== scanRequestIdRef.current) return;
       setError(cause?.message || String(cause));
@@ -564,6 +639,10 @@ export default function LabelScanModal({
   const canImport = selected.length > 0 && !missingConcentration && total <= 100;
   const noText = !error && (result?.raw_text?.trim().length ?? 0) < 8;
   const usable = !error && drafts.length > 0;
+  const estimatedCount = selected.filter((item) => item.estimated).length;
+  const declaredCount = selected.filter((item) => item.declaredOnLabel).length;
+  const onePercentTailStart = drafts.findIndex((item) => item.inOnePercentTail);
+  const midpointRemainder = Math.max(0, Math.round((100 - total) * 100) / 100);
 
   return (
     <div
@@ -589,7 +668,7 @@ export default function LabelScanModal({
               อ่านส่วนผสมจากฉลาก
             </h2>
             <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
-              เลือกภาพฉลาก ตรวจสอบสาร และระบุความเข้มข้นก่อนเพิ่มเข้าสูตร
+              อ่านรายชื่อสารและประเมินช่วงความเข้มข้น จากนั้นให้ผู้ใช้ตรวจสอบก่อนเพิ่มเข้าสูตร
             </p>
           </div>
           <button
@@ -606,7 +685,7 @@ export default function LabelScanModal({
           {phase === "idle" && (
             <div className="space-y-3">
               <div className="rounded-xl bg-slate-50 px-3 py-2.5 text-[11px] leading-4 text-slate-500">
-                ใช้ภาพที่เห็นรายการ Ingredients ชัดเจน ตัวอักษรไม่เบลอ และไม่มีแสงสะท้อนทับข้อความ
+                ใช้ภาพที่เห็นรายการ Ingredients ชัดเจน ตัวอักษรไม่เบลอ และไม่มีแสงสะท้อนทับข้อความ หากฉลากพิมพ์ % ไว้ข้างชื่อสาร ระบบจะใช้ค่านั้นโดยตรง
               </div>
               <button
                 type="button"
@@ -657,9 +736,9 @@ export default function LabelScanModal({
                       </div>
                       <div className="rounded-xl bg-slate-50 px-3 py-2.5">
                         <div className="text-base font-semibold tabular-nums text-slate-700">
-                          {recognizedIngredientCount}
+                          {declaredCount}/{estimatedCount}
                         </div>
-                        <div className="mt-0.5 text-[10px] text-slate-500">สารที่ระบบรู้จัก</div>
+                        <div className="mt-0.5 text-[10px] text-slate-500">ฉลากระบุ % / ระบบประมาณ</div>
                       </div>
                       <div className="rounded-xl bg-slate-50 px-3 py-2.5">
                         <div className="text-base font-semibold tabular-nums text-slate-700">
@@ -687,12 +766,23 @@ export default function LabelScanModal({
                       <div className="flex gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2.5 text-[11px] leading-4 text-teal-800">
                         <SemanticIcon name="sparkles" className="mt-0.5 size-3.5 shrink-0" />
                         <div className="min-w-0 flex-1">
-                          <div className="font-semibold">ระบบประมาณความเข้มข้นให้แล้ว</div>
+                          <div className="font-semibold">ประเมินเป็นช่วง ไม่สร้างสูตรจริงขึ้นมาเอง</div>
                           <p className="mt-0.5 text-teal-700">
-                            อิงลำดับบนฉลาก แก้ไขได้ก่อนนำเข้า · ไม่ใช่สูตรจริงจากผู้ผลิต
+                            ถ้าฉลากพิมพ์ % ไว้ ระบบใช้ค่าที่อ่านได้โดยตรง; รายการที่ไม่มี % จะใช้ลำดับบนฉลากร่วมกับค่าอ้างอิงในคลังเพื่อสร้างช่วงที่เป็นไปได้
                           </p>
+                          <p className="mt-0.5 text-teal-700">
+                            ตัวเลขในช่อง % คือ <b>ค่ากลางสำหรับการคัดกรองเบื้องต้น</b> และแก้ไขได้ก่อนนำเข้า ไม่ใช่ความเข้มข้นจริงจากผู้ผลิต
+                          </p>
+                          {onePercentTailStart >= 0 && (
+                            <p className="mt-0.5 font-medium text-amber-700">
+                              ตั้งแต่ลำดับ {onePercentTailStart + 1} ระบบพบช่วงปลายที่มีแนวโน้ม ≤1% จึงไม่บังคับว่ารายการถัดไปต้องลดลงตามลำดับ
+                            </p>
+                          )}
                           <p className="mt-0.5 font-medium text-teal-700">
-                            Water/Base เติมส่วนที่เหลือประมาณ {Math.max(0, Math.round((100 - total) * 100) / 100)}%
+                            เหลือประมาณ {midpointRemainder}% สำหรับ Water/Base หรือรายการที่ไม่ได้เข้าสู่ QSAR
+                          </p>
+                          <p className="mt-0.5 text-[10px] text-teal-600">
+                            {result?.concentration_notice_th || "การประมาณนี้เป็น heuristic สำหรับ screening และต้องให้ผู้ใช้ยืนยันก่อนใช้งาน"}
                           </p>
                         </div>
                         <button
@@ -709,17 +799,19 @@ export default function LabelScanModal({
                     <div className="flex items-end justify-between gap-3">
                       <div>
                         <h3 className="text-xs font-semibold text-slate-700">สารที่ตรวจพบ</h3>
-                        <p className="mt-0.5 text-[10px] text-slate-400">เรียงตามลำดับบนฉลากจากมากไปน้อยโดยประมาณ</p>
+                        <p className="mt-0.5 text-[10px] text-slate-400">
+                          ก่อนช่วง ≤1% ใช้ลำดับเป็นข้อจำกัด; ช่วงปลายไม่บังคับลำดับและแสดง uncertainty แยก
+                        </p>
                       </div>
                       <span className="shrink-0 text-[10px] text-slate-400">เลือก {selected.length}/{drafts.length}</span>
                     </div>
                     <div className="overflow-hidden rounded-xl border border-slate-200 lg:max-h-[430px] lg:overflow-y-auto">
-                      <div className="sticky top-0 z-10 grid grid-cols-[24px_minmax(0,1fr)_72px] gap-2 bg-slate-50 px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:grid-cols-[32px_minmax(0,1fr)_90px] sm:px-3">
+                      <div className="sticky top-0 z-10 grid grid-cols-[24px_minmax(0,1fr)_108px] gap-2 bg-slate-50 px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:grid-cols-[32px_minmax(0,1fr)_142px] sm:px-3">
                         <span />
                         <span>สารที่ตรวจพบ</span>
                         <span className="text-right">
-                          <span className="sm:hidden">%</span>
-                          <span className="hidden sm:inline">ความเข้มข้น</span>
+                          <span className="sm:hidden">ค่ากลาง %</span>
+                          <span className="hidden sm:inline">ค่ากลาง / ช่วงที่ประมาณ</span>
                         </span>
                       </div>
                       {drafts.map((item, index) => (
@@ -733,7 +825,7 @@ export default function LabelScanModal({
                     </div>
 
                     <div className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-xs ${total > 100 ? "bg-rose-50 text-rose-700" : "bg-slate-50 text-slate-600"}`}>
-                      <span>{total > 100 ? "ผลรวมเกิน 100%" : "รวมความเข้มข้นที่เลือก"}</span>
+                      <span>{total > 100 ? "ผลรวมเกิน 100%" : estimatedCount > 0 ? "รวมค่ากลางที่เลือก" : "รวมความเข้มข้นที่เลือก"}</span>
                       <span className="font-mono font-semibold tabular-nums">{Math.round(total * 100) / 100}%</span>
                     </div>
                   </section>
@@ -898,7 +990,15 @@ export default function LabelScanModal({
             <button
               type="button"
               disabled={!canImport}
-              title={missingConcentration ? "กรอกความเข้มข้นของสารที่เลือกให้ครบ" : total > 100 ? "ผลรวมต้องไม่เกิน 100%" : "นำเข้ารายการที่ยืนยันแล้ว"}
+              title={
+                missingConcentration
+                  ? "กรอกความเข้มข้นของสารที่เลือกให้ครบ"
+                  : total > 100
+                    ? "ผลรวมต้องไม่เกิน 100%"
+                    : estimatedCount > 0
+                      ? "ใช้ค่ากลางของช่วงประมาณสำหรับการคัดกรองเบื้องต้น คุณยังแก้ไขแต่ละค่าได้ก่อนนำเข้า"
+                      : "นำเข้ารายการที่ยืนยันแล้ว"
+              }
               onClick={() => {
                 if (!canImport) return;
                 onImport(
@@ -919,7 +1019,7 @@ export default function LabelScanModal({
               }}
               className="h-9 rounded-lg bg-brand px-4 text-sm font-semibold text-white transition-colors hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-40"
             >
-              ยืนยันและนำเข้าสูตร
+              {estimatedCount > 0 ? "ใช้ค่ากลางและนำเข้าสูตร" : "ยืนยันและนำเข้าสูตร"}
             </button>
           )}
         </footer>
