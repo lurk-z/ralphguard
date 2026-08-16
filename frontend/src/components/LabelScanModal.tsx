@@ -585,8 +585,11 @@ export default function LabelScanModal({
       if (requestId !== scanRequestIdRef.current || controller.signal.aborted) return;
       setResult(data);
 
+      // Percentages are detected from the raw OCR pass because consensus_text
+      // is intentionally normalized to an ingredient-name list and may drop
+      // numeric annotations printed next to ingredients.
       const detectedDeclared = detectDeclaredConcentrationsFromOcrText(
-        data.consensus_text || data.raw_text,
+        data.raw_text,
         data.items,
       );
       const concentrationCandidates = data.items.map((item) => ({
