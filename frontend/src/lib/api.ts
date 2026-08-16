@@ -89,13 +89,18 @@ export type IngredientRegistryItem = {
   cas_number?: string | null;
   pubchem_cid?: number | null;
   canonical_smiles?: string | null;
+  inchi?: string | null;
+  inchikey?: string | null;
   molecular_formula?: string | null;
   molecular_weight?: number | null;
   substance_type: string;
   structure_status: string;
   qsar_eligible: boolean;
   assessment_method: string;
+  provenance?: Record<string, unknown>;
   verification_status: string;
+  reason_code?: string | null;
+  reason_th?: string | null;
 };
 
 export type Confidence = {
@@ -246,6 +251,16 @@ export const api = {
     });
     return http<IngredientRegistryItem[]>(`/api/substances/registry?${params.toString()}`, { signal }, 20000);
   },
+
+  // Resolve a name through the backend's PubChem read-through cache. The
+  // returned row is intentionally *not* promoted to verified training data;
+  // verification and evidence review remain separate curator actions.
+  lookupIngredientOnline: (name: string, refresh = false, signal?: AbortSignal) =>
+    http<IngredientRegistryItem>("/api/substances/registry/lookup", {
+      method: "POST",
+      body: JSON.stringify({ name: name.trim(), refresh }),
+      signal,
+    }, 20000),
 
   createAssessment: (
     formula: FormulaItem[],
