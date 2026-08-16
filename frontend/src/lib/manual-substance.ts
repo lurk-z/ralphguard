@@ -57,23 +57,43 @@ function registryItemsWithOnlineCache(
   return combined;
 }
 
+function pubchemProposedQsarEligible(item: IngredientRegistryItem): boolean {
+  const pubchem = item.provenance?.pubchem;
+  return Boolean(
+    pubchem &&
+      typeof pubchem === "object" &&
+      !Array.isArray(pubchem) &&
+      (pubchem as Record<string, unknown>).proposed_qsar_eligible === true,
+  );
+}
+
 /**
- * PubChem is used only to resolve an exact molecular identity/structure here.
- * A resolved PubChem compound is allowed into the formula only when the backend
- * has already classified it as a QSAR-eligible defined single substance.
- * Regulatory/toxicity evidence remains a separate reviewed training pipeline.
+ * Decide whether an online-resolved compound may be used for provisional
+ * runtime QSAR screening.
+ *
+ * Two cases are accepted:
+ * 1) a reviewed registry row already has qsar_eligible=true; or
+ * 2) a new PubChem candidate is still verification_status=pending, but the
+ *    backend deterministic chemistry guard stored
+ *    provenance.pubchem.proposed_qsar_eligible=true.
+ *
+ * Case (2) does NOT verify the registry row and does NOT make it training
+ * evidence. Toxicity labels remain behind the separate review/export pipeline.
  */
 export function manualOnlineSubstanceProblem(
   item: IngredientRegistryItem,
 ): string | null {
   if (!item.canonical_smiles?.trim() || item.structure_status !== "resolved") {
-    return "พบสารออนไลน์ แต่ยังไม่มีโครงสร้างโมเลกุลที่ยืนยันแล้วสำหรับการประเมิน";
+    return "พบสารออนไลน์ แต่ยังไม่มีโครงสร้างโมเลกุลที่ยืนยันได้สำหรับการคัดกรอง";
   }
   if (item.substance_type !== "defined_single_substance") {
     return "พบสารออนไลน์ แต่เป็นสารผสม/สารสกัด/องค์ประกอบไม่แน่นอน จึงไม่ใช้ SMILES โมเลกุลเดียวแทนสูตรจริง";
   }
-  if (!item.qsar_eligible || item.assessment_method !== "qsar") {
-    return "พบสารออนไลน์ แต่โครงสร้างนี้ไม่ผ่านเกณฑ์สำหรับ QSAR ของ RalphGuard";
+
+  const reviewedEligible = item.qsar_eligible === true;
+  const provisionalPubChemEligible = pubchemProposedQsarEligible(item);
+  if (!reviewedEligible && !provisionalPubChemEligible) {
+    return "พบสารออนไลน์ แต่โครงสร้างนี้ไม่ผ่านเกณฑ์เบื้องต้นสำหรับ QSAR ของ RalphGuard";
   }
   return null;
 }
@@ -81,10 +101,11 @@ export function manualOnlineSubstanceProblem(
 /**
  * Keep a small in-memory cache of PubChem-resolved candidates for the current
  * browser session. This bridges the asynchronous online lookup back into the
- * existing synchronous registry matching flow without pretending that the
- * candidate is a reviewed toxicity-training record.
+ * existing synchronous registry matching flow.
  *
- * Returns a user-facing problem when the candidate must not enter QSAR.
+ * A cached pending candidate is only a runtime structure candidate. Its
+ * verification_status remains pending in the backend and it is not exported as
+ * a toxicity-training label by this helper.
  */
 export function rememberManualOnlineSubstance(
   item: IngredientRegistryItem,
@@ -130,8 +151,8 @@ export function searchManualSubstanceSuggestions(
 
 /**
  * Resolves an exact identity from the verified registry already loaded for the
- * autocomplete plus QSAR-eligible PubChem candidates resolved during this
- * browser session. Local reviewed registry rows keep priority over online cache.
+ * autocomplete plus safe PubChem candidates resolved during this browser
+ * session. Local reviewed registry rows keep priority over online cache.
  */
 export function resolveManualSubstanceRegistryMatch({
   items,
