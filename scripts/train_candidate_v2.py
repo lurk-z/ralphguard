@@ -1,27 +1,18 @@
 """Train RalphGuard QSAR candidate-v2 models without touching production models.
 
-The candidate pipeline deliberately uses a stricter molecular-identity rule than
-the historical production trainer: InChIKey is the primary exact identity and
-canonical isomeric SMILES is the fallback. The same identity cannot be counted
-multiple times, and an identity with contradictory labels is excluded pending
-review.
+The candidate pipeline uses InChIKey as the primary exact molecular identity
+with canonical isomeric SMILES as fallback. Reviewed direct in-vivo NICE/ICE
+rows and reviewed PubChem regulatory-consensus rows may supplement the base
+endpoint datasets, but are kept provenance-separated and weighted differently.
 
-The script writes every artifact under scientific/models/candidate_v2/ and
-reports:
+Validation reported by this script:
+1. 5-fold stratified OOF for like-for-like comparison with production
+2. nested stratified CV (threshold chosen inside outer training folds)
+3. scaffold-grouped CV for stronger structural novelty stress testing
+4. optional external validation only when exact train/external identity overlap=0
 
-1. the same 5-fold stratified OOF protocol used by the current production report
-2. nested stratified CV where each outer-test sample uses a threshold chosen only
-   from the corresponding outer-training data
-3. scaffold-grouped outer CV for a stronger structural-novelty stress test
-4. optional independent external-set metrics, only when exact molecular overlap
-   with the candidate training pool is zero
-
-Recommended sequence:
-
-    python scripts/check_training_integrity.py --strict-conflicts --require-all
-    python scripts/train_candidate_v2.py
-
-This script NEVER promotes candidate files into scientific/models/*.pkl.
+All candidate artifacts are written under scientific/models/candidate_v2/.
+Production scientific/models/*.pkl files are never modified.
 """
 from __future__ import annotations
 
@@ -56,6 +47,7 @@ import data_prep as training  # noqa: E402
 
 OUT = BASE / "scientific" / "models" / "candidate_v2"
 EXTERNAL_DIR = BASE / "data" / "external"
+CURATED_DIR = BASE / "data" / "curated"
 PRODUCTION_REPORT = BASE / "scientific" / "models" / "validation_report.json"
 
 
@@ -68,7 +60,6 @@ def normalize_binary_label(value: Any) -> int | None:
 
 
 def identity_key(smiles: str) -> tuple[str, str] | None:
-    """Return exact identity key + canonical isomeric SMILES for a valid molecule."""
     molecule = Chem.MolFromSmiles(str(smiles or "").strip())
     if molecule is None:
         return None
@@ -81,6 +72,12 @@ def identity_key(smiles: str) -> tuple[str, str] | None:
     return (inchikey or f"SMILES:{canonical}", canonical)
 
 
+def _default_weight(origin: str) -> float:
+    if origin == "pubchem_reviewed":
+        return 0.5
+    return 1.0
+
+
 def _source_frame(path: Path, origin: str) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
@@ -88,7 +85,7 @@ def _source_frame(path: Path, origin: str) -> pd.DataFrame:
     missing = {"smiles", "label"}.difference(frame.columns)
     if missing:
         raise ValueError(f"{path} missing required columns: {sorted(missing)}")
-    if origin == "pubchem_reviewed":
+    if origin in {"pubchem_reviewed", "nice_reviewed"}:
         reviewed_required = {"source", "evidence_ids"}
         reviewed_missing = reviewed_required.difference(frame.columns)
         if reviewed_missing:
@@ -97,34 +94,39 @@ def _source_frame(path: Path, origin: str) -> pd.DataFrame:
             )
     frame["training_origin"] = origin
     frame["source_file"] = str(path.relative_to(BASE))
+    default_weight = _default_weight(origin)
     if "sample_weight" not in frame.columns:
-        frame["sample_weight"] = 1.0 if origin == "base" else 0.5
+        frame["sample_weight"] = default_weight
     frame["sample_weight"] = pd.to_numeric(
         frame["sample_weight"], errors="coerce"
-    ).fillna(1.0 if origin == "base" else 0.5).clip(0.05, 1.0)
+    ).fillna(default_weight).clip(0.05, 1.0)
     return frame
 
 
 def load_candidate_endpoint(endpoint: str, feature_mode: str):
-    """Load/clean one endpoint using the same exact-identity policy as the audit.
+    """Load one endpoint with exact-identity dedup/conflict handling.
 
-    Duplicate preference is deterministic: a base row wins over a supplemental
-    weak-label row when both describe the same identity with the same label.
-    Within the same origin, the highest sample weight wins. Contradictory labels
-    for an exact identity are removed entirely until evidence is reviewed.
+    Evidence priority for duplicate rows with the same label:
+      1) base dataset
+      2) human-reviewed direct in-vivo NICE/ICE evidence
+      3) reviewed PubChem regulatory-consensus weak label
+
+    If the same exact identity has contradictory labels anywhere in the combined
+    pool, that identity is excluded entirely until the evidence is reviewed.
     """
     base_path = training.DATASETS[endpoint]
-    supplemental_path = training.CURATED_PUBCHEM_DATASETS[endpoint]
+    pubchem_path = training.CURATED_PUBCHEM_DATASETS[endpoint]
+    nice_path = CURATED_DIR / f"nice_verified_{endpoint}.csv"
+
     base = _source_frame(base_path, "base")
-    supplemental = _source_frame(supplemental_path, "pubchem_reviewed")
-    frames = [frame for frame in (base, supplemental) if not frame.empty]
+    nice = _source_frame(nice_path, "nice_reviewed")
+    pubchem = _source_frame(pubchem_path, "pubchem_reviewed")
+    frames = [frame for frame in (base, nice, pubchem) if not frame.empty]
     if not frames:
         raise RuntimeError(f"No training rows available for endpoint {endpoint}")
 
     frame = pd.concat(frames, ignore_index=True, sort=False)
     raw_rows = len(frame)
-    supplemental_input_rows = len(supplemental)
-
     identities = frame["smiles"].map(identity_key)
     frame["identity_key"] = identities.map(lambda item: item[0] if item else None)
     frame["canonical"] = identities.map(lambda item: item[1] if item else None)
@@ -142,7 +144,7 @@ def load_candidate_endpoint(endpoint: str, feature_mode: str):
 
     rows_after_conflict = len(frame)
     frame["origin_priority"] = frame["training_origin"].map(
-        {"base": 0, "pubchem_reviewed": 1}
+        {"base": 0, "nice_reviewed": 1, "pubchem_reviewed": 2}
     ).fillna(9)
     frame = frame.sort_values(
         ["identity_key", "origin_priority", "sample_weight"],
@@ -179,18 +181,19 @@ def load_candidate_endpoint(endpoint: str, feature_mode: str):
     stats = {
         "raw_rows_before_identity_audit": int(raw_rows),
         "base_input_rows": int(len(base)),
-        "supplemental_input_rows": int(supplemental_input_rows),
+        "nice_reviewed_input_rows": int(len(nice)),
+        "pubchem_reviewed_input_rows": int(len(pubchem)),
         "invalid_structure_rows": invalid_structure_rows,
         "invalid_label_rows": invalid_label_rows,
         "conflicting_identity_count": int(len(conflict_keys)),
         "duplicate_rows_beyond_first": duplicate_rows_beyond_first,
         "unique_exact_identities_retained": int(len(labels)),
-        "supplemental_unique_identities_retained": int(origin_counts.get("pubchem_reviewed", 0)),
+        "nice_reviewed_unique_identities_retained": int(origin_counts.get("nice_reviewed", 0)),
+        "pubchem_reviewed_unique_identities_retained": int(origin_counts.get("pubchem_reviewed", 0)),
         "training_sources": origin_counts,
         "identity_policy": "InChIKey primary; canonical isomeric SMILES fallback",
-        "duplicate_preference": "base evidence before supplemental weak label; then highest sample weight",
+        "duplicate_preference": "base > reviewed direct in-vivo NICE/ICE > PubChem consensus weak label; then highest sample weight",
     }
-
     return (
         np.vstack(features).astype(float),
         np.vstack(morgan_fingerprints),
@@ -217,7 +220,6 @@ def metric_dict(y: np.ndarray, probabilities: np.ndarray, predictions: np.ndarra
 
 
 def inner_threshold(X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray | None) -> float:
-    """Choose Youden threshold using only data supplied to this function."""
     class_counts = np.bincount(y.astype(int), minlength=2)
     n_splits = int(min(5, class_counts.min()))
     if n_splits < 2:
@@ -231,11 +233,7 @@ def inner_threshold(X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray | No
     return training.youden_threshold(y, probabilities)
 
 
-def nested_stratified_cv(
-    X: np.ndarray,
-    y: np.ndarray,
-    sample_weight: np.ndarray | None,
-) -> dict[str, Any]:
+def nested_stratified_cv(X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray | None) -> dict[str, Any]:
     class_counts = np.bincount(y.astype(int), minlength=2)
     if class_counts.min() < 5:
         return {"status": "unavailable", "reason": "fewer than five samples in one class"}
@@ -243,7 +241,6 @@ def nested_stratified_cv(
     probabilities = np.zeros(len(y), dtype=float)
     predictions = np.zeros(len(y), dtype=int)
     fold_thresholds: list[float] = []
-
     for train_idx, test_idx in outer.split(X, y):
         train_weight = sample_weight[train_idx] if sample_weight is not None else None
         threshold = inner_threshold(X[train_idx], y[train_idx], train_weight)
@@ -252,17 +249,14 @@ def nested_stratified_cv(
         probabilities[test_idx] = fold_probability
         predictions[test_idx] = (fold_probability >= threshold).astype(int)
         fold_thresholds.append(float(threshold))
-
     metrics = metric_dict(y, probabilities, predictions)
-    metrics.update(
-        {
-            "status": "complete",
-            "protocol": "5-fold nested stratified CV",
-            "threshold_policy": "threshold selected inside each outer training fold only",
-            "outer_fold_thresholds": [round(value, 3) for value in fold_thresholds],
-            "median_outer_threshold": round(float(np.median(fold_thresholds)), 3),
-        }
-    )
+    metrics.update({
+        "status": "complete",
+        "protocol": "5-fold nested stratified CV",
+        "threshold_policy": "threshold selected inside each outer training fold only",
+        "outer_fold_thresholds": [round(value, 3) for value in fold_thresholds],
+        "median_outer_threshold": round(float(np.median(fold_thresholds)), 3),
+    })
     return metrics
 
 
@@ -282,38 +276,29 @@ def scaffold_groups(smiles: list[str]) -> tuple[np.ndarray, dict[str, Any]]:
         else:
             groups.append(f"acyclic:{canonical}")
             acyclic_count += 1
-    array = np.asarray(groups, dtype=object)
-    return array, {
+    return np.asarray(groups, dtype=object), {
         "unique_groups": int(len(set(groups))),
         "ring_scaffold_rows": ring_scaffold_count,
         "acyclic_rows_unique_group": acyclic_count,
     }
 
 
-def scaffold_grouped_cv(
-    X: np.ndarray,
-    y: np.ndarray,
-    smiles: list[str],
-    sample_weight: np.ndarray | None,
-) -> dict[str, Any]:
+def scaffold_grouped_cv(X: np.ndarray, y: np.ndarray, smiles: list[str], sample_weight: np.ndarray | None) -> dict[str, Any]:
     groups, group_summary = scaffold_groups(smiles)
     if len(set(groups)) < 5:
         return {"status": "unavailable", "reason": "fewer than five scaffold groups", **group_summary}
-
     try:
         outer = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42)
         probabilities = np.zeros(len(y), dtype=float)
         predictions = np.zeros(len(y), dtype=int)
         fold_thresholds: list[float] = []
         fold_group_overlap: list[int] = []
-
         for train_idx, test_idx in outer.split(X, y, groups=groups):
             train_groups = set(groups[train_idx])
             test_groups = set(groups[test_idx])
             fold_group_overlap.append(len(train_groups.intersection(test_groups)))
             if len(np.unique(y[train_idx])) < 2:
                 raise ValueError("outer scaffold training fold contains only one class")
-
             train_weight = sample_weight[train_idx] if sample_weight is not None else None
             threshold = inner_threshold(X[train_idx], y[train_idx], train_weight)
             members = training.fit_members(X[train_idx], y[train_idx], train_weight)
@@ -321,41 +306,30 @@ def scaffold_grouped_cv(
             probabilities[test_idx] = fold_probability
             predictions[test_idx] = (fold_probability >= threshold).astype(int)
             fold_thresholds.append(float(threshold))
-
         metrics = metric_dict(y, probabilities, predictions)
-        metrics.update(
-            {
-                "status": "complete",
-                "protocol": "5-fold StratifiedGroupKFold by Bemis-Murcko scaffold",
-                "threshold_policy": "threshold selected from each outer training fold only",
-                "outer_fold_thresholds": [round(value, 3) for value in fold_thresholds],
-                "group_overlap_per_fold": fold_group_overlap,
-                "exact_group_overlap_zero": all(value == 0 for value in fold_group_overlap),
-                "note": "acyclic structures receive structure-specific groups because their Bemis-Murcko scaffold is empty",
-                **group_summary,
-            }
-        )
+        metrics.update({
+            "status": "complete",
+            "protocol": "5-fold StratifiedGroupKFold by Bemis-Murcko scaffold",
+            "threshold_policy": "threshold selected from each outer training fold only",
+            "outer_fold_thresholds": [round(value, 3) for value in fold_thresholds],
+            "group_overlap_per_fold": fold_group_overlap,
+            "exact_group_overlap_zero": all(value == 0 for value in fold_group_overlap),
+            "note": "acyclic structures receive structure-specific groups because their Bemis-Murcko scaffold is empty",
+            **group_summary,
+        })
         return metrics
     except ValueError as exc:
         return {"status": "unavailable", "reason": str(exc), **group_summary}
 
 
-def evaluate_external(
-    endpoint: str,
-    feature_mode: str,
-    train_identity_keys: list[str],
-    final_members: list[Any],
-    production_threshold: float,
-) -> dict[str, Any]:
+def evaluate_external(endpoint: str, feature_mode: str, train_identity_keys: list[str], final_members: list[Any], production_threshold: float) -> dict[str, Any]:
     path = EXTERNAL_DIR / f"{endpoint}.csv"
     if not path.exists():
         return {"status": "not_provided", "path": str(path.relative_to(BASE))}
-
     frame = pd.read_csv(path)
     missing = {"smiles", "label"}.difference(frame.columns)
     if missing:
         return {"status": "invalid_file", "path": str(path.relative_to(BASE)), "reason": f"missing columns: {sorted(missing)}"}
-
     train_ids = set(train_identity_keys)
     rows: list[tuple[str, str, int]] = []
     invalid = 0
@@ -366,19 +340,13 @@ def evaluate_external(
             invalid += 1
             continue
         rows.append((identity[0], identity[1], label))
-
     label_sets: dict[str, set[int]] = {}
     canonical_by_identity: dict[str, str] = {}
     for key, canonical, label in rows:
         label_sets.setdefault(key, set()).add(label)
         canonical_by_identity.setdefault(key, canonical)
     external_conflicts = {key for key, labels in label_sets.items() if len(labels) > 1}
-    unique = {
-        key: (canonical_by_identity[key], next(iter(labels)))
-        for key, labels in label_sets.items()
-        if key not in external_conflicts
-    }
-
+    unique = {key: (canonical_by_identity[key], next(iter(labels))) for key, labels in label_sets.items() if key not in external_conflicts}
     overlap = sorted(set(unique).intersection(train_ids))
     if overlap:
         return {
@@ -390,7 +358,6 @@ def evaluate_external(
             "external_conflicting_identity_count": len(external_conflicts),
             "message": "External metrics not computed because exact molecular identities overlap training data.",
         }
-
     features = []
     labels = []
     for canonical, label in unique.values():
@@ -401,12 +368,10 @@ def evaluate_external(
         labels.append(label)
     if not features:
         return {"status": "invalid_file", "path": str(path.relative_to(BASE)), "reason": "no valid external structures"}
-
     X_external = np.vstack(features).astype(float)
     y_external = np.asarray(labels, dtype=int)
     probabilities, _ = training.ensemble_proba(final_members, X_external)
     predictions = (probabilities >= production_threshold).astype(int)
-    metrics = metric_dict(y_external, probabilities, predictions)
     return {
         "status": "complete",
         "path": str(path.relative_to(BASE)),
@@ -415,7 +380,7 @@ def evaluate_external(
         "external_conflicting_identity_count": len(external_conflicts),
         "unique_external_structures": len(labels),
         "threshold_from_training_oof": round(float(production_threshold), 3),
-        "metrics": metrics,
+        "metrics": metric_dict(y_external, probabilities, predictions),
     }
 
 
@@ -433,16 +398,12 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--endpoint", choices=sorted(training.DATASETS), help="train one endpoint only; default trains all four")
     args = parser.parse_args()
-
     missing = [
-        path.name
-        for endpoint, path in training.DATASETS.items()
+        path.name for endpoint, path in training.DATASETS.items()
         if (args.endpoint is None or endpoint == args.endpoint) and not path.exists()
     ]
     if missing:
-        raise RuntimeError(
-            "Candidate training requires the base raw datasets on this machine. Missing: " + ", ".join(missing)
-        )
+        raise RuntimeError("Candidate training requires the base raw datasets on this machine. Missing: " + ", ".join(missing))
 
     OUT.mkdir(parents=True, exist_ok=True)
     production_reference = load_production_reference()
@@ -453,6 +414,11 @@ def main() -> int:
         "production_models_modified": False,
         "promotion_status": "manual_review_required",
         "identity_policy": "InChIKey primary; canonical isomeric SMILES fallback",
+        "training_evidence_policy": {
+            "base": "weight 1.0",
+            "nice_reviewed": "human-reviewed direct in-vivo reference evidence, weight 1.0",
+            "pubchem_reviewed": "regulatory consensus weak label, normally weight 0.5",
+        },
         "protocol_notes": {
             "oof": "same 5-fold stratified OOF metric style as current production report for like-for-like comparison",
             "nested": "outer-test predictions use thresholds selected only from the outer-training data",
@@ -467,11 +433,9 @@ def main() -> int:
         X, X_morgan, y, smiles, sample_weight, train_identity_keys, data_stats = load_candidate_endpoint(endpoint, feature_mode)
         if len(np.unique(y)) < 2:
             raise ValueError(f"{endpoint} training data must contain both positive and negative labels")
-
         oof_metrics, final_threshold = training.evaluate_oof(X, y, sample_weight)
         nested_metrics = nested_stratified_cv(X, y, sample_weight)
         scaffold_metrics = scaffold_grouped_cv(X, y, smiles, sample_weight)
-
         final_members = training.fit_members(X, y, sample_weight)
         external = evaluate_external(endpoint, feature_mode, train_identity_keys, final_members, final_threshold)
 
@@ -486,11 +450,7 @@ def main() -> int:
             "train_smiles": smiles,
             "train_identity_keys": train_identity_keys,
             "metrics": oof_metrics,
-            "validation": {
-                "nested_stratified": nested_metrics,
-                "scaffold_grouped": scaffold_metrics,
-                "external": external,
-            },
+            "validation": {"nested_stratified": nested_metrics, "scaffold_grouped": scaffold_metrics, "external": external},
             "endpoint": endpoint,
             "label": training.ENDPOINT_NAMES[endpoint],
             "data_integrity": data_stats,
@@ -514,13 +474,7 @@ def main() -> int:
                     delta[key] = round(float(new) - float(old), 3)
 
         report["endpoints"][endpoint] = {
-            "dataset": {
-                "n": int(len(y)),
-                "positive": int(y.sum()),
-                "negative": int((y == 0).sum()),
-                "feature_mode": feature_mode,
-                **data_stats,
-            },
+            "dataset": {"n": int(len(y)), "positive": int(y.sum()), "negative": int((y == 0).sum()), "feature_mode": feature_mode, **data_stats},
             "candidate_oof": oof_metrics,
             "candidate_nested_stratified": nested_metrics,
             "candidate_scaffold_grouped": scaffold_metrics,
@@ -535,9 +489,7 @@ def main() -> int:
             flush=True,
         )
 
-    (OUT / "validation_report.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    (OUT / "validation_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"candidate report: {OUT / 'validation_report.json'}")
     print("Production model files were not modified. Review candidate metrics before promotion.")
     return 0
