@@ -1,15 +1,7 @@
 """Build a reviewer-facing queue from staged NICE/ICE in-vivo evidence.
 
-Input:
-    /data/staging/nice_reference_evidence.jsonl
-
-Outputs:
-    /data/staging/nice_review_queue.csv
-    /data/staging/nice_harmonization_summary.json
-
-The queue contains *candidate* labels only. Nothing is promoted to model
-training until a reviewer explicitly sets review_status=verified and supplies
-reviewed_label (0/1), then runs promote_nice_review_queue.py.
+The queue contains candidate labels only. Nothing enters model training until a
+reviewer explicitly verifies the endpoint label and reviewer attribution.
 """
 from __future__ import annotations
 
@@ -28,6 +20,23 @@ from app.services.nice_evidence import aggregate_endpoint
 DEFAULT_INPUT = Path("/data/staging/nice_reference_evidence.jsonl")
 DEFAULT_QUEUE = Path("/data/staging/nice_review_queue.csv")
 DEFAULT_SUMMARY = Path("/data/staging/nice_harmonization_summary.json")
+
+
+def evidence_preview(records: list[dict], limit: int = 8) -> str:
+    """Compact source values for spreadsheet/manual review without hiding raw provenance."""
+    previews = []
+    for record in records[:limit]:
+        endpoint = str(record.get("ice_endpoint") or "").strip()
+        value = record.get("ice_value")
+        unit = str(record.get("ice_unit") or "").strip()
+        assay = str(record.get("assay") or "").strip()
+        text = f"{assay}: {endpoint} = {value}"
+        if unit:
+            text += f" {unit}"
+        previews.append(text[:500])
+    if len(records) > limit:
+        previews.append(f"… +{len(records) - limit} record(s); see staging_lines")
+    return " || ".join(previews)
 
 
 def main() -> int:
@@ -74,11 +83,13 @@ def main() -> int:
         mapped_records = result.get("records") or []
         rules = sorted({str(item.get("mapping_rule")) for item in mapped_records if item.get("mapping_rule")})
         assays = sorted({str(item.get("assay")) for item in records if item.get("assay")})
-        source_ids = sorted({
-            str(item.get("ice_dtxsid") or item.get("ice_casrn") or "").strip()
-            for item in records
-            if str(item.get("ice_dtxsid") or item.get("ice_casrn") or "").strip()
-        })
+        source_ids = sorted(
+            {
+                str(item.get("ice_dtxsid") or item.get("ice_casrn") or "").strip()
+                for item in records
+                if str(item.get("ice_dtxsid") or item.get("ice_casrn") or "").strip()
+            }
+        )
         line_ids = [str(item.get("staging_line")) for item in records]
 
         rows.append(
@@ -92,11 +103,11 @@ def main() -> int:
                 "mapping_reason": result.get("mapping_reason") or "",
                 "mapping_rules": json.dumps(rules, ensure_ascii=False),
                 "assays": json.dumps(assays, ensure_ascii=False),
+                "evidence_preview": evidence_preview(records),
                 "record_count": int(result.get("record_count") or len(records)),
                 "mapped_record_count": int(result.get("mapped_record_count") or 0),
                 "source_identifiers": json.dumps(source_ids, ensure_ascii=False),
                 "staging_lines": json.dumps(line_ids),
-                # Human-review gate. Reviewer must fill these explicitly.
                 "review_status": "pending",
                 "reviewed_label": "",
                 "reviewer_note": "",
@@ -116,6 +127,7 @@ def main() -> int:
         "mapping_reason",
         "mapping_rules",
         "assays",
+        "evidence_preview",
         "record_count",
         "mapped_record_count",
         "source_identifiers",
