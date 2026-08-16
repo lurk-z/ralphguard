@@ -18,6 +18,16 @@ def test_pubchem_structure_is_not_presented_as_training_label() -> None:
     assert "not automatically converted to label 0" in missing
 
 
+def test_nice_evidence_is_presented_as_review_gated() -> None:
+    source = models.EVIDENCE_SOURCES["nice_reference_evidence"]
+    role = str(source["role"]).casefold()
+    assert "reviewed label" in role
+    assert "reviewer identity" in role
+    policy = str(models.DATA_INTEGRITY_POLICY["nice_role"]).casefold()
+    assert "staging" in policy
+    assert "human review gate" in policy
+
+
 def test_external_policy_requires_zero_exact_identity_overlap() -> None:
     policy = str(models.DATA_INTEGRITY_POLICY["external_overlap"]).casefold()
     assert "zero exact molecular-identity overlap" in policy
