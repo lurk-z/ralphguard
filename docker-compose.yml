@@ -86,6 +86,20 @@ services:
       - ./data:/data
     command: python worker.py
 
+  # -------------- Reproducible QSAR Trainer --------------
+  # Not started by normal `docker compose up`. Use the `training` profile for
+  # audits/candidate retraining so RDKit/scikit-learn versions match the
+  # scientific image and the repository is mounted read/write for reports.
+  trainer:
+    profiles: ["training"]
+    build:
+      context: ./scientific
+      dockerfile: Dockerfile
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    command: python scripts/train_candidate_v2.py
+
 volumes:
   postgres-data:
   redis-data:
