@@ -190,8 +190,11 @@ def _acute_ld50_vote(record: dict[str, Any], text: str) -> HarmonizedVote:
         return HarmonizedVote(1, "auto_candidate", "acute_ld50_upper_le_2000", "oral LD50 upper bound is <= 2000 mg/kg", value=mgkg, unit=unit)
     if operator == ">" and mgkg >= boundary:
         return HarmonizedVote(0, "auto_candidate", "acute_ld50_lower_gt_2000", "oral LD50 is strictly > 2000 mg/kg", value=mgkg, unit=unit)
-    if operator == ">=" and mgkg >= boundary:
-        return HarmonizedVote(None, "review_required", "acute_ld50_boundary_ambiguous", ">= 2000 mg/kg includes the positive boundary value 2000", value=mgkg, unit=unit)
+    if operator == ">=":
+        if mgkg > boundary:
+            return HarmonizedVote(0, "auto_candidate", "acute_ld50_lower_above_2000", "oral LD50 lower bound is above 2000 mg/kg", value=mgkg, unit=unit)
+        if mgkg == boundary:
+            return HarmonizedVote(None, "review_required", "acute_ld50_boundary_ambiguous", ">= 2000 mg/kg includes the positive boundary value 2000", value=mgkg, unit=unit)
     if operator == "=":
         return HarmonizedVote(
             1 if mgkg <= boundary else 0,
