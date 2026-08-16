@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { SubstanceProfile } from "../src/lib/api.ts";
+import type { IngredientRegistryItem, SubstanceProfile } from "../src/lib/api.ts";
 import {
+  manualOnlineSubstanceProblem,
+  rememberManualOnlineSubstance,
   resolveManualSubstanceMatch,
   resolveManualSubstanceRegistryMatch,
   searchManualSubstanceSuggestions,
@@ -17,6 +19,33 @@ const profile = (name: string, smiles: string): SubstanceProfile => ({
   assessment_method: "qsar",
   verification_status: "verified",
   hazards: [],
+});
+
+const registryItem = (
+  id: number,
+  canonicalName: string,
+  smiles: string,
+  synonyms: string[] = [],
+  overrides: Partial<IngredientRegistryItem> = {},
+): IngredientRegistryItem => ({
+  id,
+  inci_name: null,
+  canonical_name: canonicalName,
+  thai_names: [],
+  synonyms,
+  cas_number: null,
+  pubchem_cid: null,
+  canonical_smiles: smiles,
+  inchi: null,
+  inchikey: null,
+  molecular_formula: null,
+  molecular_weight: null,
+  substance_type: "defined_single_substance",
+  structure_status: "resolved",
+  qsar_eligible: true,
+  assessment_method: "qsar",
+  verification_status: "verified",
+  ...overrides,
 });
 
 test("accepts a registry match from either a name or a SMILES input", () => {
@@ -78,28 +107,6 @@ test("rejects a substance that is absent from the registry", () => {
 });
 
 test("suggests only displayed registry names that start with the query", () => {
-  const registryItem = (
-    id: number,
-    canonicalName: string,
-    smiles: string,
-    synonyms: string[] = [],
-  ) => ({
-    id,
-    inci_name: null,
-    canonical_name: canonicalName,
-    thai_names: [],
-    synonyms,
-    cas_number: null,
-    pubchem_cid: null,
-    canonical_smiles: smiles,
-    molecular_formula: null,
-    molecular_weight: null,
-    substance_type: "defined_single_substance",
-    structure_status: "resolved",
-    qsar_eligible: true,
-    assessment_method: "qsar",
-    verification_status: "verified",
-  });
   const glycerin = registryItem(1, "Glycerin", "OCC(O)CO", ["Glycerol"]);
   const propyleneGlycol = registryItem(2, "Propylene Glycol", "CC(O)CO");
   const ethanol = registryItem(3, "Ethanol", "CCO");
@@ -122,5 +129,75 @@ test("suggests only displayed registry names that start with the query", () => {
     items: [glycerin, propyleneGlycol],
     name: "Glycerin",
     smiles: "CC(O)CO",
+  }).item, null);
+});
+
+test("PubChem-resolved QSAR candidate is available to the existing registry resolver", () => {
+  const azelaicAcid = registryItem(
+    90001,
+    "Azelaic acid",
+    "O=C(O)CCCCCCCC(=O)O",
+    ["Nonanedioic acid"],
+    {
+      pubchem_cid: 2266,
+      inchikey: "BDJRBEYXGGNYIS-UHFFFAOYSA-N",
+      verification_status: "pending",
+    },
+  );
+
+  assert.equal(rememberManualOnlineSubstance(azelaicAcid), null);
+
+  const byName = resolveManualSubstanceRegistryMatch({
+    items: [],
+    name: "Azelaic acid",
+    smiles: "",
+  });
+  assert.equal(byName.item?.pubchem_cid, 2266);
+  assert.equal(byName.item?.canonical_smiles, "O=C(O)CCCCCCCC(=O)O");
+
+  const suggestions = searchManualSubstanceSuggestions([], "azel");
+  assert.equal(suggestions[0]?.pubchem_cid, 2266);
+});
+
+test("online fallback rejects mixtures and non-QSAR structures before caching", () => {
+  const mixture = registryItem(
+    90002,
+    "Botanical Extract",
+    "CCO",
+    [],
+    {
+      substance_type: "mixture",
+      qsar_eligible: false,
+      assessment_method: "knowledge_base",
+      verification_status: "pending",
+    },
+  );
+  const inorganic = registryItem(
+    90003,
+    "Unsupported salt",
+    "[Na+].[Cl-]",
+    [],
+    {
+      substance_type: "defined_single_substance",
+      qsar_eligible: false,
+      assessment_method: "knowledge_base",
+      verification_status: "pending",
+    },
+  );
+
+  assert.match(manualOnlineSubstanceProblem(mixture) ?? "", /สารผสม/);
+  assert.match(manualOnlineSubstanceProblem(inorganic) ?? "", /ไม่ผ่านเกณฑ์/);
+  assert.notEqual(rememberManualOnlineSubstance(mixture), null);
+  assert.notEqual(rememberManualOnlineSubstance(inorganic), null);
+
+  assert.equal(resolveManualSubstanceRegistryMatch({
+    items: [],
+    name: "Botanical Extract",
+    smiles: "",
+  }).item, null);
+  assert.equal(resolveManualSubstanceRegistryMatch({
+    items: [],
+    name: "Unsupported salt",
+    smiles: "",
   }).item, null);
 });
