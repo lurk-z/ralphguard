@@ -225,7 +225,10 @@ export default function ManualSubstanceModal({
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[10px] leading-4 text-slate-500">
             <div className="font-medium text-slate-600">ลำดับการค้นหา: RalphGuard Registry → PubChem</div>
             <div className="mt-1">
-              PubChem ใช้ยืนยันตัวตนและโครงสร้างเท่านั้น ระบบรับเข้า formula เฉพาะ defined single substance ที่ผ่านเกณฑ์ QSAR และเริ่มความเข้มข้นที่ 0%
+              PubChem ใช้ยืนยันตัวตนและโครงสร้างเท่านั้น สารออนไลน์ใหม่ต้องเป็น defined single substance และผ่าน chemical eligibility ก่อนใช้คัดกรอง QSAR
+            </div>
+            <div className="mt-1 text-slate-400">
+              สารที่เพิ่งค้นจาก PubChem ยังมีสถานะ pending จนกว่าจะ review และจะไม่ถูกนำไปเป็น toxicity label หรือข้อมูลฝึกอัตโนมัติ
             </div>
           </div>
 
