@@ -69,18 +69,14 @@ def _flatten_text(value: Any) -> list[str]:
 
 
 def _record_text(record: dict[str, Any]) -> str:
-    fields = [
-        record.get("ice_endpoint"),
-        record.get("ice_value"),
-        record.get("ice_unit"),
-        record.get("raw_record"),
-    ]
+    # Explicit positive/negative classification is intentionally limited to the
+    # endpoint/value fields. Searching every raw field could mistake phrases such
+    # as "negative control" for a chemical-level negative classification.
+    fields = [record.get("ice_endpoint"), record.get("ice_value"), record.get("ice_unit")]
     return " | ".join(_flatten_text(fields)).casefold()
 
 
 def _explicit_binary(text: str, endpoint: str) -> HarmonizedVote | None:
-    # Negative phrases must be checked first because words such as
-    # "non-irritant" still contain the substring "irritant".
     negative_common = (
         "not classified",
         "not-classified",
@@ -119,8 +115,6 @@ def _explicit_binary(text: str, endpoint: str) -> HarmonizedVote | None:
             return HarmonizedVote(1, "auto_candidate", "explicit_sensitizer", "explicit sensitization-positive classification")
 
     if endpoint == "acute":
-        # RalphGuard acute training currently treats GHS oral acute categories
-        # represented by H300/H301/H302 (categories 1-4) as positive.
         if re.search(r"\b(?:ghs\s*)?(?:category|cat)\s*[1-4]\b", text):
             return HarmonizedVote(1, "auto_candidate", "explicit_acute_category_1_4", "explicit acute oral GHS category 1-4")
         if re.search(r"\b(?:ghs\s*)?(?:category|cat)\s*5\b", text):
@@ -152,22 +146,23 @@ def _extract_operator(text: str) -> str:
 
 def _normalize_mass_per_kg(value: float, text: str) -> tuple[float | None, str | None]:
     normalized = text.replace("μ", "u").replace("µ", "u").casefold()
+    # Check micrograms before grams because the literal substring "g/kg" also
+    # occurs inside "ug/kg".
+    if "ug/kg" in normalized or "ug kg" in normalized or "ug·kg" in normalized:
+        return value / 1000.0, "mg/kg"
     if "mg/kg" in normalized or "mg kg" in normalized or "mg·kg" in normalized:
         return value, "mg/kg"
     if "g/kg" in normalized or "g kg" in normalized or "g·kg" in normalized:
         return value * 1000.0, "mg/kg"
-    if "ug/kg" in normalized or "ug kg" in normalized:
-        return value / 1000.0, "mg/kg"
     return None, None
 
 
-def _llna_vote(record: dict[str, Any], text: str) -> HarmonizedVote:
+def _llna_vote(record: dict[str, Any]) -> HarmonizedVote:
     endpoint_text = str(record.get("ice_endpoint") or "").casefold()
     raw = record.get("raw_record") or {}
     combined = " | ".join(_flatten_text([record.get("ice_value"), raw]))
     if "stimulation index" not in endpoint_text and not re.search(r"\bsi\b", endpoint_text):
         return HarmonizedVote(None, "review_required", "llna_unmapped_endpoint", "LLNA record does not expose an explicit classification or Stimulation Index field")
-
     value = _extract_number(combined)
     if value is None:
         return HarmonizedVote(None, "review_required", "llna_si_missing", "LLNA Stimulation Index could not be parsed")
@@ -182,7 +177,6 @@ def _acute_ld50_vote(record: dict[str, Any], text: str) -> HarmonizedVote:
     value_text = " | ".join(_flatten_text([record.get("ice_value"), record.get("ice_unit"), raw]))
     if "ld50" not in endpoint_text and "ld50" not in text and "lethal dose" not in text:
         return HarmonizedVote(None, "review_required", "acute_unmapped_endpoint", "acute oral record is not an explicit classification and does not expose LD50")
-
     value = _extract_number(value_text)
     if value is None:
         return HarmonizedVote(None, "review_required", "acute_ld50_missing", "LD50 numeric value could not be parsed")
@@ -229,7 +223,7 @@ def harmonize_record(record: dict[str, Any]) -> dict[str, Any]:
                 "OECD 404/405 interpretation depends on lesion severity/reversibility; numeric Draize observations are not auto-binarized",
             )
         elif endpoint == "sens" and assay == "Murine Local Lymph Node Assay (LLNA)":
-            vote = _llna_vote(record, text)
+            vote = _llna_vote(record)
         elif endpoint == "sens":
             vote = HarmonizedVote(None, "review_required", "guinea_pig_requires_explicit_call", "Guinea-pig sensitization record needs an explicit positive/negative classification")
         elif endpoint == "acute":
@@ -243,30 +237,17 @@ def harmonize_record(record: dict[str, Any]) -> dict[str, Any]:
 def aggregate_endpoint(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
     mapped = [harmonize_record(record) for record in records]
     if not mapped:
-        return {
-            "candidate_label": None,
-            "mapping_status": "no_records",
-            "mapping_reason": "no records",
-            "records": [],
-        }
+        return {"candidate_label": None, "mapping_status": "no_records", "mapping_reason": "no records", "records": []}
 
     labels = {item["candidate_label"] for item in mapped if item.get("candidate_label") in {0, 1}}
     if labels == {0, 1}:
-        status = "conflict_review_required"
-        label = None
-        reason = "mapped records contain both positive and negative evidence"
+        status, label, reason = "conflict_review_required", None, "mapped records contain both positive and negative evidence"
     elif labels == {1}:
-        status = "candidate_requires_review"
-        label = 1
-        reason = "one or more conservative mapping rules support a positive candidate"
+        status, label, reason = "candidate_requires_review", 1, "one or more conservative mapping rules support a positive candidate"
     elif labels == {0}:
-        status = "candidate_requires_review"
-        label = 0
-        reason = "one or more conservative mapping rules support a negative candidate"
+        status, label, reason = "candidate_requires_review", 0, "one or more conservative mapping rules support a negative candidate"
     else:
-        status = "review_required"
-        label = None
-        reason = "no record is strong enough for an automatic binary candidate"
+        status, label, reason = "review_required", None, "no record is strong enough for an automatic binary candidate"
 
     return {
         "candidate_label": label,
