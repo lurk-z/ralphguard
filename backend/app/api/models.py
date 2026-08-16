@@ -1,7 +1,7 @@
 """Model card endpoints — expose QSAR validation metrics + methodology.
 
 The API intentionally separates what has already been validated from what is
-planned.  This prevents the judge-facing UI from presenting internal
+planned. This prevents the judge-facing UI from presenting internal
 cross-validation as independent external validation.
 """
 import json
@@ -91,6 +91,38 @@ DATA_INTEGRITY_POLICY = {
     ),
 }
 
+EVIDENCE_SOURCES = {
+    "base_training_files": {
+        "status": "local_not_committed",
+        "description_th": (
+            "Base endpoint CSV อยู่ใน data/raw และถูก gitignore ดังนั้น clone จาก GitHub เพียงอย่างเดียว "
+            "ไม่สามารถตรวจ provenance รายแถวได้ ต้องสร้าง manifest จากเครื่องที่ใช้ train"
+        ),
+        "configured_sources": {
+            "skin": "project documentation points to literature / ECHA REACH / OECD QSAR Toolbox sources",
+            "eye": "project documentation points to eye-irritation reference/literature sources",
+            "sens": "project documentation points to LLNA / ICCVAM-NICEATM sources",
+            "acute": "project documentation points to CATMoS / EPA CompTox acute oral toxicity sources",
+        },
+    },
+    "pubchem_structure": {
+        "provider": "PubChem PUG REST",
+        "role": "CID, canonical structure, InChI/InChIKey and molecular properties; not an automatic toxicity label",
+    },
+    "pubchem_hazard_evidence": {
+        "provider": "PubChem PUG-View GHS Classification",
+        "role": "source-attributed positive hazard candidates that must pass review/consensus before supplemental training export",
+    },
+    "molecular_processing": {
+        "provider": "RDKit",
+        "role": "SMILES parsing/canonicalization, InChIKey, fingerprints and descriptors",
+    },
+    "machine_learning": {
+        "provider": "scikit-learn",
+        "role": "Random Forest, Extra Trees, Logistic Regression, HistGradientBoosting and cross-validation",
+    },
+}
+
 VALIDATION_STATUS = {
     "internal_oof": {
         "status": "complete",
@@ -166,6 +198,7 @@ async def model_info():
         "oecd_principles": OECD_PRINCIPLES,
         "endpoints": ENDPOINT_META,
         "data_integrity_policy": DATA_INTEGRITY_POLICY,
+        "evidence_sources": EVIDENCE_SOURCES,
         "validation_status": VALIDATION_STATUS,
         "training_integrity": _load_training_integrity() or None,
         "disclaimer_th": (
