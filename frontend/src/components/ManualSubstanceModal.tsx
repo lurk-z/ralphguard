@@ -3,7 +3,13 @@
 import { useId, useState } from "react";
 import { Plus } from "lucide-react";
 import { SemanticIcon } from "@/components/SemanticIcon";
-import { substanceDepictionUrl, type IngredientRegistryItem } from "@/lib/api";
+import {
+  api,
+  apiErrorMessage,
+  substanceDepictionUrl,
+  type IngredientRegistryItem,
+} from "@/lib/api";
+import { rememberManualOnlineSubstance } from "@/lib/manual-substance";
 
 type ManualSubstanceModalProps = {
   title?: string;
@@ -24,7 +30,7 @@ type ManualSubstanceModalProps = {
 
 export default function ManualSubstanceModal({
   title = "เพิ่มสารเปล่า",
-  subtitle = "กรอกชื่อสารหรือ SMILES อย่างน้อยหนึ่งช่อง",
+  subtitle = "กรอกชื่อสารหรือ SMILES อย่างน้อยหนึ่งช่อง · ถ้าไม่พบชื่อในคลัง ระบบจะค้น PubChem ให้อัตโนมัติ",
   submitLabel = "ตรวจสอบและเพิ่ม",
   name,
   smiles,
@@ -42,11 +48,57 @@ export default function ManualSubstanceModal({
   const nameId = useId();
   const suggestionListId = useId();
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [onlineBusy, setOnlineBusy] = useState(false);
+  const [onlineError, setOnlineError] = useState<string | null>(null);
+
+  const waiting = busy || onlineBusy;
+  const visibleError = error || onlineError;
+
+  const submitWithOnlineFallback = async () => {
+    if (waiting) return;
+    const cleanName = name.trim();
+    const cleanSmiles = smiles.trim();
+
+    // A supplied SMILES or a previously selected/cached suggestion can be
+    // validated by the existing parent flow immediately. Online fallback is
+    // intentionally name-driven so PubChem remains the identity resolver.
+    if (!cleanName || cleanSmiles) {
+      onSubmit();
+      return;
+    }
+
+    setOnlineBusy(true);
+    setOnlineError(null);
+    try {
+      const candidate = await api.lookupIngredientInPubChem(cleanName);
+      const problem = rememberManualOnlineSubstance(candidate);
+      if (problem) {
+        setOnlineError(problem);
+        return;
+      }
+
+      // Populate the visible form for provenance/readability. The module cache
+      // already makes the candidate available synchronously to the parent
+      // resolver in this same submit cycle.
+      onSelectSuggestion(candidate);
+      setSuggestionsOpen(false);
+      onSubmit();
+    } catch (cause) {
+      setOnlineError(
+        apiErrorMessage(
+          cause,
+          "ไม่พบสารที่ใช้ประเมินได้จากฐานข้อมูลภายในหรือ PubChem",
+        ),
+      );
+    } finally {
+      setOnlineBusy(false);
+    }
+  };
 
   return (
     <div
       className="fixed inset-0 z-[120] flex items-center justify-center overflow-y-auto bg-slate-900/30 p-3 backdrop-blur-sm animate-in fade-in-0 duration-150 motion-reduce:animate-none sm:p-4"
-      onClick={() => !busy && onClose()}
+      onClick={() => !waiting && onClose()}
     >
       <form
         role="dialog"
@@ -55,7 +107,7 @@ export default function ManualSubstanceModal({
         className="my-auto flex max-h-[calc(100dvh-1.5rem)] w-full max-w-[440px] animate-in flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl fade-in-0 zoom-in-95 duration-150 motion-reduce:animate-none sm:max-h-[calc(100dvh-2rem)]"
         onSubmit={(event) => {
           event.preventDefault();
-          onSubmit();
+          void submitWithOnlineFallback();
         }}
         onClick={(event) => event.stopPropagation()}
       >
@@ -70,7 +122,7 @@ export default function ManualSubstanceModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={busy}
+            disabled={waiting}
             aria-label="ปิด"
             className="ml-auto grid size-8 shrink-0 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-wait disabled:opacity-50"
           >
@@ -97,9 +149,10 @@ export default function ManualSubstanceModal({
               onBlur={() => setSuggestionsOpen(false)}
               onChange={(event) => {
                 onNameChange(event.target.value);
+                setOnlineError(null);
                 setSuggestionsOpen(true);
               }}
-              placeholder="เช่น Ethanol หรือ Glycerin"
+              placeholder="เช่น Ethanol หรือ Azelaic Acid"
               className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-brand focus:ring-2 focus:ring-brand/10"
             />
 
@@ -112,7 +165,7 @@ export default function ManualSubstanceModal({
                 {suggestionsLoading ? (
                   <div className="flex items-center gap-2 px-2.5 py-2 text-[11px] text-slate-400">
                     <span className="size-2 animate-pulse rounded-full bg-brand" />
-                    กำลังค้นหาสาร…
+                    กำลังโหลดคลังสาร…
                   </div>
                 ) : suggestions.length > 0 ? (
                   suggestions.map((item) => {
@@ -126,6 +179,7 @@ export default function ManualSubstanceModal({
                         onPointerDown={(event) => event.preventDefault()}
                         onClick={() => {
                           onSelectSuggestion(item);
+                          setOnlineError(null);
                           setSuggestionsOpen(false);
                         }}
                         className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-teal-50 focus-visible:bg-teal-50 focus-visible:outline-none"
@@ -141,7 +195,9 @@ export default function ManualSubstanceModal({
                     );
                   })
                 ) : (
-                  <div className="px-2.5 py-2 text-[11px] text-slate-400">ไม่พบชื่อสารที่ตรงกัน</div>
+                  <div className="px-2.5 py-2 text-[11px] leading-4 text-slate-400">
+                    ไม่พบในคลังที่ยืนยันแล้ว · กด “{submitLabel}” เพื่อค้น PubChem
+                  </div>
                 )}
               </div>
             )}
@@ -157,20 +213,26 @@ export default function ManualSubstanceModal({
               value={smiles}
               maxLength={1000}
               spellCheck={false}
-              onChange={(event) => onSmilesChange(event.target.value)}
+              onChange={(event) => {
+                onSmilesChange(event.target.value);
+                setOnlineError(null);
+              }}
               placeholder="เช่น CCO"
               className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 font-mono text-sm text-slate-800 outline-none transition-colors placeholder:font-sans placeholder:text-slate-400 focus:border-brand focus:ring-2 focus:ring-brand/10"
             />
           </label>
 
-          <div className="rounded-xl bg-slate-50 px-3 py-2.5 text-[10px] leading-4 text-slate-500">
-            ระบบจะใช้ชื่อและ SMILES ที่ยืนยันแล้วจากฐานข้อมูล ความเข้มข้นของสารใหม่จะเริ่มที่ 0%
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[10px] leading-4 text-slate-500">
+            <div className="font-medium text-slate-600">ลำดับการค้นหา: RalphGuard Registry → PubChem</div>
+            <div className="mt-1">
+              PubChem ใช้ยืนยันตัวตนและโครงสร้างเท่านั้น ระบบรับเข้า formula เฉพาะ defined single substance ที่ผ่านเกณฑ์ QSAR และเริ่มความเข้มข้นที่ 0%
+            </div>
           </div>
 
-          {error && (
+          {visibleError && (
             <div role="alert" className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-[11px] leading-4 text-rose-700">
               <SemanticIcon name="alert" className="mt-0.5 size-3.5 shrink-0" />
-              <span>{error}</span>
+              <span>{visibleError}</span>
             </div>
           )}
         </div>
@@ -179,17 +241,17 @@ export default function ManualSubstanceModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={busy}
+            disabled={waiting}
             className="h-9 rounded-lg border border-slate-200 px-4 text-sm text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-wait disabled:opacity-50"
           >
             ยกเลิก
           </button>
           <button
             type="submit"
-            disabled={busy}
+            disabled={waiting}
             className="h-9 rounded-lg bg-brand px-4 text-sm font-semibold text-white transition-colors hover:bg-brand-dark disabled:cursor-wait disabled:opacity-60"
           >
-            {busy ? "กำลังตรวจสอบ…" : submitLabel}
+            {onlineBusy ? "กำลังค้น PubChem…" : busy ? "กำลังตรวจสอบ…" : submitLabel}
           </button>
         </footer>
       </form>
