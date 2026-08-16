@@ -8,6 +8,47 @@
 
 > หลักสำคัญ: **PubChem ใช้ขยาย chemical identity/structure coverage แต่ PubChem structure เพียงอย่างเดียวไม่ใช่ toxicity training label** และการไม่พบ hazard code ไม่ถูกแปลงเป็น label 0
 
+## Online PubChem fallback: Runtime screening ≠ Training eligibility
+
+หน้าเพิ่มสารรองรับลำดับการค้นหา:
+
+```text
+RalphGuard verified registry
+        ↓ ไม่พบชื่อ
+PubChem PUG REST lookup
+        ↓
+RDKit canonical structure + chemical eligibility guard
+        ↓
+provisional runtime screening candidate
+```
+
+เมื่อ PubChem คืนสารที่เป็น `defined_single_substance`, มีโครงสร้าง `resolved` และ backend บันทึก `provenance.pubchem.proposed_qsar_eligible=true` ระบบอนุญาตให้ใช้โครงสร้างนั้นสำหรับ **provisional runtime QSAR screening** ได้ เพื่อไม่ให้ local registry เป็นเพดานของสารที่ผู้ใช้ค้นหา
+
+อย่างไรก็ตาม candidate ดังกล่าวยังคง:
+
+```text
+verification_status = pending
+qsar_eligible = false
+assessment_method = pending_verification
+```
+
+ความหมายคือ PubChem candidate สามารถใช้เป็น **input structure สำหรับการคัดกรอง** ได้ แต่ยังไม่ได้ถูก human-verify ให้เป็น registry training identity และไม่ได้กลายเป็น toxicity label
+
+Runtime gate จะปฏิเสธ:
+
+- mixture / UVCB / fragrance / variable-composition extract
+- polymer
+- salt หรือ multi-component structure
+- inorganic/out-of-domain structure ตาม chemical eligibility rules
+- record ที่ไม่มี canonical SMILES ที่ parse ได้
+- PubChem candidate ที่ไม่มี `proposed_qsar_eligible=true`
+
+การยอมให้ runtime screening **ไม่แก้** `verification_status`, **ไม่แก้** `qsar_eligible` ในฐานข้อมูล และ **ไม่ส่งข้อมูลเข้า training export** โดยอัตโนมัติ การฝึกโมเดลยังต้องผ่าน evidence review gate ตามส่วนด้านล่าง
+
+ดังนั้นคำที่ใช้ในการนำเสนอควรแยกให้ชัด:
+
+> “PubChem ขยาย chemical coverage สำหรับการค้นและ runtime screening ส่วน training dataset ใช้เฉพาะ evidence ที่ผ่าน review/consensus และ molecular-identity audit แล้ว”
+
 ## การจับคู่ endpoint
 
 | Endpoint | GHS hazard code ที่สร้าง positive candidate |
