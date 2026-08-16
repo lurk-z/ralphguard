@@ -20,8 +20,8 @@ export type OcrConcentrationEstimate = OcrConcentrationCandidate & {
   confidence: OcrConcentrationConfidence;
   estimateBasis: OcrConcentrationBasis;
   /**
-   * Heuristic tail in which ingredients may be at or below 1%.  Ordering is
-   * deliberately not enforced inside this tail because many cosmetic-label
+   * Heuristic tail in which ingredients may be at or below 1%. Ordering is
+   * deliberately not enforced inside this tail because some cosmetic-label
    * regimes allow <=1% ingredients to appear in any order.
    */
   inOnePercentTail: boolean;
@@ -37,9 +37,6 @@ export const OCR_SIMULATION_TOTAL_LIMIT = 99;
 /** @deprecated Kept for compatibility with older imports. */
 export const OCR_ESTIMATED_NON_WATER_LIMIT = OCR_SIMULATION_TOTAL_LIMIT;
 
-const clamp = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, value));
-
 const roundEstimate = (value: number) => {
   if (value >= 1) return Math.round(value * 10) / 10;
   return Math.max(0.01, Math.round(value * 100) / 100);
@@ -49,6 +46,46 @@ const finitePositive = (value: unknown): number | null => {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 && number <= 100 ? number : null;
 };
+
+const escapeRegExp = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Recover percentages that are actually printed next to an ingredient name.
+ * This is intentionally strict: a percentage elsewhere on the package must not
+ * be attached to an ingredient just because it appears in the same OCR block.
+ */
+export function detectDeclaredConcentrationsFromOcrText(
+  rawText: string,
+  candidates: OcrConcentrationCandidate[],
+): Map<string, number> {
+  const detected = new Map<string, number>();
+  if (!rawText.trim()) return detected;
+
+  const normalizedText = rawText
+    .normalize("NFKC")
+    .replace(/,/g, ".")
+    .replace(/\s+/g, " ");
+
+  for (const candidate of candidates) {
+    const cleanName = candidate.name.trim();
+    if (!cleanName) continue;
+    const namePattern = escapeRegExp(cleanName).replace(/\\\s+/g, "\\s+");
+    const afterName = new RegExp(
+      `\\b${namePattern}\\b\\s*(?:[:=\\-–—]|at)?\\s*(\\d{1,3}(?:\\.\\d{1,3})?)\\s*%`,
+      "i",
+    );
+    const beforeName = new RegExp(
+      `(\\d{1,3}(?:\\.\\d{1,3})?)\\s*%\\s*(?:of\\s+)?\\b${namePattern}\\b`,
+      "i",
+    );
+    const match = normalizedText.match(afterName) ?? normalizedText.match(beforeName);
+    if (!match) continue;
+    const value = finitePositive(match[1]);
+    if (value != null) detected.set(candidate.smiles.trim(), value);
+  }
+  return detected;
+}
 
 const fallbackMidpointForOrder = (index: number) =>
   Math.max(0.2, 16 * Math.pow(0.68, index));
