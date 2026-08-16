@@ -1,28 +1,15 @@
 """Collect endpoint-specific reference evidence from NICEATM ICE.
 
-This is a *staging* collector. It intentionally does NOT turn an ICE response
-into a RalphGuard training label automatically. The purpose is to obtain
-source-attributed reference records for chemicals already resolved in the
-Ingredient Registry, then review/harmonize endpoint-specific records before
-training.
+This is a staging collector. It does NOT turn an ICE response into a RalphGuard
+training label automatically. RalphGuard queries one InChIKey per request so
+all returned records are provenance-bound to one exact registry molecule.
 
-Official ICE search API (current endpoint):
-    https://ice.ntp.niehs.nih.gov/api/v1/search
-
-The API supports CASRN, DTXSID, InChIKey and SMILES as chemical identifiers.
-RalphGuard queries ONE InChIKey per request. This is slower than large batch
-queries, but it makes the returned evidence unambiguously traceable to the exact
-registry molecule even when an ICE endpoint record does not echo InChIKey.
-
-Run inside backend container, for example:
-
+Run inside backend container:
     python scripts/collect_nice_reference_evidence.py --endpoint all --limit 1500
 
-Output defaults to:
+Outputs (persisted through ./data:/data):
     /data/staging/nice_reference_evidence.jsonl
     /data/staging/nice_reference_summary.json
-
-No database rows or model files are modified by this script.
 """
 from __future__ import annotations
 
@@ -43,40 +30,30 @@ ICE_SEARCH_URL = "https://ice.ntp.niehs.nih.gov/api/v1/search"
 DEFAULT_OUTPUT = Path("/data/staging/nice_reference_evidence.jsonl")
 DEFAULT_SUMMARY = Path("/data/staging/nice_reference_summary.json")
 
-# Only reference/experimental assays are staged here. In particular,
-# `CATMoS, Rat Acute Oral Toxicity` is deliberately excluded because CATMoS is
-# itself an in-silico prediction and must not become a pseudo-experimental label.
+# Direct/reference assays only. CATMoS is intentionally excluded because it is
+# itself an in-silico prediction and must not masquerade as direct in-vivo data.
 ENDPOINT_ASSAYS: dict[str, tuple[str, ...]] = {
-    "skin": (
-        "Rabbit Draize Skin Irritation/Corrosion Test",
-    ),
-    "eye": (
-        "Rabbit Draize Eye Irritation/Corrosion Test",
-    ),
-    "sens": (
-        "Murine Local Lymph Node Assay (LLNA)",
-        "Guinea Pig Maximization/Buehler",
-    ),
-    "acute": (
-        "Rat Acute Oral Toxicity",
-    ),
+    "skin": ("Rabbit Draize Skin Irritation/Corrosion Test",),
+    "eye": ("Rabbit Draize Eye Irritation/Corrosion Test",),
+    "sens": ("Murine Local Lymph Node Assay (LLNA)", "Guinea Pig Maximization/Buehler"),
+    "acute": ("Rat Acute Oral Toxicity",),
 }
 
 
-def request_with_retry(
-    client: httpx.Client,
-    inchikey: str,
-    assays: list[str],
-    max_attempts: int = 5,
-) -> dict[str, Any]:
+def _first(record: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = record.get(key)
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def request_with_retry(client: httpx.Client, inchikey: str, assays: list[str], max_attempts: int = 5) -> dict[str, Any]:
     delay = 1.0
     last_error: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
-            response = client.post(
-                ICE_SEARCH_URL,
-                json={"chemids": [inchikey], "assays": assays},
-            )
+            response = client.post(ICE_SEARCH_URL, json={"chemids": [inchikey], "assays": assays})
             if response.status_code == 429 or response.status_code >= 500:
                 raise httpx.HTTPStatusError(
                     f"ICE temporary response {response.status_code}",
@@ -98,13 +75,12 @@ def request_with_retry(
 
 
 def endpoint_records(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """ICE /search returns endpoint records under `endPoints`.
-
-    Keep the full raw record because different reference assays expose different
-    endpoint/value fields. Harmonization into a binary RalphGuard label is a
-    separate review step.
-    """
-    raw = payload.get("endPoints", [])
+    """Return endpoint records while tolerating harmless API key casing changes."""
+    raw = payload.get("endPoints")
+    if raw is None:
+        raw = payload.get("endpoints")
+    if raw is None:
+        raw = payload.get("end_points")
     if not isinstance(raw, list):
         return []
     return [item for item in raw if isinstance(item, dict)]
@@ -112,19 +88,10 @@ def endpoint_records(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--endpoint",
-        choices=["all", *ENDPOINT_ASSAYS.keys()],
-        default="all",
-    )
+    parser.add_argument("--endpoint", choices=["all", *ENDPOINT_ASSAYS.keys()], default="all")
     parser.add_argument("--limit", type=int, default=1500)
     parser.add_argument("--timeout", type=float, default=45.0)
-    parser.add_argument(
-        "--request-delay",
-        type=float,
-        default=0.10,
-        help="polite delay in seconds between successful ICE queries",
-    )
+    parser.add_argument("--request-delay", type=float, default=0.10, help="polite delay in seconds between successful ICE queries")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY)
     args = parser.parse_args()
@@ -135,14 +102,8 @@ def main() -> int:
         raise ValueError("--request-delay must be >= 0")
 
     selected_endpoints = list(ENDPOINT_ASSAYS) if args.endpoint == "all" else [args.endpoint]
-    selected_assays = sorted(
-        {assay for endpoint in selected_endpoints for assay in ENDPOINT_ASSAYS[endpoint]}
-    )
-    assay_to_endpoint = {
-        assay: endpoint
-        for endpoint in selected_endpoints
-        for assay in ENDPOINT_ASSAYS[endpoint]
-    }
+    selected_assays = sorted({assay for endpoint in selected_endpoints for assay in ENDPOINT_ASSAYS[endpoint]})
+    assay_to_endpoint = {assay: endpoint for endpoint in selected_endpoints for assay in ENDPOINT_ASSAYS[endpoint]}
 
     with SessionLocal() as db:
         registry = list(
@@ -159,8 +120,6 @@ def main() -> int:
             )
         )
 
-    # One exact molecular identity once. A duplicate registry row must not cause
-    # the same ICE evidence to be collected repeatedly.
     unique_registry: dict[str, IngredientRegistry] = {}
     for row in registry:
         inchikey = str(row.inchikey or "").strip()
@@ -174,6 +133,7 @@ def main() -> int:
     collected_at = datetime.now(timezone.utc).isoformat()
     rows_written = 0
     unmatched_assay_records = 0
+    records_without_assay = 0
     records_by_endpoint = {endpoint: 0 for endpoint in selected_endpoints}
     chemicals_with_records: set[str] = set()
     queries_total = 0
@@ -200,18 +160,15 @@ def main() -> int:
                 payload = request_with_retry(client, query_inchikey, selected_assays)
             except RuntimeError as exc:
                 queries_failed += 1
-                failures.append(
-                    {
-                        "registry_id": registry_row.id,
-                        "inchikey": query_inchikey,
-                        "error": str(exc),
-                    }
-                )
+                failures.append({"registry_id": registry_row.id, "inchikey": query_inchikey, "error": str(exc)})
                 continue
 
             chemical_record_count = 0
             for record in endpoint_records(payload):
-                assay = str(record.get("assay") or "").strip()
+                assay = str(_first(record, "assay", "assayName", "assay_name") or "").strip()
+                if not assay:
+                    records_without_assay += 1
+                    continue
                 endpoint = assay_to_endpoint.get(assay)
                 if endpoint is None:
                     unmatched_assay_records += 1
@@ -223,19 +180,17 @@ def main() -> int:
                     "source_api": ICE_SEARCH_URL,
                     "ralphguard_endpoint": endpoint,
                     "assay": assay,
-                    # Provenance is bound to the one InChIKey used for this API
-                    # request, not inferred from whatever identifiers happen to
-                    # be present in the returned endpoint record.
                     "query_inchikey": query_inchikey,
                     "registry_id": registry_row.id,
                     "registry_name": registry_row.canonical_name,
                     "registry_canonical_smiles": registry_row.canonical_smiles,
                     "registry_inchikey": registry_row.inchikey,
-                    "ice_casrn": record.get("casrn"),
-                    "ice_dtxsid": record.get("dtxsid") or record.get("dsstoxsid"),
-                    "ice_substance_name": record.get("substanceName") or record.get("substance"),
-                    "ice_endpoint": record.get("endpoint"),
-                    "ice_value": record.get("value"),
+                    "ice_casrn": _first(record, "casrn", "cas", "CASRN"),
+                    "ice_dtxsid": _first(record, "dtxsid", "dsstoxsid", "DTXSID"),
+                    "ice_substance_name": _first(record, "substanceName", "substance", "name", "chemicalName"),
+                    "ice_endpoint": _first(record, "endpoint", "endpointName", "endpoint_name"),
+                    "ice_value": _first(record, "value", "result", "endpointValue", "endpoint_value"),
+                    "ice_unit": _first(record, "unit", "units", "unitName", "unit_name"),
                     "training_label": None,
                     "review_status": "staging_unmapped",
                     "raw_record": record,
@@ -266,6 +221,7 @@ def main() -> int:
         "records_written": rows_written,
         "records_by_endpoint": records_by_endpoint,
         "chemicals_with_records": len(chemicals_with_records),
+        "records_without_assay": records_without_assay,
         "unmatched_assay_records": unmatched_assay_records,
         "training_labels_created": 0,
         "status": "staging_only_requires_endpoint_mapping_review",
@@ -274,10 +230,7 @@ def main() -> int:
         "failures": failures,
         "output": str(args.output),
     }
-    args.summary.write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    args.summary.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0 if queries_failed == 0 else 2
 
