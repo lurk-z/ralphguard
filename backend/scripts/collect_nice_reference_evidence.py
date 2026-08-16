@@ -1,7 +1,7 @@
 """Collect endpoint-specific reference evidence from NICEATM ICE.
 
-This is a *staging* collector.  It intentionally does NOT turn an ICE response
-into a RalphGuard training label automatically.  The purpose is to obtain
+This is a *staging* collector. It intentionally does NOT turn an ICE response
+into a RalphGuard training label automatically. The purpose is to obtain
 source-attributed reference records for chemicals already resolved in the
 Ingredient Registry, then review/harmonize endpoint-specific records before
 training.
@@ -10,7 +10,9 @@ Official ICE search API (current endpoint):
     https://ice.ntp.niehs.nih.gov/api/v1/search
 
 The API supports CASRN, DTXSID, InChIKey and SMILES as chemical identifiers.
-RalphGuard queries by InChIKey so molecular identity is explicit.
+RalphGuard queries ONE InChIKey per request. This is slower than large batch
+queries, but it makes the returned evidence unambiguously traceable to the exact
+registry molecule even when an ICE endpoint record does not echo InChIKey.
 
 Run inside backend container, for example:
 
@@ -29,7 +31,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import time
-from typing import Any, Iterable
+from typing import Any
 
 import httpx
 from sqlalchemy import select
@@ -41,7 +43,7 @@ ICE_SEARCH_URL = "https://ice.ntp.niehs.nih.gov/api/v1/search"
 DEFAULT_OUTPUT = Path("/data/staging/nice_reference_evidence.jsonl")
 DEFAULT_SUMMARY = Path("/data/staging/nice_reference_summary.json")
 
-# Only reference/experimental assays are staged here.  In particular,
+# Only reference/experimental assays are staged here. In particular,
 # `CATMoS, Rat Acute Oral Toxicity` is deliberately excluded because CATMoS is
 # itself an in-silico prediction and must not become a pseudo-experimental label.
 ENDPOINT_ASSAYS: dict[str, tuple[str, ...]] = {
@@ -61,14 +63,9 @@ ENDPOINT_ASSAYS: dict[str, tuple[str, ...]] = {
 }
 
 
-def chunks(items: list[IngredientRegistry], size: int) -> Iterable[list[IngredientRegistry]]:
-    for start in range(0, len(items), size):
-        yield items[start:start + size]
-
-
 def request_with_retry(
     client: httpx.Client,
-    chemids: list[str],
+    inchikey: str,
     assays: list[str],
     max_attempts: int = 5,
 ) -> dict[str, Any]:
@@ -78,7 +75,7 @@ def request_with_retry(
         try:
             response = client.post(
                 ICE_SEARCH_URL,
-                json={"chemids": chemids, "assays": assays},
+                json={"chemids": [inchikey], "assays": assays},
             )
             if response.status_code == 429 or response.status_code >= 500:
                 raise httpx.HTTPStatusError(
@@ -104,7 +101,7 @@ def endpoint_records(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """ICE /search returns endpoint records under `endPoints`.
 
     Keep the full raw record because different reference assays expose different
-    endpoint/value fields.  Harmonization into a binary RalphGuard label is a
+    endpoint/value fields. Harmonization into a binary RalphGuard label is a
     separate review step.
     """
     raw = payload.get("endPoints", [])
@@ -121,22 +118,23 @@ def main() -> int:
         default="all",
     )
     parser.add_argument("--limit", type=int, default=1500)
-    parser.add_argument("--batch-size", type=int, default=75)
     parser.add_argument("--timeout", type=float, default=45.0)
+    parser.add_argument(
+        "--request-delay",
+        type=float,
+        default=0.10,
+        help="polite delay in seconds between successful ICE queries",
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY)
     args = parser.parse_args()
 
     if args.limit < 1:
         raise ValueError("--limit must be >= 1")
-    if args.batch_size < 1 or args.batch_size > 200:
-        raise ValueError("--batch-size must be between 1 and 200")
+    if args.request_delay < 0:
+        raise ValueError("--request-delay must be >= 0")
 
-    selected_endpoints = (
-        list(ENDPOINT_ASSAYS)
-        if args.endpoint == "all"
-        else [args.endpoint]
-    )
+    selected_endpoints = list(ENDPOINT_ASSAYS) if args.endpoint == "all" else [args.endpoint]
     selected_assays = sorted(
         {assay for endpoint in selected_endpoints for assay in ENDPOINT_ASSAYS[endpoint]}
     )
@@ -161,12 +159,14 @@ def main() -> int:
             )
         )
 
-    by_inchikey = {
-        str(row.inchikey).strip(): row
-        for row in registry
-        if row.inchikey and str(row.inchikey).strip()
-    }
-    ingredients = list(by_inchikey.values())
+    # One exact molecular identity once. A duplicate registry row must not cause
+    # the same ICE evidence to be collected repeatedly.
+    unique_registry: dict[str, IngredientRegistry] = {}
+    for row in registry:
+        inchikey = str(row.inchikey or "").strip()
+        if inchikey and inchikey not in unique_registry:
+            unique_registry[inchikey] = row
+    ingredients = list(unique_registry.values())
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.summary.parent.mkdir(parents=True, exist_ok=True)
@@ -176,8 +176,8 @@ def main() -> int:
     unmatched_assay_records = 0
     records_by_endpoint = {endpoint: 0 for endpoint in selected_endpoints}
     chemicals_with_records: set[str] = set()
-    batches_total = 0
-    batches_failed = 0
+    queries_total = 0
+    queries_failed = 0
     failures: list[dict[str, Any]] = []
 
     headers = {
@@ -191,22 +191,25 @@ def main() -> int:
         headers=headers,
         follow_redirects=True,
     ) as client:
-        for batch_number, batch in enumerate(chunks(ingredients, args.batch_size), start=1):
-            batches_total += 1
-            chemids = [str(row.inchikey).strip() for row in batch if row.inchikey]
+        for index, registry_row in enumerate(ingredients, start=1):
+            query_inchikey = str(registry_row.inchikey or "").strip()
+            if not query_inchikey:
+                continue
+            queries_total += 1
             try:
-                payload = request_with_retry(client, chemids, selected_assays)
+                payload = request_with_retry(client, query_inchikey, selected_assays)
             except RuntimeError as exc:
-                batches_failed += 1
+                queries_failed += 1
                 failures.append(
                     {
-                        "batch": batch_number,
-                        "n_chemicals": len(chemids),
+                        "registry_id": registry_row.id,
+                        "inchikey": query_inchikey,
                         "error": str(exc),
                     }
                 )
                 continue
 
+            chemical_record_count = 0
             for record in endpoint_records(payload):
                 assay = str(record.get("assay") or "").strip()
                 endpoint = assay_to_endpoint.get(assay)
@@ -214,26 +217,20 @@ def main() -> int:
                     unmatched_assay_records += 1
                     continue
 
-                # ICE can echo several identifier fields. Prefer the exact
-                # InChIKey if present; otherwise retain raw record and leave the
-                # registry link null for human review rather than guessing.
-                record_inchikey = str(
-                    record.get("inchikey")
-                    or record.get("inchiKey")
-                    or record.get("InChIKey")
-                    or ""
-                ).strip()
-                registry_row = by_inchikey.get(record_inchikey) if record_inchikey else None
-
                 normalized = {
                     "collected_at": collected_at,
                     "source_system": "NICEATM Integrated Chemical Environment (ICE)",
                     "source_api": ICE_SEARCH_URL,
                     "ralphguard_endpoint": endpoint,
                     "assay": assay,
-                    "registry_id": registry_row.id if registry_row else None,
-                    "registry_name": registry_row.canonical_name if registry_row else None,
-                    "registry_inchikey": registry_row.inchikey if registry_row else None,
+                    # Provenance is bound to the one InChIKey used for this API
+                    # request, not inferred from whatever identifiers happen to
+                    # be present in the returned endpoint record.
+                    "query_inchikey": query_inchikey,
+                    "registry_id": registry_row.id,
+                    "registry_name": registry_row.canonical_name,
+                    "registry_canonical_smiles": registry_row.canonical_smiles,
+                    "registry_inchikey": registry_row.inchikey,
                     "ice_casrn": record.get("casrn"),
                     "ice_dtxsid": record.get("dtxsid") or record.get("dsstoxsid"),
                     "ice_substance_name": record.get("substanceName") or record.get("substance"),
@@ -245,13 +242,18 @@ def main() -> int:
                 }
                 handle.write(json.dumps(normalized, ensure_ascii=False) + "\n")
                 rows_written += 1
+                chemical_record_count += 1
                 records_by_endpoint[endpoint] += 1
-                identity = (
-                    record_inchikey
-                    or str(record.get("dtxsid") or record.get("casrn") or "").strip()
+
+            if chemical_record_count:
+                chemicals_with_records.add(query_inchikey)
+            if args.request_delay:
+                time.sleep(args.request_delay)
+            if index % 100 == 0:
+                print(
+                    f"ICE progress {index}/{len(ingredients)} | records={rows_written} | failures={queries_failed}",
+                    flush=True,
                 )
-                if identity:
-                    chemicals_with_records.add(identity)
 
     summary = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -259,14 +261,15 @@ def main() -> int:
         "selected_endpoints": selected_endpoints,
         "selected_assays": selected_assays,
         "registry_candidates": len(ingredients),
-        "batches_total": batches_total,
-        "batches_failed": batches_failed,
+        "queries_total": queries_total,
+        "queries_failed": queries_failed,
         "records_written": rows_written,
         "records_by_endpoint": records_by_endpoint,
         "chemicals_with_records": len(chemicals_with_records),
         "unmatched_assay_records": unmatched_assay_records,
         "training_labels_created": 0,
         "status": "staging_only_requires_endpoint_mapping_review",
+        "identity_policy": "one ICE request per exact registry InChIKey",
         "excluded_prediction_assays": ["CATMoS, Rat Acute Oral Toxicity"],
         "failures": failures,
         "output": str(args.output),
@@ -276,7 +279,7 @@ def main() -> int:
         encoding="utf-8",
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
-    return 0 if batches_failed == 0 else 2
+    return 0 if queries_failed == 0 else 2
 
 
 if __name__ == "__main__":
