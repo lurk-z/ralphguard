@@ -1,0 +1,187 @@
+# RalphGuard QSAR Model v2 — Workflow สำหรับรอบชิง
+
+เอกสารนี้กำหนดขั้นตอนเพิ่มข้อมูลฝึกและตรวจความน่าเชื่อถือโดย **ไม่เขียนทับ production model เดิม** จนกว่าจะเห็นผลเปรียบเทียบครบ
+
+## 1. สถานะปัจจุบัน
+
+Production validation report ปัจจุบันมีจำนวนข้อมูล:
+
+| Endpoint | N | Positive | Negative | AUC | MCC |
+|---|---:|---:|---:|---:|---:|
+| Skin irritation | 96 | 38 | 58 | 0.926 | 0.776 |
+| Eye irritation | 107 | 44 | 63 | 0.886 | 0.623 |
+| Skin sensitization | 86 | 30 | 56 | 0.896 | 0.620 |
+| Acute toxicity | 81 | 29 | 52 | 0.903 | 0.736 |
+
+ตัวเลขชุดนี้เป็น **5-fold out-of-fold internal validation** ไม่ใช่ independent external validation
+
+## 2. PubChem data ที่เตรียมไว้แล้ว
+
+ไฟล์ `data/curated/pubchem_verified_<endpoint>.csv` เป็น supplemental evidence ที่ผ่าน review/consensus gate แล้ว
+
+จาก `pubchem_verified_manifest.json` ปัจจุบันมี unique structures:
+
+| Endpoint | Supplemental unique structures |
+|---|---:|
+| Skin | 14 |
+| Eye | 18 |
+| Sensitization | 9 |
+| Acute | 19 |
+
+ข้อมูลกลุ่มนี้ส่วนใหญ่เป็น **positive regulatory-consensus weak labels** และใช้ `sample_weight=0.5` จึงไม่ควรอธิบายว่าเป็นผลทดลองตรงทั้งหมด
+
+สำคัญ: จำนวนนี้ไม่ได้หมายความว่า production model ปัจจุบันถูก retrain ด้วยข้อมูลเหล่านี้แล้ว ต้องรัน candidate-v2 pipeline และดูจำนวนหลัง deduplicate กับ base dataset ก่อน
+
+## 3. ลำดับการสร้าง Candidate v2
+
+### Step A — Export reviewed evidence
+
+```powershell
+python scripts/export_verified_pubchem_training.py
+```
+
+### Step B — ตรวจ molecular identity / data leakage
+
+```powershell
+python scripts/check_training_integrity.py --strict-conflicts --require-all
+```
+
+ระบบตรวจ:
+
+- valid SMILES
+- canonical SMILES
+- InChI / InChIKey
+- exact duplicate structure
+- same molecule + conflicting label
+- Positive / Negative หลัง deduplicate
+- Bemis–Murcko scaffold
+- exact overlap กับ external dataset ถ้ามี
+
+ผลลัพธ์ local:
+
+```text
+scientific/models/training_integrity_report.json
+scientific/models/training_manifests/skin.csv
+scientific/models/training_manifests/eye.csv
+scientific/models/training_manifests/sens.csv
+scientific/models/training_manifests/acute.csv
+```
+
+### Step C — Train Candidate v2 โดยไม่แตะ production
+
+```powershell
+python scripts/train_candidate_v2.py
+```
+
+หรือทดสอบ endpoint เดียว:
+
+```powershell
+python scripts/train_candidate_v2.py --endpoint skin
+```
+
+Candidate artifacts ถูกเขียนเฉพาะ:
+
+```text
+scientific/models/candidate_v2/
+```
+
+Production files เหล่านี้จะไม่ถูกแก้:
+
+```text
+scientific/models/skin_model.pkl
+scientific/models/eye_model.pkl
+scientific/models/sens_model.pkl
+scientific/models/acute_model.pkl
+scientific/models/validation_report.json
+```
+
+## 4. Validation ที่ Candidate v2 รายงาน
+
+Candidate v2 รายงาน 4 ระดับแยกกัน
+
+### 4.1 5-fold Stratified OOF
+
+ใช้ protocol เดียวกับ production ปัจจุบันเพื่อให้เปรียบเทียบ Old vs Candidate ได้ในเงื่อนไขใกล้เคียงกัน
+
+ข้อจำกัด: random stratified folds ยังอาจมีสารโครงสร้างคล้ายกันมากอยู่คนละ fold
+
+### 4.2 Nested Stratified CV
+
+Outer fold ใช้ประเมินผล ส่วน threshold ของแต่ละ outer fold ถูกเลือกจากข้อมูลฝั่ง outer-training เท่านั้น
+
+จุดประสงค์คือแก้ความ optimistic จากการเลือก threshold ด้วย prediction ชุดเดียวกับที่ใช้รายงาน metric
+
+### 4.3 Scaffold-grouped CV
+
+ใช้ Bemis–Murcko scaffold แบ่ง outer folds เพื่อ stress-test การ generalize ไปยัง chemical scaffold ที่ต่างขึ้น
+
+สำหรับโมเลกุล acyclic ที่ไม่มี Murcko scaffold ระบบใช้ exact structure เป็น group แยก เพื่อไม่รวมสาร acyclic ทั้งหมดเป็น group เดียวจน 5-fold ใช้งานไม่ได้
+
+### 4.4 Independent External Validation
+
+ถ้ามีไฟล์:
+
+```text
+data/external/skin.csv
+data/external/eye.csv
+data/external/sens.csv
+data/external/acute.csv
+```
+
+ระบบจะตรวจก่อนว่า:
+
+```text
+Train exact molecular identity ∩ External exact molecular identity = 0
+```
+
+ถ้า overlap มากกว่า 0 จะ **ไม่คำนวณ external metrics** และจะไม่เรียกชุดนั้นว่า independent external validation
+
+## 5. เกณฑ์ตัดสินใจว่าจะ Promote หรือไม่
+
+ห้ามเลือกโมเดลใหม่จาก Accuracy ตัวเดียว
+
+ให้ดูอย่างน้อย:
+
+- ROC-AUC
+- MCC
+- Balanced Accuracy
+- Sensitivity
+- Specificity
+- จำนวน Positive / Negative
+- Nested-CV performance
+- Scaffold-CV performance
+- External performance ถ้ามี
+- Applicability Domain coverage
+
+ตัวอย่าง: ถ้า AUC เพิ่มแต่ Specificity ตกมาก อาจหมายถึงโมเดลเริ่มทำนาย Positive มากเกินไปจากการเพิ่ม weak positive labels
+
+ดังนั้น Candidate v2 ไม่มี auto-promote ต้อง review ก่อนเสมอ
+
+## 6. สิ่งที่ตอบกรรมการได้หลัง workflow นี้
+
+เมื่อรันครบ เราจะสามารถตอบด้วยหลักฐานว่า:
+
+1. ข้อมูลแต่ละสารมาจาก source ใด
+2. PubChem ใช้เป็น structure/identity และ evidence aggregator อย่างไร
+3. ทำไม absence of hazard ไม่ถูกใช้เป็น negative label
+4. มีสารซ้ำหรือ label conflict เท่าไร
+5. Train/Test exact identity overlap เป็นอย่างไร
+6. 5-fold OOF ต่างจาก external validation อย่างไร
+7. Model v2 ดีขึ้นหรือแย่ลงจาก production ตรง metric ใด
+8. เมื่อเจอสารโครงสร้างใหม่ โมเดลยังทำงานได้ดีแค่ไหนจาก scaffold/external test
+
+## 7. คำที่ควรใช้ในการนำเสนอ
+
+ควรพูด:
+
+> “เราเพิ่ม curated evidence และสร้าง candidate model แยกจาก production จากนั้นตรวจ exact molecular identity, label conflict, nested validation และ scaffold validation ก่อนพิจารณา promote”
+
+ไม่ควรพูดจนกว่าจะมีหลักฐาน:
+
+> “เราเอาข้อมูลทั้งหมดใน PubChem มา train แล้ว”
+
+หรือ
+
+> “โมเดลผ่าน external validation แล้ว”
+
+เพราะ PubChem มีโครงสร้างสารจำนวนมากแต่ไม่ได้มี endpoint-specific experimental label ที่ใช้ train ได้ทุกสาร และ production report ปัจจุบันยังเป็น internal OOF validation
