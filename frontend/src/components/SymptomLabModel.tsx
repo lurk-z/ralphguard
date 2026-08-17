@@ -309,13 +309,16 @@ function useFaceCameraFit(
     const fovRad = (persp.fov * Math.PI) / 180;
     const distance = (maxDim / 2 / Math.tan(fovRad / 2)) * distanceScale;
 
-    persp.position.set(center.x, center.y, center.z + distance);
+    const targetY = center.y - size.y * 0.035;
+    const cameraTarget = new THREE.Vector3(center.x, targetY, center.z);
+
+    persp.position.set(center.x, targetY, center.z + distance);
     persp.near = Math.max(0.01, distance / 100);
     persp.far = distance * 100;
     persp.updateProjectionMatrix();
-    persp.lookAt(center);
+    persp.lookAt(cameraTarget);
 
-    controls.target.copy(center);
+    controls.target.copy(cameraTarget);
     controls.minDistance = distance * 0.18; // allow close-up inspection of symptoms
     controls.maxDistance = distance * 2.5;
     controls.update();

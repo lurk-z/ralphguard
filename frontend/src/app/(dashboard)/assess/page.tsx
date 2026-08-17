@@ -2242,11 +2242,40 @@ export default function StudioPage() {
                 onClick={startEditingProjectName}
                 disabled={!project || savingProjectName}
                 title={project ? "คลิกเพื่อแก้ไขชื่อโปรเจกต์" : undefined}
-                className="flex h-8 w-full min-w-0 items-center truncate rounded-md px-2 text-left text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-default disabled:hover:bg-transparent"
+                className="flex h-8 min-w-0 flex-1 items-center truncate rounded-md px-2 text-left text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-default disabled:hover:bg-transparent"
               >
                 {project?.name ?? "โปรเจกต์ปัจจุบัน"}
               </button>
             )}
+            {/* ปุ่มเปิด/ปิดหน้าคลังสารเคมีทั้งหมด */}
+            <button
+              type="button"
+              id="substance-library-page-toggle"
+              onClick={() =>
+                changePrimaryNavigation(
+                  activeNavigationItem === "substances" ? "assessment" : "substances",
+                )
+              }
+              aria-label={
+                activeNavigationItem === "substances"
+                  ? "กลับไปหน้าประเมิน"
+                  : "เปิดคลังสารเคมีทั้งหมด"
+              }
+              aria-pressed={activeNavigationItem === "substances"}
+              title={
+                activeNavigationItem === "substances"
+                  ? "กลับไปหน้าประเมิน"
+                  : "เปิดคลังสารเคมีทั้งหมด"
+              }
+              className={`flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11px] font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${
+                activeNavigationItem === "substances"
+                  ? "bg-brand text-white shadow-sm"
+                  : "border border-brand/30 bg-white text-brand hover:border-brand/60 hover:bg-teal-50"
+              }`}
+            >
+              <SemanticIcon name="beaker" className="size-3.5 shrink-0" />
+              <span className="hidden truncate min-[340px]:inline">คลังสาร</span>
+            </button>
           </div>
         )}
         <button
@@ -2293,7 +2322,7 @@ export default function StudioPage() {
 
       {/* Main content top app bar */}
       <header className="assess-main-header sticky top-0 z-40 col-start-3 row-start-1 flex min-w-0 items-center justify-between gap-2 border-b border-border bg-card px-4 shadow-sm">
-        {activeNavigationItem === "assessment" && (
+        {activeNavigationItem === "assessment" ? (
           <button
             ref={formulaCompactTriggerRef}
             type="button"
@@ -2303,6 +2332,16 @@ export default function StudioPage() {
             className="assess-compact-trigger grid size-11 shrink-0 place-items-center rounded-xl text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
           >
             <PanelLeftOpen className="size-4" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => changePrimaryNavigation("assessment")}
+            aria-label="กลับไปหน้าประเมิน"
+            title="กลับไปหน้าประเมิน"
+            className="assess-compact-trigger grid size-11 shrink-0 place-items-center rounded-xl text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          >
+            <ArrowLeft className="size-4" />
           </button>
         )}
         {/* Primary modes stay visually centered regardless of left/right actions. */}
@@ -2892,7 +2931,7 @@ export default function StudioPage() {
           )}
 
           {/* Inflammation trend — opens immediately without motion. */}
-          {mode === "assess" && (
+          {mode === "assess" && activeNavigationItem === "assessment" && (
             <div
               ref={trendDrawerRef}
               aria-hidden={activeNavigationItem !== "assessment"}
@@ -3079,8 +3118,8 @@ export default function StudioPage() {
           {mode === "trust" && <TrustReport />}
 
           {/* Paint follows formula readiness; assessment follows paint ownership. */}
-          {mode === "assess" && (
-            <div ref={bottomToolbarRef} className="assess-bottom-toolbar pointer-events-none z-40 order-3 mt-auto mb-3 shrink-0 self-center print:hidden md:mb-4 md:mr-4 md:self-end">
+          {mode === "assess" && activeNavigationItem === "assessment" && (
+            <div ref={bottomToolbarRef} className="assess-bottom-toolbar pointer-events-none absolute inset-x-0 z-40 flex justify-center print:hidden md:inset-x-auto md:right-4 md:justify-end">
               <div className="pointer-events-auto flex w-[calc(100vw-1.5rem)] max-w-[22rem] flex-col rounded-xl border border-slate-200 bg-white p-1.5 md:w-auto md:max-w-none md:p-1">
                 {paintReady && (
                   <div ref={mobileBrushControlRef} className="w-full border-b border-slate-100 pb-1">

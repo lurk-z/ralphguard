@@ -235,7 +235,7 @@ export function SymptomFaceCanvas({
             onPaintChange={handlePaintChange}
             occupiedPaint={occupiedPaint}
             onPaintBlocked={onPaintBlocked}
-            cameraDistanceScale={1.15}
+            cameraDistanceScale={1.28}
             sharedExposureMask
           />
         </Suspense>

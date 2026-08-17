@@ -1,3 +1,35 @@
+@font-face {
+  font-family: 'LINESeedSansTH';
+  src: url('/fonts/LINESeedSansTH_W_Th.woff') format('woff');
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'LINESeedSansTH';
+  src: url('/fonts/LINESeedSansTH_W_Rg.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'LINESeedSansTH';
+  src: url('/fonts/LINESeedSansTH_W_Bd.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'LINESeedSansTH';
+  src: url('/fonts/LINESeedSansTH_W_He.woff') format('woff');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -278,6 +310,7 @@ html {
 }
 
 .assess-bottom-toolbar {
+  position: absolute;
   bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
 }
 
