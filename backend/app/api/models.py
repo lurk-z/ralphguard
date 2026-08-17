@@ -15,7 +15,7 @@ router = APIRouter()
 
 ENDPOINT_META = {
     "skin": {"label_en": "Skin Irritation", "label_th": "การระคายเคืองผิวหนัง", "oecd_tg": "OECD TG 404 / 439"},
-    "eye": {"label_en": "Eye Irritation", "label_th": "การระคายเคืองดวงตา", "oecd_tg": "OECD TG 405 / 492"},
+    "eye": {"label_en": "Eye Irritation", "label_th": "การระคายเคืองดวงตา", "oecd_tg": "OECD TG 405 / 492 / 494"},
     "sens": {"label_en": "Skin Sensitization", "label_th": "การแพ้สัมผัสผิวหนัง", "oecd_tg": "OECD TG 429 / 442"},
     "acute": {"label_en": "Acute Toxicity", "label_th": "ความเป็นพิษเฉียบพลัน", "oecd_tg": "OECD TG 420 / CATMoS"},
 }
@@ -46,7 +46,7 @@ METHODOLOGY = {
         "must be reported separately when generated."
     ),
     "limitations": [
-        "Endpoint-specific datasets remain small; results are screening-level only",
+        "Some endpoint classes and independent external sets remain small even when total endpoint rows are large; results are screening-level only",
         "5-fold OOF validation is internal validation, not an independent external test",
         "Structurally near-duplicate chemicals can still make random stratified folds optimistic; scaffold/external validation is required for stronger novelty testing",
         "Model scores are not calibrated clinical probabilities",
@@ -55,15 +55,15 @@ METHODOLOGY = {
 
 DATA_INTEGRITY_POLICY = {
     "identity": "Canonicalize valid SMILES with RDKit and audit InChIKey/canonical-SMILES identity before training.",
-    "duplicates": "The same molecular structure must not be counted repeatedly; duplicate structures are collapsed and contradictory labels are excluded for review.",
+    "duplicates": "The same molecular structure must not be counted repeatedly; duplicate structures are collapsed, same-tier label conflicts are excluded, and lower-tier weak conflicts are audited.",
     "pubchem_role": "PubChem expands chemical identity/structure coverage and regulatory evidence. A PubChem structure by itself is not a toxicity training label.",
     "nice_role": "NICEATM ICE reference records remain staging data until endpoint mapping and a human review gate are completed.",
     "missing_evidence": "Missing GHS/toxicity evidence and 'Not Classified' are not automatically converted to label 0.",
     "training_evidence": (
-        "Candidate-v2 training separates evidence quality: base rows and human-reviewed direct in-vivo NICE/ICE rows use full weight; "
-        "PubChem regulatory-consensus weak labels use reduced weight unless explicitly reviewed otherwise."
+        "Candidate-v2 training separates evidence quality: direct human/animal ICE rows use full weight; conservative OECD alternative-method labels use weight 0.7; "
+        "PubChem regulatory weak labels use weight 0.25 or 0.5. Evidence-quality weights are then normalized so both endpoint classes have equal total optimization weight."
     ),
-    "evidence_priority": "For the same exact identity with the same label: base > human-reviewed NICE/ICE > PubChem consensus weak label. Conflicting labels are excluded instead of resolved by priority.",
+    "evidence_priority": "For an exact identity: base ICE experimental/reference > human-reviewed NICE/ICE > PubChem weak label. Conflicts within the best tier are excluded; a contradictory lower tier is recorded and overridden.",
     "external_overlap": "An independent external-validation set must have zero exact molecular-identity overlap with the training pool before its metrics are called external validation.",
 }
 
@@ -92,8 +92,8 @@ EVIDENCE_SOURCES = {
     "nice_reference_evidence": {
         "provider": "NICEATM Integrated Chemical Environment (ICE)",
         "role": (
-            "endpoint-specific reference/in-vivo records collected by exact InChIKey. Records are harmonized conservatively and "
-            "must contain an explicit reviewed label, reviewer identity, note and review timestamp before candidate training export"
+            "official bulk reference records plus exact-InChIKey API review candidates. Bulk records enter only through conservative deterministic mappings; "
+            "API review candidates require a reviewed label, reviewer identity, note and timestamp before training export"
         ),
         "status": "review_pipeline_available",
     },

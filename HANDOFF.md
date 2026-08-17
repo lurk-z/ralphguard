@@ -35,8 +35,8 @@ RalphGuard รับ "สูตรผสมสารเคมี" (SMILES + % �
 |---|---|---|
 | `skin_irritation.csv` | skin | literature (อ้างอิงแนว OECD TG 404/439) |
 | `eye_irritation.csv` | eye | literature (OECD TG 405/492) |
-| `llna_sensitization.csv` | sens | LLNA-literature (OECD TG 429/442) |
-| `catmos_acute_toxicity.csv` | acute | CATMoS-literature (OECD TG 420) |
+| `skin_sensitization.csv` | sens | NICE/ICE in-vivo LLNA/Guinea-pig evidence |
+| `acute_oral_toxicity.csv` | acute | NICE/ICE in-vivo rat acute oral evidence |
 
 > เป็นชุดข้อมูล **curated จากวรรณกรรม/สาธารณะ ขนาดเล็ก (~147 สาร)** — เหมาะระดับ *screening* ไม่ใช่ระดับ regulatory
 > **ข้อจำกัดความน่าเชื่อถือ:** ชุดเล็ก, class imbalance (positive น้อย เช่น sens 32/144), sensitivity ต่ำในบาง endpoint (sens=0.00 บน test set เล็ก), ยังไม่มี external validation set → ใช้ประกอบการคัดกรองเบื้องต้นเท่านั้น

@@ -1,6 +1,9 @@
 """Ingredient identity and PubChem enrichment safety rules."""
 
+import httpx
+
 from app.services.ingredient_registry import (
+    _throttled_get,
     classify_substance,
     non_qsar_profile,
     normalize_ingredient_name,
@@ -114,3 +117,29 @@ def test_verified_identity_cannot_be_overwritten_by_a_different_pubchem_structur
     assert result is row
     assert "pubchem_identity_conflict" in row.provenance
     assert "did not match" in row.last_error
+
+
+def test_pubchem_transport_error_is_retried(monkeypatch):
+    class FlakyClient:
+        calls = 0
+
+        def get(self, url, *, timeout):
+            self.calls += 1
+            if self.calls < 3:
+                raise httpx.RemoteProtocolError("incomplete chunked read")
+            return httpx.Response(
+                200,
+                json={"ok": True},
+                request=httpx.Request("GET", url),
+            )
+
+    monkeypatch.setattr("app.services.ingredient_registry.time.sleep", lambda _seconds: None)
+    client = FlakyClient()
+
+    assert _throttled_get(
+        client,
+        "https://pubchem.ncbi.nlm.nih.gov/example",
+        max_attempts=3,
+        base_backoff=0,
+    ) == {"ok": True}
+    assert client.calls == 3

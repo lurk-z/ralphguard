@@ -1,0 +1,63 @@
+{
+  "schema_version": 2,
+  "created_at": "YYYY-MM-DDTHH:MM:SSZ",
+  "created_by": "reviewer name",
+  "datasets": {
+    "skin": {
+      "file": "skin_irritation.csv",
+      "source_organization": "NIH/NICEATM Integrated Chemical Environment (ICE)",
+      "source_url": "https://ice.ntp.niehs.nih.gov/downloads/DataonICE/skin_irritation.xlsx",
+      "retrieved_at": "YYYY-MM-DD",
+      "license_or_terms": "document the applicable data terms",
+      "assay_or_guideline": "e.g. OECD TG 404 / Rabbit Draize Skin",
+      "endpoint_definition": "precise outcome represented by label 1",
+      "negative_definition": "precise evidence required for label 0",
+      "label_mapping": "original outcome -> binary label rule",
+      "raw_sha256": "64 lowercase hexadecimal characters",
+      "prepared_sha256": "64 lowercase hexadecimal characters for the prepared CSV",
+      "review_note": "curation decisions and exclusions"
+    },
+    "eye": {
+      "file": "eye_irritation.csv",
+      "source_organization": "NIH/NICEATM Integrated Chemical Environment (ICE)",
+      "source_url": "https://ice.ntp.niehs.nih.gov/downloads/DataonICE/eye_irritation.xlsx",
+      "retrieved_at": "YYYY-MM-DD",
+      "license_or_terms": "document the applicable data terms",
+      "assay_or_guideline": "e.g. OECD TG 405 / Rabbit Draize Eye",
+      "endpoint_definition": "precise outcome represented by label 1",
+      "negative_definition": "precise evidence required for label 0",
+      "label_mapping": "original outcome -> binary label rule",
+      "raw_sha256": "64 lowercase hexadecimal characters",
+      "prepared_sha256": "64 lowercase hexadecimal characters for the prepared CSV",
+      "review_note": "curation decisions and exclusions"
+    },
+    "sens": {
+      "file": "skin_sensitization.csv",
+      "source_organization": "NIH/NICEATM Integrated Chemical Environment (ICE)",
+      "source_url": "https://ice.ntp.niehs.nih.gov/downloads/DataonICE/skin_sensitization.xlsx",
+      "retrieved_at": "YYYY-MM-DD",
+      "license_or_terms": "document the applicable data terms",
+      "assay_or_guideline": "OECD TG 429 LLNA or explicitly documented alternative",
+      "endpoint_definition": "precise outcome represented by label 1",
+      "negative_definition": "precise evidence required for label 0",
+      "label_mapping": "original SI/EC3/classification -> binary label rule",
+      "raw_sha256": "64 lowercase hexadecimal characters",
+      "prepared_sha256": "64 lowercase hexadecimal characters for the prepared CSV",
+      "review_note": "curation decisions and exclusions"
+    },
+    "acute": {
+      "file": "acute_oral_toxicity.csv",
+      "source_organization": "NIH/NICEATM Integrated Chemical Environment (ICE)",
+      "source_url": "https://ice.ntp.niehs.nih.gov/downloads/DataonICE/acute_oral.xlsx",
+      "retrieved_at": "YYYY-MM-DD",
+      "license_or_terms": "document the applicable data terms",
+      "assay_or_guideline": "in-vivo acute oral toxicity reference outcome",
+      "endpoint_definition": "precise LD50/category boundary represented by label 1",
+      "negative_definition": "precise LD50/category evidence required for label 0",
+      "label_mapping": "original LD50/category -> binary label rule",
+      "raw_sha256": "64 lowercase hexadecimal characters",
+      "prepared_sha256": "64 lowercase hexadecimal characters for the prepared CSV",
+      "review_note": "CATMoS predictions must not be used as experimental labels"
+    }
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "generated_at": "2026-08-17T00:33:44.780162+00:00",
+  "target": 10000,
+  "annotation_heading": "hazard-classes",
+  "start_page": 1,
+  "last_page_processed": 50,
+  "process_all_pages": true,
+  "prior_runs": [],
+  "screened_unique_structures": 3471,
+  "target_per_endpoint": 0,
+  "screened_unique_structures_by_endpoint": {
+    "skin": 0,
+    "eye": 0,
+    "sens": 3471,
+    "acute": 0
+  },
+  "gaps_by_endpoint": {
+    "skin": 0,
+    "eye": 0,
+    "sens": 0,
+    "acute": 0
+  },
+  "minimum_met": true,
+  "reported_total_pages": 350,
+  "annotation_rows": 5672,
+  "raw_unique_cids": 4962,
+  "property_resolved": 4962,
+  "evidence_imported": 3474,
+  "evidence_existing": 0,
+  "pages_processed": 50,
+  "evidence_by_endpoint": {
+    "sens": 3474
+  },
+  "filtered": {
+    "salt": 1231,
+    "molecular_weight_outside_domain": 160,
+    "unsupported_element": 66,
+    "inorganic": 30,
+    "heavy_atom_count_outside_domain": 3,
+    "polymer": 1
+  },
+  "consensus_promotion": {
+    "promoted_evidence_rows": 54,
+    "promoted_unique_labels": 27,
+    "acute_labels": 0,
+    "eye_labels": 0,
+    "sens_labels": 27,
+    "skin_labels": 0
+  },
+  "single_regulatory_promotion": {
+    "promoted_evidence_rows": 3447,
+    "promoted_unique_labels": 3444,
+    "skipped_conflicting_labels": 0,
+    "acute_labels": 0,
+    "eye_labels": 0,
+    "sens_labels": 3444,
+    "skin_labels": 0
+  }
+}

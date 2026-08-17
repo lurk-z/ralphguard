@@ -91,9 +91,9 @@ class PubChemCache(Base):
 class ExperimentalEvidence(Base):
     """Endpoint-specific evidence staged for review before model training.
 
-    PubChem annotations are third-party evidence, not ground truth.  Rows are
-    therefore pending by default and cannot enter a training export until a
-    reviewer explicitly verifies them.
+    PubChem annotations are not ground truth and remain pending by default.
+    Training export requires manual review, multi-source consensus, or the
+    explicit low-weight single-regulatory-source policy.
     """
 
     __tablename__ = "experimental_evidence"

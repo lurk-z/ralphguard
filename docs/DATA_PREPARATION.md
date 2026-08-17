@@ -10,8 +10,8 @@
 |---|---|
 | Skin irritation | `data/raw/skin_irritation.csv` |
 | Eye irritation | `data/raw/eye_irritation.csv` |
-| Skin sensitization | `data/raw/llna_sensitization.csv` |
-| Acute toxicity | `data/raw/catmos_acute_toxicity.csv` |
+| Skin sensitization | `data/raw/skin_sensitization.csv` |
+| Acute toxicity | `data/raw/acute_oral_toxicity.csv` |
 
 ไฟล์ `data/raw/*` ถูก `.gitignore` จึง **ไม่สามารถตรวจ raw row count หรือ provenance รายแถวจาก clone ของ GitHub เพียงอย่างเดียวได้** ต้องใช้ไฟล์ต้นฉบับบนเครื่องที่ใช้ train
 
@@ -44,7 +44,7 @@ data/curated/pubchem_verified_acute.csv
 - Sensitization: 9
 - Acute: 19
 
-ข้อมูลกลุ่มนี้เป็นหลักฐานที่ผ่าน review/consensus gate แล้ว แต่หลายรายการเป็น `regulatory_consensus_weak_label` และใช้ `sample_weight=0.5`
+ข้อมูลกลุ่มนี้เป็นหลักฐานที่ผ่าน review/consensus gate หรือเป็น positive GHS code จาก regulatory source ที่ระบุแหล่งชัดเจน โดย `regulatory_consensus_weak_label` ใช้ `sample_weight=0.5` และ `single_regulatory_source_weak_label` ใช้ `sample_weight=0.25`
 
 **ห้ามตีความว่า PubChem structure ทุกตัวเป็น training label** และห้ามตีความ “ไม่พบ hazard” เป็น label 0
 

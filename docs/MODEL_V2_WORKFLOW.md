@@ -43,9 +43,23 @@ RalphGuard แยกข้อมูลเป็นคนละชั้น:
 | Sensitization | 9 |
 | Acute | 19 |
 
-กลุ่ม regulatory-consensus weak label ใช้ `sample_weight=0.5` และไม่อธิบายว่าเป็น direct in-vivo result
+กลุ่ม regulatory-consensus weak label ใช้ `sample_weight=0.5`; positive H-code จาก regulatory source เดียวใช้ `sample_weight=0.25` และทั้งสองกลุ่มไม่อธิบายว่าเป็น direct in-vivo result
 
 ## 4. NICEATM ICE direct/reference evidence pipeline
+
+### 4.0 Bulk pipeline สำหรับข้อมูลระดับหลักหมื่น
+
+สำหรับสร้าง base training data ใหม่ทั้งสี่ endpoint จาก official ICE bulk
+workbooks ให้รัน:
+
+```powershell
+docker compose --profile training run --rm ice-data-prep
+```
+
+ตัวเตรียมข้อมูลจะบังคับขั้นต่ำ 10,000 unique endpoint rows หลังตัด mixture,
+prediction, invalid structure, duplicate และ label conflict รายละเอียดอยู่ใน
+`docs/ICE_BULK_TRAINING.md` ส่วน API collector ด้านล่างยังใช้สำหรับค้น evidence
+เฉพาะสารใน local registry และ human review เพิ่มเติม
 
 ### 4.1 Collect — ยังไม่สร้าง label
 
@@ -161,14 +175,14 @@ Raw base datasets ต้องอยู่ใน:
 ```text
 data/raw/skin_irritation.csv
 data/raw/eye_irritation.csv
-data/raw/llna_sensitization.csv
-data/raw/catmos_acute_toxicity.csv
+data/raw/skin_sensitization.csv
+data/raw/acute_oral_toxicity.csv
 ```
 
 จากนั้นรันด้วย scientific image เดียวกับ model runtime:
 
 ```powershell
-docker compose --profile training run --rm trainer python scripts/check_training_integrity.py --strict-conflicts --require-all
+docker compose --profile training run --rm trainer python scripts/check_training_integrity.py --strict-conflicts --require-all --require-manifest
 ```
 
 Audit ตรวจ:
@@ -222,6 +236,24 @@ Candidate artifacts เขียนเฉพาะ:
 ```text
 scientific/models/candidate_v2/
 ```
+
+การรันจะสร้าง plots และ sample-level prediction CSV โดยอัตโนมัติ:
+
+```text
+scientific/models/candidate_v2/plots/
+├── 00_algorithm_pipeline.png/.svg
+├── 00_data_preflight.png/.svg
+└── {endpoint}/
+    ├── 01_data_profile.png/.svg
+    ├── 02_oof_validation.png/.svg
+    ├── 03_nested_cv.png/.svg
+    ├── 04_scaffold_cv.png/.svg
+    ├── 05_external_validation.png/.svg
+    ├── 06_model_comparison.png/.svg
+    └── *_predictions.csv
+```
+
+รายละเอียด Algorithm, Features, Validation และแนวทางอ่านผลอยู่ใน `docs/ALGORITHM_AND_ML_WORKFLOW.md`
 
 Production files ต่อไปนี้ **ไม่ถูกแตะ**:
 

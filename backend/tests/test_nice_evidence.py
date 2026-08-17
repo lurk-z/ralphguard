@@ -48,6 +48,56 @@ def test_llna_si_below_3_is_not_auto_negative():
     assert mapped["mapping_status"] == "supportive_negative_only"
 
 
+def test_numeric_incidence_of_positive_responses_is_not_a_positive_call():
+    record = _record(
+        "sens",
+        "Human Maximization Test",
+        ice_endpoint="Incidence of positive responses",
+        ice_value=0,
+        unit="%",
+    )
+    mapped = harmonize_record(record)
+    assert mapped["candidate_label"] is None
+
+
+def test_human_maximization_inactive_call_maps_negative():
+    record = _record(
+        "sens",
+        "Human Maximization Test",
+        ice_endpoint="Call",
+        ice_value="Inactive",
+    )
+    mapped = harmonize_record(record)
+    assert mapped["candidate_label"] == 0
+    assert mapped["mapping_rule"] == "explicit_negative"
+
+
+def test_llna_reported_ec3_maps_positive():
+    record = _record(
+        "sens",
+        "Murine Local Lymph Node Assay (LLNA)",
+        ice_endpoint="EC3",
+        ice_value="1.2",
+        unit="%",
+    )
+    mapped = harmonize_record(record)
+    assert mapped["candidate_label"] == 1
+    assert mapped["mapping_rule"] == "llna_ec3_reported"
+
+
+def test_numeric_epa_eye_category_maps_only_with_classification_context():
+    record = _record(
+        "eye",
+        "Rabbit Draize Eye Irritation/Corrosion Test",
+        ice_endpoint="EPA Classification",
+        ice_value=4,
+        unit="Unitless",
+    )
+    mapped = harmonize_record(record)
+    assert mapped["candidate_label"] == 0
+    assert mapped["mapping_rule"] == "explicit_epa_irritation_category_4"
+
+
 def test_acute_ld50_1500_mgkg_maps_positive():
     record = _record("acute", "Rat Acute Oral Toxicity", ice_endpoint="LD50", ice_value="1500", unit="mg/kg")
     mapped = harmonize_record(record)

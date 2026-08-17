@@ -254,25 +254,62 @@ def parse_pubchem_responses(query_name: str, property_payload: dict, synonym_pay
     }
 
 
-def _throttled_get(client: httpx.Client, url: str, *, timeout: float = 8.0) -> dict:
+def _throttled_get(
+    client: httpx.Client,
+    url: str,
+    *,
+    timeout: float = 8.0,
+    max_attempts: int = 4,
+    base_backoff: float = 1.0,
+) -> dict:
+    """GET PubChem JSON with rate limiting and transient-failure retries.
+
+    PubChem can close a large chunked response before the final chunk arrives.
+    ``httpx`` raises that case as ``RemoteProtocolError`` (a TransportError),
+    so retry it in the same way as 429/5xx responses instead of aborting a
+    multi-page evidence import.
+    """
     global _last_request_at
-    for attempt in range(3):
-        with _request_lock:
-            interval = 1.0 / PUBCHEM_MAX_REQUESTS_PER_SECOND
-            wait = interval - (time.monotonic() - _last_request_at)
-            if wait > 0:
-                time.sleep(wait)
-            response = client.get(url, timeout=timeout)
-            _last_request_at = time.monotonic()
+    if max_attempts < 1 or base_backoff < 0:
+        raise ValueError("max_attempts must be positive and base_backoff cannot be negative")
+
+    retry_statuses = {408, 425, 429, 500, 502, 503, 504}
+    last_error: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            with _request_lock:
+                interval = 1.0 / PUBCHEM_MAX_REQUESTS_PER_SECOND
+                wait = interval - (time.monotonic() - _last_request_at)
+                if wait > 0:
+                    time.sleep(wait)
+                try:
+                    response = client.get(url, timeout=timeout)
+                finally:
+                    _last_request_at = time.monotonic()
+        except httpx.TransportError as exc:
+            last_error = exc
+            if attempt == max_attempts - 1:
+                raise
+            time.sleep(min(60.0, base_backoff * (2**attempt)))
+            continue
+
         if response.status_code == 200:
-            return response.json()
+            try:
+                return response.json()
+            except ValueError as exc:
+                last_error = exc
+                if attempt == max_attempts - 1:
+                    raise
+                time.sleep(min(60.0, base_backoff * (2**attempt)))
+                continue
         if response.status_code == 404:
             raise LookupError("not found in PubChem")
-        if response.status_code not in {429, 503, 504} or attempt == 2:
+        if response.status_code not in retry_statuses or attempt == max_attempts - 1:
             response.raise_for_status()
         retry_after = response.headers.get("Retry-After")
-        time.sleep(float(retry_after) if retry_after and retry_after.isdigit() else 0.5 * (2**attempt))
-    raise RuntimeError("PubChem retry loop exhausted")
+        delay = float(retry_after) if retry_after and retry_after.isdigit() else base_backoff * (2**attempt)
+        time.sleep(min(60.0, delay))
+    raise RuntimeError("PubChem retry loop exhausted") from last_error
 
 
 def fetch_pubchem_record(name: str) -> dict:

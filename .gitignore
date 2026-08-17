@@ -40,6 +40,8 @@ htmlcov/
 data/raw/*
 !data/raw/.gitkeep
 !data/raw/README.md
+!data/raw/dataset_manifest.example.json
+!data/raw/dataset_manifest.json
 data/processed/*
 !data/processed/.gitkeep
 data/staging/

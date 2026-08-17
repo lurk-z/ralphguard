@@ -1,5 +1,14 @@
 # RalphGuard — NICE/ICE Evidence Mapping & Review Policy
 
+## Bulk dataset path กับ API evidence path
+
+โปรเจกต์มีสองเส้นทางที่แยกกัน:
+
+1. `scripts/prepare_ice_bulk_training.py` ใช้ official ICE bulk workbooks ซึ่งผ่านการ curate/harmonize โดย NICEATM แล้ว และรับเข้า base dataset เฉพาะกลุ่มที่กฎ deterministic ให้ Label เดียวอย่างชัดเจน หลัง join โครงสร้างและตัด conflict; แถวกำกวมทั้งหมดถูกส่ง `data/staging/ice_bulk_review_queue.csv`
+2. API collector ในเอกสารส่วนที่เหลือใช้ค้น evidence เพิ่มเฉพาะสารใน local registry และยังต้องผ่าน human-review gate ก่อนเป็น supplemental training evidence
+
+ดังนั้น bulk path ไม่ได้แปลง raw row ทุกแถวเป็น Label อัตโนมัติ แต่ใช้เฉพาะ explicit classification หรือค่าทดลองที่ mapping ได้ตามกฎด้านล่าง พร้อมเก็บ evidence ID, mapping rule และ SHA-256 สำหรับ audit
+
 เอกสารนี้อธิบายว่า endpoint-specific reference/in-vivo records จาก NICEATM Integrated Chemical Environment (ICE) ถูกเตรียมก่อนเข้าสู่ Candidate QSAR training อย่างไร
 
 > หลักสำคัญ: **raw experimental/reference record ไม่ใช่ training label โดยอัตโนมัติ**
@@ -21,11 +30,23 @@ RalphGuard query **หนึ่ง InChIKey ต่อหนึ่ง request** �
 |---|---|---|
 | Skin irritation/corrosion | Rabbit Draize Skin Irritation/Corrosion Test | explicit classification เท่านั้น; numeric lesion score ส่ง review |
 | Eye irritation/corrosion | Rabbit Draize Eye Irritation/Corrosion Test | explicit classification เท่านั้น; numeric lesion score ส่ง review |
+| Skin irritation | OECD TG 439 EpiDerm/EpiSkin/LabCyte | explicit `Call=Active/Inactive`; weight 0.7 |
+| Skin corrosion | OECD TG 431/430/435 named methods | `Active` supports hazard; `Inactive` is not a non-irritant label |
+| Eye irritation | OECD TG 494 Vitrigel | only explicit `Call=Inactive` maps to No Category; weight 0.7 |
 | Skin sensitization | Murine Local Lymph Node Assay (LLNA) | SI >= 3 เป็น positive candidate; SI < 3 เดี่ยว ๆ ไม่เป็น automatic negative |
 | Skin sensitization | Guinea Pig Maximization/Buehler | ต้องมี explicit positive/negative classification |
 | Acute oral toxicity | Rat Acute Oral Toxicity | explicit acute category หรือ interpretable LD50 จึงสร้าง candidate |
 
 `CATMoS, Rat Acute Oral Toxicity` ไม่อยู่ใน whitelist direct/reference evidence เพราะเป็น in-silico prediction; หากนำมาใช้ภายหลังต้องเก็บเป็น evidence class แยก ไม่เรียกว่า direct in-vivo
+
+Human sensitization calls from the Human Maximization Test and Human Repeat
+Insult Patch Test are accepted only when ICE reports an explicit
+`Call = Active/Inactive`. Numeric incidence fields are not classification calls.
+
+For non-animal sensitization data, DPRA (key event 1), KeratinoSens/LuSens (key
+event 2), and h-CLAT/U-SENS/mMUSST (key event 3) are used only when explicit
+calls agree across at least two distinct key events. These consensus rows use
+`sample_weight=0.7`; a standalone assay call is sent to review instead.
 
 ## 3. Skin irritation/corrosion
 
@@ -111,14 +132,17 @@ Unit ที่รองรับและ normalize เป็น mg/kg:
 InChIKey + RalphGuard endpoint
 ```
 
-ถ้า conservative mapping ให้ทั้ง label 0 และ 1 ใน exact molecule/endpoint เดียว:
+ถ้า conservative mapping ให้ทั้ง label 0 และ 1 ภายใน evidence tier ที่ดีที่สุด
+ของ exact molecule/endpoint เดียว:
 
 ```text
 mapping_status = conflict_review_required
 candidate_label = null
 ```
 
-ไม่มี majority vote และไม่มีการเลือก source ตามลำดับเพื่อกลบ conflict
+ไม่มี majority vote สำหรับ conflict ใน tier เดียวกัน แต่หาก ICE
+experimental/reviewed label ขัดกับ PubChem weak label ระบบจะบันทึก
+lower-tier conflict และใช้ label จาก tier ที่สูงกว่าแทนการทิ้งหลักฐานทดลอง
 
 ## 9. Human-review gate
 
@@ -150,13 +174,23 @@ label_quality = regulatory_consensus_weak_label
 sample_weight = 0.5
 ```
 
+PubChem single-regulatory-source positive weak label:
+
+```text
+label_quality = single_regulatory_source_weak_label
+sample_weight = 0.25
+negative inference from missing hazard code = forbidden
+```
+
 เมื่อ exact identity เดียวมี label **ตรงกัน** หลายแหล่ง Candidate v2 ใช้ priority:
 
 ```text
 base > NICE direct-in-vivo reviewed > PubChem regulatory-consensus weak label
 ```
 
-แต่ถ้า label **ขัดแย้งกัน** ระบบ exclude exact identity ทั้งตัวจนกว่าจะ review ไม่ใช้ priority ตัดสิน conflict
+ถ้า label **ขัดแย้งกันภายใน tier ที่ดีที่สุด** ระบบ exclude exact identity
+ทั้งตัวจนกว่าจะ review แต่ lower-tier PubChem conflict จะถูกบันทึกและ override
+ด้วย ICE experimental/reviewed label
 
 ## 11. สิ่งที่ rule นี้ไม่ได้อ้าง
 

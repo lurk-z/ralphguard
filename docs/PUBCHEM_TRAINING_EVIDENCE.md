@@ -10,6 +10,23 @@
 
 ## Online PubChem fallback: Runtime screening ≠ Training eligibility
 
+### Regulatory weak-label tiers used by candidate training
+
+PubChem structure alone is never a toxicity label. Positive endpoint hazard
+codes may enter candidate training only with retained source attribution:
+
+| Evidence tier | Required evidence | `sample_weight` |
+|---|---|---:|
+| Manual review | Reviewer verified the exact identity, endpoint, route and source | 1.0 |
+| Regulatory consensus | At least two independent regulatory/expert-curated sources agree | 0.5 |
+| Single regulatory source | One source classified as regulatory, an explicit positive H-code, and a QSAR-eligible exact structure | 0.25 |
+
+The single-source tier uses status `single_regulatory_weak_label` and label
+quality `single_regulatory_source_weak_label`. It never converts `Not
+Classified`, a missing H-code, or a third-party-only annotation to label 0.
+These rows are counted only after RDKit canonicalization, conflict exclusion,
+deduplication, and external-holdout quarantine.
+
 หน้าเพิ่มสารรองรับลำดับการค้นหา:
 
 ```text
@@ -80,8 +97,27 @@ python scripts/import_pubchem_evidence.py
 ### นำเข้า Global GHS ให้เกิน 1,000 สาร
 
 ```powershell
-docker compose exec backend python scripts/import_global_pubchem_ghs.py --target 1000 --max-pages 6
+docker compose exec backend python scripts/import_global_pubchem_ghs.py --target 1000 --max-pages 20 --include-single-regulatory
 ```
+
+หากต้องการวัด coverage แยกทุก endpoint ให้ใช้ `--target-per-endpoint` ด้วย
+ตัวนำเข้าจะไม่หยุดเพียงเพราะยอดรวมถึงเป้า หาก endpoint ใดยังขาด:
+
+```powershell
+docker compose exec backend python scripts/import_global_pubchem_ghs.py `
+  --target 10000 `
+  --target-per-endpoint 20000 `
+  --max-pages 200 `
+  --allow-under-target `
+  --include-single-regulatory
+```
+
+`target-per-endpoint` คือจำนวนโครงสร้างที่ผ่าน domain screening และมีหลักฐาน
+ของ endpoint นั้น ไม่ใช่จำนวน training rows สุดท้าย หลัง promotion, conflict
+removal, exact dedup และ external quarantine จำนวนจริงอาจต่ำกว่า จึงต้องใช้
+integrity gate ตรวจอีกครั้ง
+`--allow-under-target` ทำให้ importer บันทึกจำนวนที่หาได้จริงและไปต่อถึง final
+audit; ไม่ได้ทำให้ 10,000-row gate อ่อนลง
 
 ตัวนำเข้าจะหยุดเมื่อได้โครงสร้างไม่ซ้ำตามเป้าหมาย และคัดออกก่อนบันทึกเมื่อเป็น:
 
@@ -92,6 +128,11 @@ docker compose exec backend python scripts/import_global_pubchem_ghs.py --target
 - heavy atoms นอกช่วง 2–36 ซึ่งครอบคลุมขอบเขตโมเดลปัจจุบัน
 
 ผลการรันล่าสุดที่บันทึกไว้ในโครงการตรวจ 1,750 CID และผ่าน 1,302 โครงสร้าง โดยตัด salt 308, inorganic 52, MW นอกช่วง 50, unsupported element 36 และ heavy atoms นอกช่วง 2 รายการ
+
+การเพิ่ม PubChem GHS ในปริมาณมากจะเพิ่มหลักฐาน positive เป็นหลัก ไม่ได้แก้
+class imbalance โดยอัตโนมัติ ห้ามอ้างว่าโมเดลแม่นขึ้นจากจำนวนแถวเพียงอย่างเดียว
+และต้องตรวจจำนวน positive/negative, scaffold CV และ independent external set
+ทุกครั้ง
 
 Registry API รองรับ pagination เมื่อมีข้อมูลเกิน 500 รายการ:
 

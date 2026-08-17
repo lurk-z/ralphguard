@@ -27,6 +27,8 @@ SUPPORTED_ASSAYS = {
     "Rabbit Draize Eye Irritation/Corrosion Test": "eye",
     "Murine Local Lymph Node Assay (LLNA)": "sens",
     "Guinea Pig Maximization/Buehler": "sens",
+    "Human Maximization Test": "sens",
+    "Human Repeat Insult Patch Test": "sens",
     "Rat Acute Oral Toxicity": "acute",
 }
 
@@ -76,7 +78,100 @@ def _record_text(record: dict[str, Any]) -> str:
     return " | ".join(_flatten_text(fields)).casefold()
 
 
+def _response_text(record: dict[str, Any]) -> str:
+    """Return only the reported response and unit for explicit call parsing.
+
+    Endpoint names such as ``Incidence of positive responses`` describe a
+    measurement, not its outcome.  Looking for the word ``positive`` in that
+    heading previously turned a numeric response of zero into a false positive.
+    """
+    return " | ".join(
+        _flatten_text([record.get("ice_value"), record.get("ice_unit")])
+    ).casefold()
+
+
+def _explicit_classification(record: dict[str, Any], endpoint: str) -> HarmonizedVote | None:
+    """Map explicit categorical calls without interpreting observation scores."""
+    endpoint_text = str(record.get("ice_endpoint") or "").strip().casefold()
+    value_text = _response_text(record)
+
+    # ICE stores several official classification categories as bare numbers.
+    # They are meaningful only when the endpoint column explicitly identifies
+    # the classification system; bare Draize scores remain review-gated.
+    number_match = re.fullmatch(r"\s*([1-5])(?:\.0+)?(?:\s*\|\s*unitless)?\s*", value_text)
+    category = int(number_match.group(1)) if number_match else None
+    if "ghs" in endpoint_text and "classification" in endpoint_text and category is not None:
+        if endpoint in {"skin", "eye"} and category in {1, 2}:
+            return HarmonizedVote(1, "auto_candidate", "explicit_ghs_irritation_category_1_2", "explicit GHS irritation category 1/2")
+        if endpoint == "acute" and category in {1, 2, 3, 4}:
+            return HarmonizedVote(1, "auto_candidate", "explicit_acute_category_1_4", "explicit acute oral GHS category 1-4")
+        if endpoint == "acute" and category == 5:
+            return HarmonizedVote(0, "auto_candidate", "explicit_acute_category_5", "GHS category 5 is above RalphGuard's <=2000 mg/kg positive boundary")
+
+    if "epa" in endpoint_text and "classification" in endpoint_text and category is not None:
+        if endpoint in {"skin", "eye"} and category in {1, 2, 3}:
+            return HarmonizedVote(1, "auto_candidate", "explicit_epa_irritation_category_1_3", "explicit EPA irritation category I-III")
+        if endpoint in {"skin", "eye"} and category == 4:
+            return HarmonizedVote(0, "auto_candidate", "explicit_epa_irritation_category_4", "explicit EPA irritation category IV")
+
+    negative_common = (
+        "not classified",
+        "not-classified",
+        "no classification",
+        "no category",
+        "negative",
+        "non-irritant",
+        "non irritant",
+        "not irritating",
+        "non-sensitizer",
+        "non sensitizer",
+        "not sensitizing",
+        "not sensitising",
+        "inactive",
+    )
+    if any(token in value_text for token in negative_common):
+        return HarmonizedVote(0, "auto_candidate", "explicit_negative", "explicit endpoint-negative classification")
+
+    if endpoint in {"skin", "eye"}:
+        positive_tokens = (
+            "corrosive",
+            "irritant",
+            "irritating",
+            "category 1",
+            "category 2",
+            "category 2a",
+            "category 2b",
+            "cat 1",
+            "cat 2",
+            "positive",
+        )
+        if any(token in value_text for token in positive_tokens):
+            return HarmonizedVote(1, "auto_candidate", "explicit_irritation_hazard", "explicit irritation/corrosion classification")
+
+    if endpoint == "sens":
+        if any(token in value_text for token in ("sensitizer", "sensitiser", "sensitizing", "sensitising")) or re.search(r"\bactive\b", value_text):
+            return HarmonizedVote(1, "auto_candidate", "explicit_sensitizer", "explicit sensitization-positive classification")
+        if re.search(r"\bpositive\b", value_text):
+            return HarmonizedVote(1, "auto_candidate", "explicit_sensitizer", "explicit sensitization-positive classification")
+
+    if endpoint == "acute":
+        if re.search(r"\b(?:ghs\s*)?(?:category|cat)\s*[1-4]\b", value_text):
+            return HarmonizedVote(1, "auto_candidate", "explicit_acute_category_1_4", "explicit acute oral GHS category 1-4")
+        if re.search(r"\b(?:ghs\s*)?(?:category|cat)\s*5\b", value_text):
+            return HarmonizedVote(0, "auto_candidate", "explicit_acute_category_5", "GHS category 5 is above RalphGuard's <=2000 mg/kg positive boundary")
+        if re.search(r"\bpositive\b", value_text):
+            return HarmonizedVote(1, "auto_candidate", "explicit_acute_positive", "explicit acute-toxicity positive classification")
+
+    return None
+
+
 def _explicit_binary(text: str, endpoint: str) -> HarmonizedVote | None:
+    """Compatibility wrapper retained for callers outside this module.
+
+    New code should use :func:`_explicit_classification`, which keeps endpoint
+    headings separate from response values.  This wrapper intentionally treats
+    its input as a response-only value.
+    """
     negative_common = (
         "not classified",
         "not-classified",
@@ -161,6 +256,11 @@ def _llna_vote(record: dict[str, Any]) -> HarmonizedVote:
     endpoint_text = str(record.get("ice_endpoint") or "").casefold()
     raw = record.get("raw_record") or {}
     combined = " | ".join(_flatten_text([record.get("ice_value"), raw]))
+    if re.search(r"\bec3\b", endpoint_text):
+        value = _extract_number(combined)
+        if value is not None and value >= 0:
+            return HarmonizedVote(1, "auto_candidate", "llna_ec3_reported", "reported LLNA EC3 is evidence that the SI=3 response threshold was reached", value=value, unit="EC3")
+        return HarmonizedVote(None, "review_required", "llna_ec3_missing", "LLNA EC3 numeric value could not be parsed")
     if "stimulation index" not in endpoint_text and not re.search(r"\bsi\b", endpoint_text):
         return HarmonizedVote(None, "review_required", "llna_unmapped_endpoint", "LLNA record does not expose an explicit classification or Stimulation Index field")
     value = _extract_number(combined)
@@ -215,7 +315,7 @@ def harmonize_record(record: dict[str, Any]) -> dict[str, Any]:
     if assay not in SUPPORTED_ASSAYS or endpoint != SUPPORTED_ASSAYS.get(assay):
         vote = HarmonizedVote(None, "unsupported", "unsupported_assay", "record is not from a whitelisted in-vivo reference assay")
     else:
-        explicit = _explicit_binary(text, endpoint)
+        explicit = _explicit_classification(record, endpoint)
         if explicit is not None:
             vote = explicit
         elif endpoint in {"skin", "eye"}:
