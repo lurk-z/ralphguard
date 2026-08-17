@@ -22,16 +22,18 @@ export default function TrendChart({
   data,
   lines,
   dark = false,
+  compact = false,
 }: {
   data: Row[];
   lines: Series[];
   dark?: boolean;
+  compact?: boolean;
 }) {
   const grid = dark ? "#3a3a3a" : "#eef2f5";
   const axis = dark ? "#777" : "#94a3b8";
   const tickFill = dark ? "#cbd5e1" : "#64748b";
   return (
-    <ResponsiveContainer width="100%" height={230}>
+    <ResponsiveContainer width="100%" height={compact ? 150 : 230}>
       <LineChart data={data} margin={{ top: 10, right: 12, left: -8, bottom: 4 }}>
         <ReferenceArea y1={0} y2={25} fill="#16A34A" fillOpacity={0.045} />
         <ReferenceArea y1={25} y2={50} fill="#E08A00" fillOpacity={0.045} />
@@ -76,8 +78,7 @@ export default function TrendChart({
             strokeWidth={2.5}
             dot={{ r: 3.5, fill: dark ? "#1f2937" : "#fff", strokeWidth: 2 }}
             activeDot={{ r: 5, fill: l.color, stroke: dark ? "#1f2937" : "#fff", strokeWidth: 2 }}
-            isAnimationActive
-            animationDuration={450}
+            isAnimationActive={false}
           />
         ))}
       </LineChart>

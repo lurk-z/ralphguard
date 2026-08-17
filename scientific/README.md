@@ -36,8 +36,8 @@ SMILES → canonicalize → descriptors + fingerprint
 
 ## Datasets Expected (in `/data/raw/`)
 
-- `catmos_acute_toxicity.csv` - EPA CATMoS
-- `llna_sensitization.csv`    - ICCVAM LLNA
+- `acute_oral_toxicity.csv`   - NICE/ICE in-vivo rat acute oral evidence
+- `skin_sensitization.csv`    - NICE/ICE in-vivo LLNA/Guinea-pig evidence
 - `skin_irritation.csv`        - ECHA / literature
 - `eye_irritation.csv`         - ECETOC
 

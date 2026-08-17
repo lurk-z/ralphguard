@@ -89,13 +89,24 @@ export type IngredientRegistryItem = {
   cas_number?: string | null;
   pubchem_cid?: number | null;
   canonical_smiles?: string | null;
+  inchi?: string | null;
+  inchikey?: string | null;
   molecular_formula?: string | null;
   molecular_weight?: number | null;
   substance_type: string;
   structure_status: string;
   qsar_eligible: boolean;
   assessment_method: string;
+  regulatory_status_th?: Record<string, unknown> | null;
+  provenance?: Record<string, unknown>;
   verification_status: string;
+  registry_version?: number;
+  observation_count?: number;
+  reason_code?: string | null;
+  reason_th?: string | null;
+  first_seen_at?: string;
+  last_seen_at?: string;
+  updated_at?: string;
 };
 
 export type Confidence = {
@@ -247,6 +258,17 @@ export const api = {
     return http<IngredientRegistryItem[]>(`/api/substances/registry?${params.toString()}`, { signal }, 20000);
   },
 
+  lookupIngredientInPubChem: (
+    name: string,
+    refresh = false,
+    signal?: AbortSignal,
+  ) =>
+    http<IngredientRegistryItem>("/api/substances/registry/lookup", {
+      method: "POST",
+      body: JSON.stringify({ name: name.trim(), refresh }),
+      signal,
+    }, 20000),
+
   createAssessment: (
     formula: FormulaItem[],
     region: Region,
@@ -274,10 +296,21 @@ export const api = {
   getProject: (projectId: number, signal?: AbortSignal) =>
     http<ProjectOut>(`/api/projects/${projectId}`, { signal }),
 
-  createProject: (name: string, description?: string, signal?: AbortSignal) =>
+  createProject: (
+    name: string,
+    description?: string,
+    colorKey: ProjectColorKey = "teal",
+    iconKey: ProjectIconKey = "flask",
+    signal?: AbortSignal,
+  ) =>
     http<ProjectOut>("/api/projects/", {
       method: "POST",
-      body: JSON.stringify({ name, description: description ?? null }),
+      body: JSON.stringify({
+        name,
+        description: description ?? null,
+        color_key: colorKey,
+        icon_key: iconKey,
+      }),
       signal,
     }),
 
@@ -285,16 +318,29 @@ export const api = {
     projectId: number,
     name: string,
     description?: string,
+    colorKey?: ProjectColorKey,
+    iconKey?: ProjectIconKey,
     signal?: AbortSignal,
   ) =>
     http<ProjectOut>(`/api/projects/${projectId}`, {
       method: "PATCH",
-      body: JSON.stringify({ name, description: description?.trim() || null }),
+      body: JSON.stringify({
+        name,
+        description: description?.trim() || null,
+        color_key: colorKey,
+        icon_key: iconKey,
+      }),
       signal,
     }),
 
   deleteProject: (projectId: number, signal?: AbortSignal) =>
     http<void>(`/api/projects/${projectId}`, { method: "DELETE", signal }),
+
+  restoreProject: (projectId: number, signal?: AbortSignal) =>
+    http<ProjectOut>(`/api/projects/${projectId}/restore`, {
+      method: "POST",
+      signal,
+    }),
 
   listProjectAssessments: (projectId: number, signal?: AbortSignal) =>
     http<AssessmentSummary[]>(`/api/projects/${projectId}/assessments`, { signal }),
@@ -331,11 +377,38 @@ export type AssessmentSummary = {
   completed_at: string | null;
 };
 
+export type ProjectColorKey =
+  | "teal"
+  | "cyan"
+  | "blue"
+  | "indigo"
+  | "violet"
+  | "emerald"
+  | "amber"
+  | "slate"
+  | "rose"
+  | "orange";
+
+export type ProjectIconKey =
+  | "flask"
+  | "beaker"
+  | "test-tube"
+  | "microscope"
+  | "shield"
+  | "droplets"
+  | "atom"
+  | "leaf"
+  | "heart-pulse"
+  | "clipboard-check";
+
 export type ProjectOut = {
   id: number;
   name: string;
   description: string | null;
+  color_key: ProjectColorKey;
+  icon_key: ProjectIconKey;
   created_at: string;
+  updated_at: string;
 };
 
 export type EndpointMetric = {
@@ -368,5 +441,9 @@ export type ModelInfoPayload = {
   methodology: Record<string, unknown> & { limitations?: string[] };
   oecd_principles: string[];
   endpoints: Record<string, { label_en: string; label_th: string; oecd_tg: string }>;
+  data_integrity_policy?: Record<string, string>;
+  evidence_sources?: Record<string, unknown>;
+  validation_status?: Record<string, unknown>;
+  training_integrity?: Record<string, unknown> | null;
   disclaimer_th: string;
 };

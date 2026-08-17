@@ -5,12 +5,46 @@ import {
   type FormulaGraphSnapshot,
 } from "./project-workspace.ts";
 
-const normalizedIdentity = (item: { name?: string; smiles?: string }) => {
+export const formulaGraphItemIdentity = (item: { name?: string; smiles?: string }) => {
   const smiles = String(item.smiles || "").trim().toLowerCase();
   if (smiles) return `smiles:${smiles}`;
   const name = String(item.name || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   return name ? `name:${name}` : "";
 };
+
+export function mergeDuplicateFormulaItems(items: FormulaItem[]): FormulaItem[] {
+  const merged: FormulaItem[] = [];
+  const indexByIdentity = new Map<string, number>();
+
+  for (const item of items) {
+    const normalized: FormulaItem = {
+      name: String(item.name || ""),
+      smiles: String(item.smiles || ""),
+      concentration: Number(item.concentration) || 0,
+    };
+    const identity = formulaGraphItemIdentity(normalized);
+    if (!identity) {
+      merged.push(normalized);
+      continue;
+    }
+
+    const existingIndex = indexByIdentity.get(identity);
+    if (existingIndex === undefined) {
+      indexByIdentity.set(identity, merged.length);
+      merged.push(normalized);
+      continue;
+    }
+
+    const existing = merged[existingIndex];
+    merged[existingIndex] = {
+      name: existing.name || normalized.name,
+      smiles: existing.smiles || normalized.smiles,
+      concentration: existing.concentration + normalized.concentration,
+    };
+  }
+
+  return merged;
+}
 
 const isChemicalNode = (node: FormulaGraphNodeSnapshot) =>
   node.type === "substance" || node.type === "modifier";
@@ -28,7 +62,11 @@ export function formulaGraphItemsSignature(items: FormulaItem[]): string {
       name: String(item.name || "").trim(),
       smiles: item.smiles.trim(),
       concentration: Number(Number(item.concentration).toFixed(6)),
-    })),
+    })).sort((left, right) => {
+      const leftKey = `${left.smiles.toLowerCase()}\u0000${left.name.toLowerCase()}\u0000${left.concentration}`;
+      const rightKey = `${right.smiles.toLowerCase()}\u0000${right.name.toLowerCase()}\u0000${right.concentration}`;
+      return leftKey.localeCompare(rightKey);
+    }),
   );
 }
 
@@ -40,11 +78,82 @@ export function formulaItemsFromGraph(snapshot: FormulaGraphSnapshot): FormulaIt
   }));
 }
 
+export type FormulaGraphResultScope = {
+  items: FormulaItem[];
+  connectedChemicalNodeIds: string[];
+  disconnectedChemicalNodeIds: string[];
+};
+
+/** Resolve the deterministic chemical input that reaches one Result node. */
+export function formulaResultScope(
+  graph: Pick<FormulaGraphSnapshot, "nodes" | "edges">,
+  resultNodeId: string,
+): FormulaGraphResultScope {
+  const incomingByTarget = new Map<string, string[]>();
+  for (const edge of graph.edges) {
+    const incoming = incomingByTarget.get(edge.target);
+    if (incoming) incoming.push(edge.source);
+    else incomingByTarget.set(edge.target, [edge.source]);
+  }
+
+  const upstreamNodeIds = new Set<string>();
+  const visited = new Set<string>([resultNodeId]);
+  const stack = [resultNodeId];
+  while (stack.length) {
+    const current = stack.pop()!;
+    for (const source of incomingByTarget.get(current) ?? []) {
+      if (visited.has(source)) continue;
+      visited.add(source);
+      upstreamNodeIds.add(source);
+      stack.push(source);
+    }
+  }
+
+  const chemicalNodes = graph.nodes.filter(isChemicalNode);
+  const connectedChemicalNodes = chemicalNodes.filter((node) => upstreamNodeIds.has(node.id));
+  const disconnectedChemicalNodes = chemicalNodes.filter((node) => !upstreamNodeIds.has(node.id));
+
+  return {
+    items: connectedChemicalNodes.map((node) => ({
+      name: String(node.data.name || ""),
+      smiles: String(node.data.smiles || ""),
+      concentration: Number(node.data.concentration) || 0,
+    })),
+    connectedChemicalNodeIds: connectedChemicalNodes.map((node) => node.id),
+    disconnectedChemicalNodeIds: disconnectedChemicalNodes.map((node) => node.id),
+  };
+}
+
+/**
+ * Return the chemical working set that is explicitly connected to at least one
+ * Result node. Unconnected nodes remain part of the graph draft, but are not
+ * part of a formula that can be assessed or saved.
+ */
+export function formulaItemsConnectedToResults(
+  graph: Pick<FormulaGraphSnapshot, "nodes" | "edges">,
+): FormulaItem[] {
+  const connectedChemicalNodeIds = new Set<string>();
+  for (const resultNode of graph.nodes.filter((node) => node.type === "result")) {
+    for (const nodeId of formulaResultScope(graph, resultNode.id).connectedChemicalNodeIds) {
+      connectedChemicalNodeIds.add(nodeId);
+    }
+  }
+
+  return graph.nodes
+    .filter((node) => isChemicalNode(node) && connectedChemicalNodeIds.has(node.id))
+    .map((node) => ({
+      name: String(node.data.name || ""),
+      smiles: String(node.data.smiles || ""),
+      concentration: Number(node.data.concentration) || 0,
+    }));
+}
+
 export function buildFormulaGraphSnapshot(
   formula: FormulaItem[],
   region: Region,
 ): FormulaGraphSnapshot {
-  const nodes: FormulaGraphNodeSnapshot[] = formula.map((item, index) => ({
+  const workingFormula = mergeDuplicateFormulaItems(formula);
+  const nodes: FormulaGraphNodeSnapshot[] = workingFormula.map((item, index) => ({
     id: `s${index + 1}`,
     type: "substance",
     position: { x: 40, y: 40 + index * 200 },
@@ -54,16 +163,16 @@ export function buildFormulaGraphSnapshot(
       concentration: item.concentration,
     },
   }));
-  const resultY = 40 + Math.max(0, formula.length - 1) * 100;
+  const resultY = 40 + Math.max(0, workingFormula.length - 1) * 100;
   nodes.push({
     id: "r1",
     type: "result",
-    position: { x: 460, y: resultY },
+    position: { x: 620, y: resultY },
     data: { region, status: "idle" },
   });
   return {
     nodes,
-    edges: formula.map((_, index) => ({
+    edges: workingFormula.map((_, index) => ({
       id: `e-s${index + 1}`,
       source: `s${index + 1}`,
       target: "r1",
@@ -73,38 +182,64 @@ export function buildFormulaGraphSnapshot(
   };
 }
 
+/**
+ * Open a Graph workspace without mutating it from later Formula Panel changes.
+ * A saved Graph draft always wins; the selected formula is only the first seed.
+ */
+export function initializeFormulaGraphSnapshot(
+  existing: FormulaGraphSnapshot | null | undefined,
+  seed: FormulaItem[],
+  region: Region,
+): FormulaGraphSnapshot {
+  const draft = existing ? normalizeFormulaGraphSnapshot(existing) : null;
+  return draft ?? buildFormulaGraphSnapshot(seed, region);
+}
+
 /** Keep layout/result nodes, but make chemical nodes exactly match a formula. */
 export function synchronizeGraphWithFormula(
   existing: FormulaGraphSnapshot | null | undefined,
   formula: FormulaItem[],
   region: Region,
 ): FormulaGraphSnapshot {
-  if (!existing) return buildFormulaGraphSnapshot(formula, region);
+  const workingFormula = mergeDuplicateFormulaItems(formula);
+  if (!existing) return buildFormulaGraphSnapshot(workingFormula, region);
 
   const graph = normalizeFormulaGraphSnapshot(existing);
-  if (!graph) return buildFormulaGraphSnapshot(formula, region);
+  if (!graph) return buildFormulaGraphSnapshot(workingFormula, region);
+  // An empty graph is an intentional persisted state. Do not recreate the
+  // default Result node after the user has removed every node from an empty formula.
+  if (graph.nodes.length === 0 && workingFormula.length === 0) return graph;
   const formulaChanged =
     formulaGraphItemsSignature(formulaItemsFromGraph(graph)) !==
-    formulaGraphItemsSignature(formula);
+    formulaGraphItemsSignature(workingFormula);
+  const regionChanged = graph.nodes.some(
+    (node) => node.type === "result" && node.data.region !== region,
+  );
 
   const chemicalNodes = graph.nodes.filter(isChemicalNode);
   const usedNodeIds = new Set<string>();
   const replacementById = new Map<string, FormulaGraphNodeSnapshot>();
   const appended: FormulaGraphNodeSnapshot[] = [];
 
-  formula.forEach((item, formulaIndex) => {
-    const identity = normalizedIdentity(item);
+  workingFormula.forEach((item, formulaIndex) => {
+    const identity = formulaGraphItemIdentity(item);
     const matched = chemicalNodes.find(
       (node) =>
         !usedNodeIds.has(node.id) &&
         (identity
-          ? normalizedIdentity({ name: node.data.name, smiles: node.data.smiles }) === identity
+          ? formulaGraphItemIdentity({ name: node.data.name, smiles: node.data.smiles }) === identity
           : chemicalNodes.indexOf(node) === formulaIndex),
     );
-    if (matched) {
-      usedNodeIds.add(matched.id);
-      replacementById.set(matched.id, {
-        ...matched,
+    const positionalFallback = chemicalNodes[formulaIndex];
+    const reusable = matched || (
+      positionalFallback && !usedNodeIds.has(positionalFallback.id)
+        ? positionalFallback
+        : chemicalNodes.find((node) => !usedNodeIds.has(node.id))
+    );
+    if (reusable) {
+      usedNodeIds.add(reusable.id);
+      replacementById.set(reusable.id, {
+        ...reusable,
         data: {
           name: item.name || "",
           smiles: item.smiles,
@@ -137,10 +272,10 @@ export function synchronizeGraphWithFormula(
       .map((node) => {
         const replacement = replacementById.get(node.id);
         if (replacement) return replacement;
-        if (formulaChanged && node.type === "result") {
+        if ((formulaChanged || regionChanged) && node.type === "result") {
           return {
             ...node,
-            data: { region: node.data.region ?? region, status: "idle" as const },
+            data: { region, status: "idle" as const },
           };
         }
         return node;
@@ -152,7 +287,7 @@ export function synchronizeGraphWithFormula(
     resultNode = {
       id: nextNodeId(nodes, "r"),
       type: "result",
-      position: { x: 460, y: 40 + Math.max(0, formula.length - 1) * 100 },
+      position: { x: 620, y: 40 + Math.max(0, workingFormula.length - 1) * 100 },
       data: { region, status: "idle" },
     };
     nodes.push(resultNode);

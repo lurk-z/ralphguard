@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type MouseEvent,
   type ReactNode,
   useEffect,
   useId,
@@ -43,11 +44,23 @@ export default function SubstanceHoverCard({
   smiles,
   children,
   className,
+  openOnCardClick = false,
+  openOnContextMenu = false,
+  contextMenuOnly = false,
+  onOpenChange,
+  actions,
+  triggerAriaLabel,
 }: {
   name?: string;
   smiles?: string | null;
   children: ReactNode;
   className?: string;
+  openOnCardClick?: boolean;
+  openOnContextMenu?: boolean;
+  contextMenuOnly?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  actions?: ReactNode;
+  triggerAriaLabel?: string;
 }) {
   const triggerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLElement>(null);
@@ -85,6 +98,8 @@ export default function SubstanceHoverCard({
   const close = () => {
     setOpen(false);
   };
+
+  useEffect(() => onOpenChange?.(open), [onOpenChange, open]);
 
   useEffect(() => setImageFailed(false), [cleanSmiles]);
 
@@ -143,9 +158,22 @@ export default function SubstanceHoverCard({
     // Formula rows contain inputs/remove buttons and OCR rows contain a
     // checkbox. Those controls keep their original action; clicking the name or
     // any non-interactive part opens the molecule card.
-    if ((target as HTMLElement | null)?.closest("button,input,select,textarea,a")) return;
+    const element = target as HTMLElement | null;
+    if (openOnCardClick) {
+      if (element?.closest("[data-substance-action]")) return;
+    } else if (element?.closest("button,input,select,textarea,a")) {
+      return;
+    }
     if (!open) placeCard();
     setOpen((current) => !current);
+  };
+
+  const openFromContextMenu = (event: MouseEvent<HTMLDivElement>) => {
+    if (!openOnContextMenu) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!open) placeCard();
+    setOpen(true);
   };
 
   const depictionSmiles = profile?.canonical_smiles || cleanSmiles;
@@ -156,18 +184,20 @@ export default function SubstanceHoverCard({
       <div
         ref={triggerRef}
         className={className}
-        role="button"
-        tabIndex={0}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={(event) => toggleFromTrigger(event.target)}
-        onKeyDown={(event) => {
+        role={contextMenuOnly ? undefined : "button"}
+        tabIndex={contextMenuOnly ? undefined : 0}
+        aria-haspopup={contextMenuOnly ? undefined : "dialog"}
+        aria-expanded={contextMenuOnly ? undefined : open}
+        aria-label={contextMenuOnly ? undefined : triggerAriaLabel}
+        onClick={contextMenuOnly ? undefined : (event) => toggleFromTrigger(event.target)}
+        onKeyDown={contextMenuOnly ? undefined : (event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
           if ((event.target as HTMLElement).closest("button,input,select,textarea,a")) return;
           event.preventDefault();
           toggleFromTrigger(event.target);
         }}
-        aria-controls={open ? tooltipId : undefined}
+        onContextMenu={openFromContextMenu}
+        aria-controls={!contextMenuOnly && open ? tooltipId : undefined}
       >
         {children}
       </div>
@@ -185,6 +215,7 @@ export default function SubstanceHoverCard({
             `}</style>
           <aside
             ref={cardRef}
+            data-substance-detail-dialog
             id={tooltipId}
             role="dialog"
             aria-label={`ข้อมูลสาร ${profile?.canonical_name || name || "ไม่ระบุชื่อ"}`}
@@ -300,6 +331,12 @@ export default function SubstanceHoverCard({
                     </span>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {actions && (
+              <div data-substance-action className="mt-3 border-t border-slate-100 pt-3">
+                {actions}
               </div>
             )}
 

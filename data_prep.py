@@ -28,7 +28,6 @@ from sklearn.ensemble import (RandomForestClassifier, ExtraTreesClassifier,
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import (accuracy_score, balanced_accuracy_score, recall_score,
                              roc_auc_score, confusion_matrix, matthews_corrcoef)
@@ -43,8 +42,8 @@ from featurizer import featurize_mol, morgan_bits  # noqa: E402
 DATASETS = {
     "skin":  DATA / "skin_irritation.csv",
     "eye":   DATA / "eye_irritation.csv",
-    "sens":  DATA / "llna_sensitization.csv",
-    "acute": DATA / "catmos_acute_toxicity.csv",
+    "sens":  DATA / "skin_sensitization.csv",
+    "acute": DATA / "acute_oral_toxicity.csv",
 }
 CURATED_PUBCHEM_DATASETS = {
     endpoint: BASE / "data" / "curated" / f"pubchem_verified_{endpoint}.csv"
@@ -56,33 +55,94 @@ ENDPOINT_NAMES = {"skin": "Skin Irritation", "eye": "Eye Irritation",
 FEATURE_MODE = {"skin": "maccs_descr", "eye": "maccs_descr",
                 "sens": "morgan", "acute": "morgan_maccs_descr"}
 MEMBER_NAMES = ["RandomForest", "ExtraTrees", "LogReg", "HistGB"]
+TRAINING_PROFILE = "standard"
+
+
+def configure_training_profile(profile):
+    """Select an explicit resource profile without changing model semantics."""
+    global TRAINING_PROFILE
+    if profile not in {"standard", "large"}:
+        raise ValueError(f"unsupported training profile: {profile}")
+    TRAINING_PROFILE = profile
 
 
 def build_members():
+    large = TRAINING_PROFILE == "large"
     return [
-        RandomForestClassifier(250, random_state=42, n_jobs=-1, class_weight="balanced"),
-        ExtraTreesClassifier(300, random_state=42, n_jobs=-1, class_weight="balanced"),
-        make_pipeline(StandardScaler(with_mean=True),
-                      LogisticRegression(max_iter=2000, class_weight="balanced")),
+        RandomForestClassifier(
+            160 if large else 250,
+            random_state=42,
+            n_jobs=-1,
+            class_weight=None,
+            min_samples_leaf=2 if large else 1,
+        ),
+        ExtraTreesClassifier(
+            200 if large else 300,
+            random_state=42,
+            n_jobs=-1,
+            class_weight=None,
+            min_samples_leaf=2 if large else 1,
+        ),
+        make_pipeline(
+            StandardScaler(with_mean=not large),
+            LogisticRegression(
+                max_iter=1500 if large else 2000,
+                class_weight=None,
+                solver="saga" if large else "lbfgs",
+                tol=1e-3 if large else 1e-4,
+                random_state=42,
+                n_jobs=-1,
+            ),
+        ),
         HistGradientBoostingClassifier(random_state=42),
     ]
 
 
+def effective_sample_weights(y, evidence_weight=None):
+    """Combine evidence quality with exact binary-class balancing.
+
+    Balancing raw row counts and then multiplying by evidence weights makes a
+    class dominated by weight-0.25 PubChem rows carry only one quarter of the
+    other class's total optimization weight.  Instead, balance the *sum of
+    evidence weights* in each class.  This preserves the within-class evidence
+    hierarchy while giving each endpoint class equal total influence.
+    """
+    labels = np.asarray(y, dtype=int)
+    if evidence_weight is None:
+        quality = np.ones(len(labels), dtype=float)
+    else:
+        quality = np.asarray(evidence_weight, dtype=float)
+        if quality.shape != labels.shape:
+            raise ValueError("evidence_weight must have the same shape as y")
+        if not np.all(np.isfinite(quality)) or np.any(quality <= 0):
+            raise ValueError("evidence_weight must contain finite positive values")
+    classes = np.unique(labels)
+    if set(classes).difference({0, 1}) or len(classes) != 2:
+        raise ValueError("binary class balancing requires both labels 0 and 1")
+    target_total = float(quality.sum()) / 2.0
+    effective = quality.copy()
+    for label in (0, 1):
+        mask = labels == label
+        class_total = float(quality[mask].sum())
+        if class_total <= 0:
+            raise ValueError(f"class {label} has no positive evidence weight")
+        effective[mask] *= target_total / class_total
+    # Keep the mean near one so regularisation and tree weight magnitudes remain
+    # comparable across endpoints and folds.
+    effective *= len(effective) / float(effective.sum())
+    return effective
+
+
 def fit_members(X, y, sample_weight=None):
+    effective_weight = effective_sample_weights(y, sample_weight)
     members = build_members()
     for name, m in zip(MEMBER_NAMES, members):
         if name == "HistGB":
-            weights = compute_sample_weight("balanced", y)
-            if sample_weight is not None:
-                weights = weights * sample_weight
-            m.fit(X, y, sample_weight=weights)
+            m.fit(X, y, sample_weight=effective_weight)
         elif name == "LogReg":
-            if sample_weight is None:
-                m.fit(X, y)
-            else:
-                m.fit(X, y, logisticregression__sample_weight=sample_weight)
+            m.fit(X, y, logisticregression__sample_weight=effective_weight)
         else:
-            m.fit(X, y, sample_weight=sample_weight)
+            m.fit(X, y, sample_weight=effective_weight)
     return members
 
 
@@ -147,7 +207,7 @@ def load_endpoint(path, mode, supplemental_path=None):
         morgans.append(morgan_bits(mol))
         y.append(int(r["label"]))
     origins = df["training_origin"].value_counts().to_dict()
-    return (np.vstack(feats).astype(float), np.vstack(morgans),
+    return (np.vstack(feats).astype(np.float32, copy=False), np.vstack(morgans),
             np.array(y), df["canonical"].tolist(), before - len(df),
             supplemental_count, len(conflicts), origins,
             df["sample_weight"].to_numpy(dtype=float))

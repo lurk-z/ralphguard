@@ -1,9 +1,11 @@
 """PubChem GHS evidence ingestion with an explicit human-review gate.
 
-PubChem PUG-View aggregates annotations from third parties.  Hazard statements
+PubChem PUG-View aggregates annotations from third parties. Hazard statements
 can support a positive endpoint label, but absence of a statement is not a
-negative experiment.  This module therefore creates positive *candidates*
-only and never silently changes model training data.
+negative experiment. This module creates positive candidates only. Candidate
+training accepts manual review, multi-source regulatory consensus, or a clearly
+tagged weight-0.25 single-regulatory-source tier; generic third-party evidence
+remains pending.
 """
 from __future__ import annotations
 
@@ -40,11 +42,17 @@ HAZARD_ENDPOINTS: dict[str, tuple[str, ...]] = {
     "H317": ("sens",),
     "H318": ("eye",),
     "H319": ("eye",),
+    "H320": ("eye",),
     "H300": ("acute",),
     "H301": ("acute",),
     "H302": ("acute",),
 }
 HAZARD_CODE_RE = re.compile(r"\b(H\d{3}[A-Za-z]?)\b")
+SKIN_SENSITIZATION_CATEGORY_RE = re.compile(
+    r"\bskin\s+sens(?:itisation|itization)?\.?\s*"
+    r"(?:-\s*category\s*)?(1A|1B|1)\b",
+    re.IGNORECASE,
+)
 QSAR_ALLOWED_ATOMIC_NUMBERS = {1, 5, 6, 7, 8, 9, 14, 15, 16, 17, 35, 53}
 QSAR_MIN_MW = 30.0
 QSAR_MAX_MW = 500.0
@@ -160,7 +168,29 @@ def fetch_global_ghs_page(page: int) -> dict:
         f"?heading=GHS%20Classification&heading_type=Compound&page={int(page)}"
     )
     with httpx.Client(headers={"User-Agent": "RalphGuard/0.1 PubChem global importer"}) as client:
-        return _throttled_get(client, url, timeout=120.0)
+        return _throttled_get(
+            client,
+            url,
+            timeout=120.0,
+            max_attempts=6,
+            base_backoff=2.0,
+        )
+
+
+def fetch_global_hazard_class_page(page: int) -> dict:
+    """Fetch structured regulatory hazard classes from PubChem PUG-View."""
+    url = (
+        f"{PUBCHEM_VIEW_BASE}/annotations/heading/JSON"
+        f"?heading=Hazard%20Classes%20and%20Categories&heading_type=Compound&page={int(page)}"
+    )
+    with httpx.Client(headers={"User-Agent": "RalphGuard/0.1 PubChem global importer"}) as client:
+        return _throttled_get(
+            client,
+            url,
+            timeout=120.0,
+            max_attempts=6,
+            base_backoff=2.0,
+        )
 
 
 def parse_global_ghs_annotations(payload: dict) -> list[dict]:
@@ -221,6 +251,81 @@ def parse_global_ghs_annotations(payload: dict) -> list[dict]:
                         },
                     }
                 )
+    return candidates
+
+
+def parse_global_hazard_class_annotations(payload: dict) -> list[dict]:
+    """Map explicit Skin Sens. 1/1A/1B categories to positive weak labels.
+
+    PubChem exposes these structured regulatory classifications separately
+    from GHS hazard-statement text.  Only an explicit positive category is
+    mapped; missing categories and ``Not Classified`` never create negatives.
+    """
+    annotations = (payload.get("Annotations") or {}).get("Annotation", [])
+    candidates: list[dict] = []
+    for annotation in annotations:
+        cids = [int(cid) for cid in (annotation.get("LinkedRecords") or {}).get("CID", [])]
+        if not cids:
+            continue
+        categories: set[str] = set()
+        raw_values: list[str] = []
+        for data in annotation.get("Data", []):
+            for value in (data.get("Value") or {}).get("StringWithMarkup", []):
+                classification = str(value.get("String") or "").strip()
+                if not classification:
+                    continue
+                match = SKIN_SENSITIZATION_CATEGORY_RE.search(classification)
+                if match is None:
+                    continue
+                category = match.group(1).upper()
+                categories.add(f"SKIN_SENS_{category}")
+                raw_values.append(classification)
+        if not categories:
+            continue
+        source_name = str(annotation.get("SourceName") or "Unknown PubChem source")
+        raw = {
+            "annotation_id": annotation.get("ANID"),
+            "annotation_name": annotation.get("Name"),
+            "classifications": list(dict.fromkeys(raw_values)),
+        }
+        for cid in cids:
+            fingerprint_payload = {
+                "cid": cid,
+                "endpoint": "sens",
+                "annotation_id": annotation.get("ANID"),
+                "source_id": annotation.get("SourceID"),
+                "categories": sorted(categories),
+                "evidence_type": "ghs_hazard_classification",
+            }
+            fingerprint = hashlib.sha256(
+                json.dumps(fingerprint_payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+            ).hexdigest()
+            candidates.append(
+                {
+                    "pubchem_cid": cid,
+                    "endpoint": "sens",
+                    "candidate_label": 1,
+                    "evidence_type": "ghs_hazard_classification",
+                    "hazard_codes": sorted(categories),
+                    "source_name": source_name,
+                    "source_id": (
+                        str(annotation.get("SourceID"))
+                        if annotation.get("SourceID") is not None
+                        else None
+                    ),
+                    "source_url": annotation.get("URL"),
+                    "source_quality": _source_quality(source_name),
+                    "evidence_fingerprint": fingerprint,
+                    "raw_evidence": raw,
+                    "provenance": {
+                        "provider": "PubChem PUG-View",
+                        "retrieval_heading": "Hazard Classes and Categories",
+                        "mapping_version": 1,
+                        "explicit_positive_category_required": True,
+                        "negative_inference_allowed": False,
+                    },
+                }
+            )
     return candidates
 
 
@@ -436,7 +541,9 @@ def verified_training_rows(db: Session, endpoint: str) -> tuple[list[dict], dict
             .join(IngredientRegistry, ExperimentalEvidence.ingredient_id == IngredientRegistry.id)
             .where(
                 ExperimentalEvidence.endpoint == endpoint,
-                ExperimentalEvidence.review_status.in_(("verified", "consensus_verified")),
+                ExperimentalEvidence.review_status.in_(
+                    ("verified", "consensus_verified", "single_regulatory_weak_label")
+                ),
             )
         ).all()
     )
@@ -464,29 +571,33 @@ def verified_training_rows(db: Session, endpoint: str) -> tuple[list[dict], dict
             continue
         ingredient = group[0][1]
         has_manual_review = any(ev.review_status == "verified" for ev, _ in group)
+        has_consensus = any(ev.review_status == "consensus_verified" for ev, _ in group)
+        if has_manual_review:
+            source = "PubChem PUG-View regulatory classification (reviewed)"
+            label_quality = "reviewed"
+            sample_weight = 1.0
+        elif has_consensus:
+            source = "PubChem PUG-View regulatory classification consensus (weak label)"
+            label_quality = "regulatory_consensus_weak_label"
+            sample_weight = 0.5
+        else:
+            source = "PubChem PUG-View single regulatory classification (weak label)"
+            label_quality = "single_regulatory_source_weak_label"
+            sample_weight = 0.25
         rows.append(
             {
                 "smiles": smiles,
                 "name": ingredient.canonical_name,
                 "label": labels.pop(),
-                "source": (
-                    "PubChem PUG-View GHS (reviewed)"
-                    if has_manual_review
-                    else "PubChem PUG-View GHS consensus (weak label)"
-                ),
+                "source": source,
                 "pubchem_cid": ingredient.pubchem_cid,
                 "evidence_ids": [ev.id for ev, _ in group],
                 "hazard_codes": sorted({code for ev, _ in group for code in (ev.hazard_codes or [])}),
                 "source_count": len({ev.source_name for ev, _ in group}),
                 "source_quality": dict(Counter(ev.source_quality for ev, _ in group)),
                 "review_statuses": sorted({ev.review_status for ev, _ in group}),
-                "label_quality": (
-                    "reviewed" if has_manual_review
-                    else "regulatory_consensus_weak_label"
-                ),
-                "sample_weight": (
-                    1.0 if has_manual_review else 0.5
-                ),
+                "label_quality": label_quality,
+                "sample_weight": sample_weight,
             }
         )
     rows.sort(key=lambda item: (item["name"].casefold(), item["smiles"]))
@@ -529,13 +640,13 @@ def promote_consensus_evidence(db: Session, *, min_sources: int = 2) -> dict[str
         for row in rows:
             row.review_status = "consensus_verified"
             row.reviewer_note = (
-                f"Automated weak label: {len(independent_sources)} independent PubChem GHS sources "
+                f"Automated weak label: {len(independent_sources)} independent PubChem regulatory sources "
                 f"agree; not treated as a direct experimental result"
             )
             row.reviewed_at = now
             provenance = dict(row.provenance or {})
             provenance["review"] = {
-                "method": "pubchem_ghs_source_consensus_v1",
+                "method": "pubchem_regulatory_classification_consensus_v2",
                 "minimum_sources": min_sources,
                 "independent_source_count": len(independent_sources),
                 "label_quality": "regulatory_consensus_weak_label",
@@ -547,5 +658,69 @@ def promote_consensus_evidence(db: Session, *, min_sources: int = 2) -> dict[str
     return {
         "promoted_evidence_rows": promoted_rows,
         "promoted_unique_labels": promoted_labels,
+        **{f"{endpoint}_labels": by_endpoint[endpoint] for endpoint in sorted(ENDPOINTS)},
+    }
+
+
+def promote_single_regulatory_evidence(db: Session) -> dict[str, int]:
+    """Promote one-source positive regulatory classifications as weak labels.
+
+    This deliberately excludes generic third-party annotations and never
+    creates a negative label from missing hazard statements. Multi-source rows
+    should be promoted by :func:`promote_consensus_evidence` first and retain
+    their higher consensus weight.
+    """
+    pending = list(
+        db.execute(
+            select(ExperimentalEvidence, IngredientRegistry)
+            .join(IngredientRegistry, ExperimentalEvidence.ingredient_id == IngredientRegistry.id)
+            .where(
+                ExperimentalEvidence.review_status == "pending",
+                ExperimentalEvidence.source_quality == "regulatory",
+                IngredientRegistry.verification_status == "verified",
+                IngredientRegistry.qsar_eligible.is_(True),
+            )
+        ).all()
+    )
+    grouped: dict[tuple[int, str], list[ExperimentalEvidence]] = defaultdict(list)
+    for evidence, _ingredient in pending:
+        grouped[(evidence.ingredient_id, evidence.endpoint)].append(evidence)
+
+    promoted_rows = 0
+    promoted_labels = 0
+    skipped_conflicts = 0
+    by_endpoint: Counter[str] = Counter()
+    now = datetime.now(timezone.utc)
+    for (_ingredient_id, endpoint), rows in grouped.items():
+        labels = {row.candidate_label for row in rows}
+        if labels != {1}:
+            skipped_conflicts += 1
+            continue
+        promoted_labels += 1
+        by_endpoint[endpoint] += 1
+        for row in rows:
+            row.review_status = "single_regulatory_weak_label"
+            row.reviewer_note = (
+                "Automated low-weight weak label from one attributed regulatory "
+                "PubChem classification source; not a direct experimental result"
+            )
+            row.reviewed_at = now
+            provenance = dict(row.provenance or {})
+            provenance["review"] = {
+                "method": "pubchem_regulatory_classification_single_source_v2",
+                "source_quality_required": "regulatory",
+                "positive_hazard_code_required": True,
+                "negative_inference_allowed": False,
+                "label_quality": "single_regulatory_source_weak_label",
+                "sample_weight": 0.25,
+                "reviewed_at": now.isoformat(),
+            }
+            row.provenance = provenance
+            promoted_rows += 1
+    db.flush()
+    return {
+        "promoted_evidence_rows": promoted_rows,
+        "promoted_unique_labels": promoted_labels,
+        "skipped_conflicting_labels": skipped_conflicts,
         **{f"{endpoint}_labels": by_endpoint[endpoint] for endpoint in sorted(ENDPOINTS)},
     }

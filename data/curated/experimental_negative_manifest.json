@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-08-17T03:48:17.155234+00:00",
+  "source": "STopTox peer-reviewed curated experimental datasets",
+  "paper": "https://doi.org/10.1289/EHP9341",
+  "repository": "https://github.com/joyvb/stoptox",
+  "commit": "6ba3a7f82ab9fda8534f120114a566eec296e8ae",
+  "negative_policy": "explicit curated experimental Outcome=0 only; missing H315/H319 is never a negative label",
+  "conflict_policy": "same/higher-tier current positive evidence is review-gated; existing strong negatives are deduplicated; lower-tier PubChem contradictions are left for the central integrity audit to override",
+  "endpoints": {
+    "eye": {
+      "endpoint": "eye",
+      "source_file": "data/raw/external_negative_sources/stoptox_eye_irritation_balanced.sdf",
+      "source_url": "https://raw.githubusercontent.com/joyvb/stoptox/6ba3a7f82ab9fda8534f120114a566eec296e8ae/modeling/Projeto_3_Eye_irritation/data/AI_balanced.sdf",
+      "source_sha256": "03dc5888f0859ddcc1b694e186bb2137229ea571e3db56572205f482794de03d",
+      "output_file": "data/curated/eye_negative_clean.csv",
+      "sample_weight": 0.9,
+      "reliability_policy": "per-record reliability is not exposed in the public SDF; accepted rows retain an explicit lower weight and the peer-reviewed dataset-level OECD experimental curation provenance",
+      "accepted_new_negative": 1045,
+      "already_present_strong_negative": 17,
+      "conflict_with_current_strong_positive": 5,
+      "heavy_atom_count_outside_domain": 1,
+      "invalid_structure": 1,
+      "molecular_weight_outside_domain": 78,
+      "positive_rows_not_imported": 1145,
+      "raw_sdf_records": 2292,
+      "output_sha256": "fece0ebe80f1d0f86805632ceec3aa8f33dfe6224efa5ffae6aeebf29707ffa3"
+    },
+    "skin": {
+      "endpoint": "skin",
+      "source_file": "data/raw/external_negative_sources/stoptox_skin_irritation_balanced.sdf",
+      "source_url": "https://raw.githubusercontent.com/joyvb/stoptox/6ba3a7f82ab9fda8534f120114a566eec296e8ae/modeling/Projeto_6_Skin_irritation/data/Skin_irritation_balanced_st.sdf",
+      "source_sha256": "c854fdea20b43b5ee2d392b42d0185eb928daf9d2a32129ac6603cf6ed53b68c",
+      "output_file": "data/curated/skin_negative_clean.csv",
+      "sample_weight": 0.9,
+      "reliability_policy": "per-record reliability is not exposed in the public SDF; accepted rows retain an explicit lower weight and the peer-reviewed dataset-level OECD experimental curation provenance",
+      "accepted_new_negative": 216,
+      "already_present_strong_negative": 6,
+      "conflict_with_current_strong_positive": 1,
+      "external_holdout_overlap": 1,
+      "molecular_weight_outside_domain": 32,
+      "positive_rows_not_imported": 277,
+      "raw_sdf_records": 554,
+      "skin_guideline_not_whitelisted": 21,
+      "output_sha256": "0dd82a1e298ecd3b20d2c0caa9238544400e6b67a310f6c81f9381ad07b392c9"
+    }
+  },
+  "total_new_negative_rows": 1261,
+  "review_queue": "data/staging/experimental_negative_review_queue.csv",
+  "review_queue_rows": 140
+}

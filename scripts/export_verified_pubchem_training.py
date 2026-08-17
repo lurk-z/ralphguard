@@ -47,7 +47,7 @@ def main() -> None:
         )
         output = args.output_dir / f"pubchem_verified_{endpoint}.csv"
         with output.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=FIELDS)
+            writer = csv.DictWriter(handle, fieldnames=FIELDS, lineterminator="\n")
             writer.writeheader()
             for row in payload["rows"]:
                 serializable = dict(row)

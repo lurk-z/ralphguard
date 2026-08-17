@@ -1,35 +1,89 @@
 {
-  "run_date": "2026-07-24",
-  "target_unique_structures": 1000,
-  "pubchem_annotation_pages_processed": 3,
-  "raw_unique_cids": 1750,
-  "property_resolved_cids": 1750,
-  "screened_unique_structures": 1302,
-  "evidence_rows_imported": 2298,
+  "generated_at": "2026-08-17T00:11:54.699542+00:00",
+  "target": 10000,
+  "start_page": 301,
+  "last_page_processed": 359,
+  "process_all_pages": true,
+  "prior_runs": [
+    {
+      "generated_at": "2026-08-16T22:35:25.497549+00:00",
+      "pages_processed": 200,
+      "screened_unique_structures": 114309,
+      "screened_unique_structures_by_endpoint": {
+        "skin": 91429,
+        "eye": 97989,
+        "sens": 6415,
+        "acute": 66549
+      },
+      "evidence_imported": 53447,
+      "evidence_existing": 209145
+    },
+    {
+      "generated_at": "2026-08-16T23:48:20.737004+00:00",
+      "start_page": 201,
+      "last_page_processed": 300,
+      "pages_processed": 100,
+      "screened_unique_structures": 54544,
+      "screened_unique_structures_by_endpoint": {
+        "skin": 50058,
+        "eye": 51518,
+        "sens": 1626,
+        "acute": 38592
+      },
+      "evidence_imported": 142016,
+      "evidence_existing": 0
+    }
+  ],
+  "screened_unique_structures": 22100,
+  "target_per_endpoint": 20000,
+  "screened_unique_structures_by_endpoint": {
+    "skin": 19885,
+    "eye": 20831,
+    "sens": 520,
+    "acute": 15150
+  },
+  "gaps_by_endpoint": {
+    "skin": 115,
+    "eye": 0,
+    "sens": 19480,
+    "acute": 4850
+  },
+  "minimum_met": false,
+  "reported_total_pages": 359,
+  "annotation_rows": 67453,
+  "raw_unique_cids": 26523,
+  "property_resolved": 26523,
+  "evidence_imported": 56499,
+  "evidence_existing": 0,
+  "pages_processed": 59,
   "evidence_by_endpoint": {
-    "skin": 512,
-    "eye": 613,
-    "sens": 367,
-    "acute": 806
+    "acute": 15181,
+    "eye": 20871,
+    "sens": 524,
+    "skin": 19923
   },
   "filtered": {
-    "salt": 308,
-    "inorganic": 52,
-    "molecular_weight_outside_domain": 50,
-    "unsupported_element": 36,
-    "heavy_atom_count_outside_domain": 2
+    "salt": 4172,
+    "molecular_weight_outside_domain": 184,
+    "unsupported_element": 18,
+    "inorganic": 15,
+    "heavy_atom_count_outside_domain": 3
   },
-  "screening_envelope": {
-    "molecular_weight": [30.0, 500.0],
-    "heavy_atoms": [2, 36],
-    "allowed_elements": ["H", "B", "C", "N", "O", "F", "Si", "P", "S", "Cl", "Br", "I"],
-    "single_component_only": true
+  "consensus_promotion": {
+    "promoted_evidence_rows": 56,
+    "promoted_unique_labels": 28,
+    "acute_labels": 6,
+    "eye_labels": 11,
+    "sens_labels": 3,
+    "skin_labels": 8
   },
-  "training_policy": {
-    "pending_evidence_is_not_training_data": true,
-    "minimum_independent_sources_for_consensus": 2,
-    "consensus_sample_weight": 0.5,
-    "manual_review_sample_weight": 1.0,
-    "missing_ghs_statement_is_not_negative": true
+  "single_regulatory_promotion": {
+    "promoted_evidence_rows": 56471,
+    "promoted_unique_labels": 56358,
+    "skipped_conflicting_labels": 0,
+    "acute_labels": 15144,
+    "eye_labels": 20820,
+    "sens_labels": 517,
+    "skin_labels": 19877
   }
 }

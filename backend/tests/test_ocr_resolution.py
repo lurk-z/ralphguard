@@ -9,6 +9,7 @@ from app.api.ocr import (
     OcrPass,
     _consensus_text,
     _run_ocr_ensemble,
+    _sort_matches_by_label_order,
     _tokens,
     resolve,
 )
@@ -23,6 +24,27 @@ def test_resolve_known_inci_names():
     assert {"Glycerin", "Niacinamide", "Phenoxyethanol"}.issubset(names)
     assert "aqua" in no_structure
     assert not unmatched
+
+
+def test_combined_local_and_registry_matches_follow_label_order():
+    registry_smiles = "CC(C)(O)CO"
+    matches = [
+        ("Glycerin", "OCC(O)CO", 100, "local"),
+        ("Example Active", registry_smiles, 100, "registry"),
+        ("Phenoxyethanol", "OCCOc1ccccc1", 100, "local"),
+    ]
+
+    ordered = _sort_matches_by_label_order(
+        "Ingredients: Example Active, Glycerin, Phenoxyethanol",
+        matches,
+        {registry_smiles: "example active"},
+    )
+
+    assert [item[0] for item in ordered] == [
+        "Example Active",
+        "Glycerin",
+        "Phenoxyethanol",
+    ]
 
 
 def test_ocr_item_requires_user_concentration():

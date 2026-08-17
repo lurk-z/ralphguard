@@ -77,18 +77,29 @@ module.exports = {
   		fontFamily: {
   			sans: [
   				'var(--font-sans)',
+  				'LINESeedSansTH',
   				'var(--font-thai)',
-  				'system-ui',
+  				'Noto Sans Thai',
+  				'-apple-system',
+  				'BlinkMacSystemFont',
+  				'"Segoe UI"',
+  				'Roboto',
   				'sans-serif'
   			],
 			display: [
 				'var(--font-sans)',
-				'system-ui',
+				'LINESeedSansTH',
+				'-apple-system',
+				'BlinkMacSystemFont',
+				'"Segoe UI"',
+				'Roboto',
 				'sans-serif'
   			],
   			mono: [
   				'var(--font-mono)',
+  				'IBM Plex Mono',
   				'ui-monospace',
+  				'Consolas',
   				'monospace'
   			]
   		},

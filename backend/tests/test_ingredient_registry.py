@@ -1,10 +1,14 @@
 """Ingredient identity and PubChem enrichment safety rules."""
 
+import httpx
+
 from app.services.ingredient_registry import (
+    _throttled_get,
     classify_substance,
     non_qsar_profile,
     normalize_ingredient_name,
     parse_pubchem_responses,
+    resolve_verified_registry,
 )
 
 
@@ -28,6 +32,12 @@ def _property_payload(**overrides):
 
 def _synonym_payload(*values):
     return {"InformationList": {"Information": [{"CID": 5526, "Synonym": list(values)}]}}
+
+
+def test_empty_verified_registry_resolution_preserves_observed_name_shape():
+    result = resolve_verified_registry(object(), [], include_observed_names=True)
+
+    assert result == ([], [], {}, [], {})
 
 
 def test_aqua_is_resolved_water_but_not_qsar_eligible():
@@ -107,3 +117,29 @@ def test_verified_identity_cannot_be_overwritten_by_a_different_pubchem_structur
     assert result is row
     assert "pubchem_identity_conflict" in row.provenance
     assert "did not match" in row.last_error
+
+
+def test_pubchem_transport_error_is_retried(monkeypatch):
+    class FlakyClient:
+        calls = 0
+
+        def get(self, url, *, timeout):
+            self.calls += 1
+            if self.calls < 3:
+                raise httpx.RemoteProtocolError("incomplete chunked read")
+            return httpx.Response(
+                200,
+                json={"ok": True},
+                request=httpx.Request("GET", url),
+            )
+
+    monkeypatch.setattr("app.services.ingredient_registry.time.sleep", lambda _seconds: None)
+    client = FlakyClient()
+
+    assert _throttled_get(
+        client,
+        "https://pubchem.ncbi.nlm.nih.gov/example",
+        max_attempts=3,
+        base_backoff=0,
+    ) == {"ok": True}
+    assert client.calls == 3

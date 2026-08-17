@@ -8,6 +8,9 @@ const MAX_PAINT_MASK_LENGTH = 1_500_000;
 const MAX_GRAPH_NODES = 200;
 const MAX_GRAPH_EDGES = 500;
 
+/** Project-level Graph draft used when no Formula Panel card is selected. */
+export const FORMULA_GRAPH_DRAFT_ID = "__node_graph_draft__";
+
 export type WorkspaceMode = "assess" | "nodes" | "trust";
 
 export type WorkspaceFormula = {
@@ -25,7 +28,7 @@ export type FormulaAssessmentSnapshot = {
   startedAt: string;
 };
 
-export type PaintMaskKey = "redness" | "papule" | "peeling" | "edema";
+export type PaintMaskKey = "exposure" | "redness" | "papule" | "peeling" | "edema";
 
 export type PaintMaskSnapshot = Partial<Record<PaintMaskKey, string>> & {
   hasPaint?: boolean;
@@ -43,7 +46,10 @@ export type FormulaGraphNodeSnapshot = {
     concentration?: number;
     region?: Region;
     status?: "idle" | "completed" | "failed";
-    endpoints?: Record<string, { peak_score: number }>;
+    endpoints?: Record<string, {
+      peak_score: number;
+      timecourse?: [number, number, number];
+    }>;
     error?: string;
   };
 };
@@ -127,15 +133,28 @@ const finiteNumber = (value: unknown, fallback = 0) => {
 const boundedCoordinate = (value: unknown) =>
   Math.min(100_000, Math.max(-100_000, finiteNumber(value)));
 
-function normalizeGraphEndpoints(value: unknown): Record<string, { peak_score: number }> | undefined {
+function normalizeGraphEndpoints(value: unknown): Record<string, {
+  peak_score: number;
+  timecourse?: [number, number, number];
+}> | undefined {
   if (!isRecord(value)) return undefined;
-  const endpoints: Record<string, { peak_score: number }> = {};
+  const endpoints: Record<string, {
+    peak_score: number;
+    timecourse?: [number, number, number];
+  }> = {};
   for (const [key, rawMetric] of Object.entries(value).slice(0, 20)) {
     if (!isRecord(rawMetric)) continue;
     const peakScore = Number(rawMetric.peak_score);
     if (!Number.isFinite(peakScore)) continue;
+    const rawTimecourse = Array.isArray(rawMetric.timecourse)
+      ? rawMetric.timecourse.slice(0, 3).map(Number)
+      : [];
+    const timecourse = rawTimecourse.length === 3 && rawTimecourse.every(Number.isFinite)
+      ? rawTimecourse.map((score) => Math.min(100, Math.max(0, score))) as [number, number, number]
+      : undefined;
     endpoints[key.slice(0, 40)] = {
       peak_score: Math.min(100, Math.max(0, peakScore)),
+      ...(timecourse ? { timecourse } : {}),
     };
   }
   return Object.keys(endpoints).length ? endpoints : undefined;
@@ -196,7 +215,6 @@ export function normalizeFormulaGraphSnapshot(value: unknown): FormulaGraphSnaps
     });
   }
 
-  if (!nodes.length) return null;
   const edges: FormulaGraphEdgeSnapshot[] = [];
   const edgeIds = new Set<string>();
   for (const rawEdge of value.edges.slice(0, MAX_GRAPH_EDGES)) {
@@ -315,13 +333,15 @@ export function normalizeProjectWorkspace(value: unknown): ProjectWorkspace | nu
     });
   }
 
-  if (formulas.length === 0) return null;
-
   const requestedActiveId =
     typeof value.activeFormulaId === "string" ? value.activeFormulaId : "";
-  const activeFormulaId = seenIds.has(requestedActiveId)
-    ? requestedActiveId
-    : formulas[0].id;
+  const activeFormulaId = formulas.length === 0
+    ? ""
+    : requestedActiveId === ""
+      ? ""
+      : seenIds.has(requestedActiveId)
+        ? requestedActiveId
+        : formulas[0].id;
   const dayIdx: 0 | 1 | 2 = value.dayIdx === 0 || value.dayIdx === 2 ? value.dayIdx : 1;
   const mode: WorkspaceMode =
     value.mode === "nodes" || value.mode === "trust" ? value.mode : "assess";
@@ -364,7 +384,7 @@ export function normalizeProjectWorkspace(value: unknown): ProjectWorkspace | nu
       if (!seenIds.has(formulaId) || !isRecord(rawSnapshot)) continue;
       const snapshot: PaintMaskSnapshot = {};
       let validMaskCount = 0;
-      for (const key of ["redness", "papule", "peeling", "edema"] as const) {
+      for (const key of ["exposure", "redness", "papule", "peeling", "edema"] as const) {
         const dataUrl = rawSnapshot[key];
         if (
           typeof dataUrl === "string" &&
@@ -376,7 +396,9 @@ export function normalizeProjectWorkspace(value: unknown): ProjectWorkspace | nu
         }
       }
       if (validMaskCount > 0) {
-        snapshot.hasPaint = rawSnapshot.hasPaint === true;
+        if (typeof rawSnapshot.hasPaint === "boolean") {
+          snapshot.hasPaint = rawSnapshot.hasPaint;
+        }
         paintByFormulaId[formulaId] = snapshot;
       }
     }
@@ -384,7 +406,7 @@ export function normalizeProjectWorkspace(value: unknown): ProjectWorkspace | nu
   const graphByFormulaId: Record<string, FormulaGraphSnapshot> = {};
   if (isRecord(value.graphByFormulaId)) {
     for (const [formulaId, rawSnapshot] of Object.entries(value.graphByFormulaId)) {
-      if (!seenIds.has(formulaId)) continue;
+      if (formulaId !== FORMULA_GRAPH_DRAFT_ID && !seenIds.has(formulaId)) continue;
       const snapshot = normalizeFormulaGraphSnapshot(rawSnapshot);
       if (snapshot) graphByFormulaId[formulaId] = snapshot;
     }

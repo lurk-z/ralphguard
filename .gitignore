@@ -40,14 +40,24 @@ htmlcov/
 data/raw/*
 !data/raw/.gitkeep
 !data/raw/README.md
+!data/raw/dataset_manifest.example.json
+!data/raw/dataset_manifest.json
 data/processed/*
 !data/processed/.gitkeep
+data/staging/
 *.pkl
 !scientific/models/*.pkl
 *.joblib
 *.h5
 models/*.bin
 *.tsbuildinfo
+
+# Generated model-v2 audit/candidate artifacts may contain derived dataset
+# identities or local benchmark output. Keep them local unless a sanitized
+# report is intentionally reviewed and committed later.
+scientific/models/candidate_v2/
+scientific/models/training_manifests/
+scientific/models/training_integrity_report.json
 
 # ============ IDE ============
 .vscode/

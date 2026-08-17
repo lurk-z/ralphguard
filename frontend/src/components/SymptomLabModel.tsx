@@ -39,11 +39,25 @@ import { OrbitControls, useAnimations, useGLTF } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { SemanticIcon } from "@/components/SemanticIcon";
+import {
+  faceRegionAtUv,
+  loadFaceRegionMap,
+  type FaceRegionMap,
+} from "@/lib/face-region-map";
 import type { PaintMaskSnapshot } from "@/lib/project-workspace";
 
 // The four paintable skin symptoms (eye redness is a separate, non-painted category).
 export type SkinKey = "redness" | "papule" | "peeling" | "edema";
 const SKIN_KEYS: SkinKey[] = ["redness", "papule", "peeling", "edema"];
+const SHARED_EXPOSURE_KEYS: SkinKey[] = ["redness"];
+const MAX_PAINT_DABS_PER_POINTER_MOVE = 32;
+
+const snapshotMaskDataUrls = (snapshot: PaintMaskSnapshot): string[] => {
+  if (snapshot.exposure) return [snapshot.exposure];
+  return SKIN_KEYS.map((key) => snapshot[key]).filter(
+    (value): value is string => Boolean(value),
+  );
+};
 
 // Brighten the base skin albedo (same lift the production model uses).
 const SKIN_LIFT = 0.7;
@@ -151,6 +165,7 @@ vec2 worley(vec3 P, float freq, float seed){
 
 export type PaintApi = {
   clear: () => void;
+  conceal: () => void;
   run: () => void;
   fillAll: () => void;
   snapshot: () => PaintMaskSnapshot;
@@ -294,13 +309,16 @@ function useFaceCameraFit(
     const fovRad = (persp.fov * Math.PI) / 180;
     const distance = (maxDim / 2 / Math.tan(fovRad / 2)) * distanceScale;
 
-    persp.position.set(center.x, center.y, center.z + distance);
+    const targetY = center.y - size.y * 0.035;
+    const cameraTarget = new THREE.Vector3(center.x, targetY, center.z);
+
+    persp.position.set(center.x, targetY, center.z + distance);
     persp.near = Math.max(0.01, distance / 100);
     persp.far = distance * 100;
     persp.updateProjectionMatrix();
-    persp.lookAt(center);
+    persp.lookAt(cameraTarget);
 
-    controls.target.copy(center);
+    controls.target.copy(cameraTarget);
     controls.minDistance = distance * 0.18; // allow close-up inspection of symptoms
     controls.maxDistance = distance * 2.5;
     controls.update();
@@ -327,6 +345,7 @@ export function PaintSymptomModel({
   occupiedPaint = [],
   onPaintBlocked,
   cameraDistanceScale,
+  sharedExposureMask = false,
 }: {
   paintOwnerKey?: string;
   paintEnabled?: boolean;
@@ -347,6 +366,9 @@ export function PaintSymptomModel({
   occupiedPaint?: PaintMaskSnapshot[];
   onPaintBlocked?: () => void;
   cameraDistanceScale?: number;
+  // Assessment uses one exposure area for all endpoints. The standalone lab
+  // leaves this disabled so each symptom continues to own an independent mask.
+  sharedExposureMask?: boolean;
 }) {
   const { scene: rawScene, animations } = useGLTF("/models/head.glb", true);
   const gl = useThree((s) => s.gl);
@@ -419,14 +441,34 @@ export function PaintSymptomModel({
   });
   const painting = useRef(false);
   const lastPaintUv = useRef<THREE.Vector2 | null>(null);
-  const skinMesh = useRef<THREE.Mesh | null>(null);
   // Some GLB exports split the jaw/neck from the face while reusing the same
   // skin material. Track every such mesh so paint/erase ray hits are accepted
   // across the full visible skin instead of only the last traversed mesh.
   const skinMeshes = useRef<Set<THREE.Mesh>>(new Set());
-  const skinBounds = useRef<THREE.Box3 | null>(null);
-  const eyeMesh = useRef<THREE.Object3D | null>(null);
-  const faceCalibration = useRef<{ minY: number; maxY: number; eyeY: number } | null>(null);
+  const eyeMeshes = useRef<{ left: THREE.Object3D | null; right: THREE.Object3D | null }>({
+    left: null,
+    right: null,
+  });
+  const faceCalibration = useRef<{
+    minY: number;
+    maxY: number;
+    minZ: number;
+    maxZ: number;
+    eyeY: number;
+    centerX: number;
+    eyeSpan: number;
+    leftIsPositiveX: boolean;
+  } | null>(null);
+  const faceRegionMap = useRef<FaceRegionMap | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void loadFaceRegionMap().then((map) => {
+      if (!cancelled) faceRegionMap.current = map;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Keep the production paint set in a ref so pointer events always use the
   // latest endpoint mapping; the standalone lab falls back to activeSymptom.
@@ -438,6 +480,7 @@ export function PaintSymptomModel({
   useEffect(() => {
     paintSymptomsRef.current = paintSymptoms?.length ? paintSymptoms : [activeSymptom];
   }, [paintSymptoms, activeSymptom]);
+  const writableMaskKeys = sharedExposureMask ? SHARED_EXPOSURE_KEYS : SKIN_KEYS;
 
   // One 1024² grayscale mask per skin symptom — white where the user painted it.
   const masks = useMemo(() => {
@@ -451,12 +494,24 @@ export function PaintSymptomModel({
       const tex = new THREE.CanvasTexture(canvas);
       tex.flipY = false;
       tex.colorSpace = THREE.NoColorSpace;
+      tex.generateMipmaps = false;
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
       return { canvas, ctx, tex };
     };
+    if (sharedExposureMask) {
+      const exposure = make();
+      return {
+        redness: exposure,
+        papule: exposure,
+        peeling: exposure,
+        edema: exposure,
+      } as Record<SkinKey, { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture }>;
+    }
     return {
       redness: make(), papule: make(), peeling: make(), edema: make(),
     } as Record<SkinKey, { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture }>;
-  }, []);
+  }, [sharedExposureMask]);
 
   // Union of every non-selected formula's paint. It is deliberately separate
   // from the active symptom masks: other formulas remain visible as test-cream
@@ -471,9 +526,34 @@ export function PaintSymptomModel({
     const tex = new THREE.CanvasTexture(canvas);
     tex.flipY = false;
     tex.colorSpace = THREE.NoColorSpace;
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
     return { canvas, ctx, tex };
   }, []);
+  const dirtyCanvasTextures = useRef<Set<THREE.CanvasTexture>>(new Set());
+  const markTextureDirty = (texture: THREE.CanvasTexture) => {
+    dirtyCanvasTextures.current.add(texture);
+  };
+  // Binary version of occupiedMask used only for collision clipping. Keeping
+  // it separate preserves the soft visual edge of other formulas while making
+  // the no-overlap rule exact at every accepted pixel.
+  const occupiedExclusionMask = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1024;
+    canvas.height = 1024;
+    return { canvas, ctx: canvas.getContext("2d")! };
+  }, []);
+  // A reusable transparent canvas lets one brush dab be clipped by the binary
+  // exclusion mask before it is copied into each symptom layer.
+  const paintDabMask = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1024;
+    canvas.height = 1024;
+    return { canvas, ctx: canvas.getContext("2d")! };
+  }, []);
   const occupiedReady = useRef(false);
+  const hasOccupiedPaint = useRef(false);
   const blockedDuringStroke = useRef(false);
   const paintProbe = useMemo(() => {
     const canvas = document.createElement("canvas");
@@ -483,7 +563,7 @@ export function PaintSymptomModel({
   }, []);
 
   const hasAnyPaint = () =>
-    SKIN_KEYS.some((key) => {
+    writableMaskKeys.some((key) => {
       paintProbe.ctx.globalCompositeOperation = "source-over";
       paintProbe.ctx.clearRect(0, 0, paintProbe.canvas.width, paintProbe.canvas.height);
       paintProbe.ctx.drawImage(
@@ -507,9 +587,13 @@ export function PaintSymptomModel({
 
   const snapshotMasks = (): PaintMaskSnapshot => {
     const snapshot: PaintMaskSnapshot = { hasPaint: hasAnyPaint() };
-    SKIN_KEYS.forEach((key) => {
-      snapshot[key] = masks[key].canvas.toDataURL("image/png");
-    });
+    if (sharedExposureMask) {
+      snapshot.exposure = masks.redness.canvas.toDataURL("image/png");
+    } else {
+      SKIN_KEYS.forEach((key) => {
+        snapshot[key] = masks[key].canvas.toDataURL("image/png");
+      });
+    }
     return snapshot;
   };
 
@@ -522,72 +606,59 @@ export function PaintSymptomModel({
   useEffect(() => {
     let cancelled = false;
     const clearMasks = () => {
-      SKIN_KEYS.forEach((key) => {
+      writableMaskKeys.forEach((key) => {
         const mask = masks[key];
         mask.ctx.globalCompositeOperation = "source-over";
         mask.ctx.fillStyle = "#000000";
         mask.ctx.fillRect(0, 0, mask.canvas.width, mask.canvas.height);
-        mask.tex.needsUpdate = true;
+        markTextureDirty(mask.tex);
       });
     };
     clearMasks();
     if (!initialPaint) return () => void (cancelled = true);
 
-    void Promise.all(
-      SKIN_KEYS.map(
-        (key) =>
-          new Promise<void>((resolve) => {
-            const dataUrl = initialPaint[key];
-            if (!dataUrl) return resolve();
-            const image = new Image();
-            image.onload = () => {
-              if (!cancelled) {
-                const mask = masks[key];
-                mask.ctx.globalCompositeOperation = "source-over";
-                mask.ctx.drawImage(image, 0, 0, mask.canvas.width, mask.canvas.height);
-                mask.tex.needsUpdate = true;
-              }
-              resolve();
-            };
-            image.onerror = () => resolve();
-            image.src = dataUrl;
-          }),
-      ),
-    ).then(() => {
-      // Production assessment paint marks an exposure area, not one particular
-      // symptom. Older snapshots can contain pixels in only the symptom that
-      // happened to be dominant when they were saved, leaving the other three
-      // masks black. Union every restored legacy layer and apply that exposure
-      // mask to all four symptoms so high scores can render redness, papules,
-      // peeling and edema together. The standalone symptom lab still keeps its
-      // deliberately independent per-symptom masks.
-      if (!cancelled && paintSymptomsRef.current.length > 1) {
-        const unionCanvas = document.createElement("canvas");
-        unionCanvas.width = masks.redness.canvas.width;
-        unionCanvas.height = masks.redness.canvas.height;
-        const unionContext = unionCanvas.getContext("2d")!;
-        unionContext.fillStyle = "#000000";
-        unionContext.fillRect(0, 0, unionCanvas.width, unionCanvas.height);
-        unionContext.globalCompositeOperation = "lighten";
-        SKIN_KEYS.forEach((key) => {
-          unionContext.drawImage(masks[key].canvas, 0, 0);
+    const loadImage = (dataUrl: string) =>
+      new Promise<HTMLImageElement | null>((resolve) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => resolve(null);
+        image.src = dataUrl;
+      });
+
+    if (sharedExposureMask) {
+      // New assessment snapshots have one exposure image. Legacy snapshots
+      // have up to four symptom images, which are unioned into that one canvas.
+      void Promise.all(snapshotMaskDataUrls(initialPaint).map(loadImage)).then((images) => {
+        if (cancelled) return;
+        const mask = masks.redness;
+        mask.ctx.globalCompositeOperation = "lighten";
+        images.forEach((image) => {
+          if (image) mask.ctx.drawImage(image, 0, 0, mask.canvas.width, mask.canvas.height);
         });
-        unionContext.globalCompositeOperation = "source-over";
-        SKIN_KEYS.forEach((key) => {
+        mask.ctx.globalCompositeOperation = "source-over";
+        markTextureDirty(mask.tex);
+        // Saving the restored mask immediately migrates legacy four-image
+        // snapshots to the compact exposure key without a workspace version bump.
+        notifyPaintChange();
+      });
+    } else {
+      void Promise.all(
+        SKIN_KEYS.map(async (key) => ({
+          key,
+          image: initialPaint[key] ? await loadImage(initialPaint[key]) : null,
+        })),
+      ).then((loadedMasks) => {
+        if (cancelled) return;
+        loadedMasks.forEach(({ key, image }) => {
+          if (!image) return;
           const mask = masks[key];
           mask.ctx.globalCompositeOperation = "source-over";
-          mask.ctx.clearRect(0, 0, mask.canvas.width, mask.canvas.height);
-          mask.ctx.drawImage(unionCanvas, 0, 0);
-          mask.tex.needsUpdate = true;
+          mask.ctx.drawImage(image, 0, 0, mask.canvas.width, mask.canvas.height);
+          markTextureDirty(mask.tex);
         });
-      }
-
-      // Old workspace snapshots did not carry hasPaint metadata. Once their
-      // images are restored and unified, emit the same masks with accurate
-      // pixel presence so refresh migration completes without guessing from a
-      // PNG's existence.
-      if (!cancelled) notifyPaintChange();
-    });
+        notifyPaintChange();
+      });
+    }
 
     return () => {
       cancelled = true;
@@ -601,16 +672,43 @@ export function PaintSymptomModel({
   // reusing the same Three.js texture and scene.
   useEffect(() => {
     let cancelled = false;
-    occupiedReady.current = occupiedPaint.length === 0;
+    const rebuildExclusionMask = () => {
+      const width = occupiedMask.canvas.width;
+      const height = occupiedMask.canvas.height;
+      const occupiedPixels = occupiedMask.ctx.getImageData(0, 0, width, height).data;
+      const exclusionPixels = occupiedExclusionMask.ctx.createImageData(width, height);
+      for (let index = 0; index < occupiedPixels.length; index += 4) {
+        if (occupiedPixels[index] <= 12) continue;
+        exclusionPixels.data[index] = 255;
+        exclusionPixels.data[index + 1] = 255;
+        exclusionPixels.data[index + 2] = 255;
+        exclusionPixels.data[index + 3] = 255;
+      }
+      occupiedExclusionMask.ctx.clearRect(0, 0, width, height);
+      occupiedExclusionMask.ctx.putImageData(exclusionPixels, 0, 0);
+    };
+
+    const collisionSnapshots = occupiedPaint.filter(
+      (snapshot) =>
+        snapshot.hasPaint !== false &&
+        snapshotMaskDataUrls(snapshot).length > 0,
+    );
+    hasOccupiedPaint.current = collisionSnapshots.length > 0;
+    occupiedReady.current = collisionSnapshots.length === 0;
     occupiedMask.ctx.globalCompositeOperation = "source-over";
     occupiedMask.ctx.fillStyle = "#000000";
     occupiedMask.ctx.fillRect(0, 0, occupiedMask.canvas.width, occupiedMask.canvas.height);
-    occupiedMask.tex.needsUpdate = true;
-
-    const dataUrls = occupiedPaint.flatMap((snapshot) =>
-      SKIN_KEYS.map((key) => snapshot[key]).filter((value): value is string => Boolean(value)),
+    markTextureDirty(occupiedMask.tex);
+    occupiedExclusionMask.ctx.clearRect(
+      0,
+      0,
+      occupiedExclusionMask.canvas.width,
+      occupiedExclusionMask.canvas.height,
     );
+
+    const dataUrls = collisionSnapshots.flatMap(snapshotMaskDataUrls);
     if (dataUrls.length === 0) {
+      hasOccupiedPaint.current = false;
       occupiedReady.current = true;
       return () => void (cancelled = true);
     }
@@ -630,7 +728,7 @@ export function PaintSymptomModel({
                   occupiedMask.canvas.width,
                   occupiedMask.canvas.height,
                 );
-                occupiedMask.tex.needsUpdate = true;
+                markTextureDirty(occupiedMask.tex);
               }
               resolve();
             };
@@ -639,14 +737,17 @@ export function PaintSymptomModel({
           }),
       ),
     ).then(() => {
-      if (!cancelled) occupiedReady.current = true;
+      if (!cancelled) {
+        rebuildExclusionMask();
+        occupiedReady.current = true;
+      }
     });
 
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paintOwnerKey, occupiedMask]);
+  }, [paintOwnerKey, occupiedExclusionMask, occupiedMask, occupiedPaint.length]);
 
   // Seamless tiling vesicle-relief map (baked from the Blender dome pattern).
   // Sampled triplanar in object space inside the papule branch.
@@ -669,6 +770,8 @@ export function PaintSymptomModel({
   // Inject the mark/reveal symptom shader onto a per-instance skin material.
   useMemo(() => {
     skinMeshes.current.clear();
+    eyeMeshes.current = { left: null, right: null };
+    faceCalibration.current = null;
     scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
@@ -688,7 +791,8 @@ export function PaintSymptomModel({
       // (its own category: pick a side + severity, no painting / no Run).
       const meshKey = mesh.name.replace(/[ _-]+/g, "").toLowerCase();
       if (meshKey === "realtimeeyeballleft" || meshKey === "realtimeeyeballright") {
-        if (!eyeMesh.current) eyeMesh.current = mesh;
+        if (meshKey === "realtimeeyeballleft") eyeMeshes.current.left = mesh;
+        else eyeMeshes.current.right = mesh;
         const emat = srcMat.clone();
         mesh.material = emat;
         const uER = meshKey === "realtimeeyeballleft" ? uEyeRedL.current : uEyeRedR.current;
@@ -754,12 +858,10 @@ roughnessFactor = mix(roughnessFactor, 0.06, _eyeWetness * 0.72);`,
       if (srcMat.name !== "Material.001") return;
       const mat = srcMat.clone();
       mesh.material = mat;
-      skinMesh.current = mesh;
       skinMeshes.current.add(mesh);
 
       mesh.geometry.computeBoundingBox();
       const bb = mesh.geometry.boundingBox!;
-      skinBounds.current = bb.clone();
       // 2.4% of head height keeps a high-risk local swell readable without the
       // inflated look produced by the old 6% displacement.
       const headHeight = bb.max.y - bb.min.y;
@@ -1147,17 +1249,27 @@ roughnessFactor = clamp(
     if (!apiRef) return;
     apiRef.current = {
       clear: () => {
-        paintSymptomsRef.current.forEach((k) => {
+        const keysToClear = sharedExposureMask
+          ? writableMaskKeys
+          : paintSymptomsRef.current;
+        keysToClear.forEach((k) => {
           const m = masks[k];
           if (!m) return;
           m.ctx.globalCompositeOperation = "source-over";
           m.ctx.fillStyle = "#000000";
           m.ctx.fillRect(0, 0, m.canvas.width, m.canvas.height);
-          m.tex.needsUpdate = true;
+          markTextureDirty(m.tex);
+        });
+        paintSymptomsRef.current.forEach((k) => {
           revealTargets.current[k] = 0;
           revealRefs[k].current.value = 0;
         });
         notifyPaintChange();
+      },
+      conceal: () => {
+        SKIN_KEYS.forEach((k) => {
+          revealTargets.current[k] = 0;
+        });
       },
       run: () => {
         // One press reveals every painted symptom (empty masks show nothing).
@@ -1168,13 +1280,15 @@ roughnessFactor = clamp(
       // Fill every mask so the whole face shows the mapped symptoms at once
       // (used by the results-driven canvas — no manual painting required).
       fillAll: () => {
-        SKIN_KEYS.forEach((k) => {
+        writableMaskKeys.forEach((k) => {
           const m = masks[k];
           if (!m) return;
           m.ctx.globalCompositeOperation = "source-over";
           m.ctx.fillStyle = "#ffffff";
           m.ctx.fillRect(0, 0, m.canvas.width, m.canvas.height);
-          m.tex.needsUpdate = true;
+          markTextureDirty(m.tex);
+        });
+        SKIN_KEYS.forEach((k) => {
           revealTargets.current[k] = 1;
         });
         notifyPaintChange();
@@ -1186,6 +1300,13 @@ roughnessFactor = clamp(
 
   // Ease every symptom's reveal toward its own target (~0.9s).
   useFrame((_, dt) => {
+    // Canvas drawing can happen many times inside one stroke. Upload each
+    // changed texture once at the end of the frame instead of once per dab.
+    dirtyCanvasTextures.current.forEach((texture) => {
+      texture.needsUpdate = true;
+    });
+    dirtyCanvasTextures.current.clear();
+
     const k = Math.min(1, dt * 2.2);
     const severityK = 1 - Math.exp(-dt * 5.5);
     uScanTime.current.value += dt;
@@ -1204,52 +1325,95 @@ roughnessFactor = clamp(
   });
 
   const dabAt = (uv: THREE.Vector2) => {
+    let clippedDabBounds: {
+      minX: number;
+      minY: number;
+      width: number;
+      height: number;
+    } | null = null;
+
     if (!eraseRef.current) {
       // Wait for the other formula masks before accepting paint. This closes a
       // short race immediately after switching formulas where overlap could be
       // written before their PNG snapshots finish decoding.
       if (!occupiedReady.current) return;
 
-      const W = occupiedMask.canvas.width;
-      const H = occupiedMask.canvas.height;
-      const px = uv.x * W;
-      const py = uv.y * H;
-      const radius = (brushSizeRef.current / 100) * 0.09 * W;
-      const minX = Math.max(0, Math.floor(px - radius));
-      const minY = Math.max(0, Math.floor(py - radius));
-      const maxX = Math.min(W - 1, Math.ceil(px + radius));
-      const maxY = Math.min(H - 1, Math.ceil(py + radius));
-      const width = Math.max(1, maxX - minX + 1);
-      const height = Math.max(1, maxY - minY + 1);
-      const pixels = occupiedMask.ctx.getImageData(minX, minY, width, height).data;
-      let overlapsOtherFormula = false;
+      // Most strokes have no other formula paint to collide with. Keep that
+      // common path free from synchronous pixel reads and the temporary dab
+      // canvas; collision clipping is only prepared when occupied paint exists.
+      if (hasOccupiedPaint.current) {
+        const W = occupiedMask.canvas.width;
+        const H = occupiedMask.canvas.height;
+        const px = uv.x * W;
+        const py = uv.y * H;
+        const radius = (brushSizeRef.current / 100) * 0.09 * W;
+        const minX = Math.max(0, Math.floor(px - radius));
+        const minY = Math.max(0, Math.floor(py - radius));
+        const maxX = Math.min(W - 1, Math.ceil(px + radius));
+        const maxY = Math.min(H - 1, Math.ceil(py + radius));
+        const width = Math.max(1, maxX - minX + 1);
+        const height = Math.max(1, maxY - minY + 1);
+        const pixels = occupiedMask.ctx.getImageData(minX, minY, width, height).data;
+        let hasPaintableArea = false;
 
-      // Sampling every four pixels is fast enough for continuous strokes while
-      // still detecting the feathered edge of another formula's brush mask.
-      for (let y = 0; y < height && !overlapsOtherFormula; y += 4) {
-        for (let x = 0; x < width; x += 4) {
-          const dx = minX + x - px;
-          const dy = minY + y - py;
-          if (dx * dx + dy * dy > radius * radius) continue;
-          if (pixels[(y * width + x) * 4] > 12) {
-            overlapsOtherFormula = true;
-            break;
+        // Only reject a dab when its useful area is completely occupied. Partial
+        // collisions remain valid and are clipped pixel-for-pixel below.
+        for (let y = 0; y < height && !hasPaintableArea; y += 4) {
+          for (let x = 0; x < width; x += 4) {
+            const dx = minX + x - px;
+            const dy = minY + y - py;
+            if (dx * dx + dy * dy > radius * radius * 0.85) continue;
+            if (pixels[(y * width + x) * 4] <= 12) {
+              hasPaintableArea = true;
+              break;
+            }
           }
         }
-      }
 
-      if (overlapsOtherFormula) {
-        if (!blockedDuringStroke.current) {
-          blockedDuringStroke.current = true;
-          onPaintBlockedRef.current?.();
+        if (!hasPaintableArea) {
+          if (!blockedDuringStroke.current) {
+            blockedDuringStroke.current = true;
+            onPaintBlockedRef.current?.();
+          }
+          return;
         }
-        return;
+
+        // Build one soft dab, then punch out only pixels owned by other formulas.
+        // The remaining crescent/edge is still painted even when the brush centre
+        // is very close to an existing mark.
+        paintDabMask.ctx.globalCompositeOperation = "source-over";
+        paintDabMask.ctx.clearRect(minX, minY, width, height);
+        const gradient = paintDabMask.ctx.createRadialGradient(px, py, 0, px, py, radius);
+        gradient.addColorStop(0, "rgba(255,255,255,0.85)");
+        gradient.addColorStop(1, "rgba(255,255,255,0)");
+        paintDabMask.ctx.fillStyle = gradient;
+        paintDabMask.ctx.beginPath();
+        paintDabMask.ctx.arc(px, py, radius, 0, Math.PI * 2);
+        paintDabMask.ctx.fill();
+        paintDabMask.ctx.globalCompositeOperation = "destination-out";
+        paintDabMask.ctx.drawImage(
+          occupiedExclusionMask.canvas,
+          minX,
+          minY,
+          width,
+          height,
+          minX,
+          minY,
+          width,
+          height,
+        );
+        paintDabMask.ctx.globalCompositeOperation = "source-over";
+        clippedDabBounds = { minX, minY, width, height };
       }
     }
 
     // Erasing uses the same brush interaction as painting and clears every
     // symptom mask underneath it so no hidden reaction layer is left behind.
-    const targetSymptoms = eraseRef.current ? SKIN_KEYS : paintSymptomsRef.current;
+    const targetSymptoms = sharedExposureMask
+      ? writableMaskKeys
+      : eraseRef.current
+        ? SKIN_KEYS
+        : paintSymptomsRef.current;
     targetSymptoms.forEach((k) => {
       const m = masks[k];
       if (!m) return;
@@ -1286,20 +1450,36 @@ roughnessFactor = clamp(
             m.ctx.fill();
           });
         });
-        m.tex.needsUpdate = true;
+        markTextureDirty(m.tex);
         return;
       }
 
-      // Paint WHITE (mark).
-      const g = m.ctx.createRadialGradient(px, py, 0, px, py, r);
-      g.addColorStop(0, "rgba(255,255,255,0.85)");
-      g.addColorStop(1, "rgba(255,255,255,0)");
       m.ctx.globalCompositeOperation = "lighter";
-      m.ctx.fillStyle = g;
-      m.ctx.beginPath();
-      m.ctx.arc(px, py, r, 0, Math.PI * 2);
-      m.ctx.fill();
-      m.tex.needsUpdate = true;
+      if (clippedDabBounds) {
+        // Copy only the non-overlapping portion of the prepared dab.
+        m.ctx.drawImage(
+          paintDabMask.canvas,
+          clippedDabBounds.minX,
+          clippedDabBounds.minY,
+          clippedDabBounds.width,
+          clippedDabBounds.height,
+          clippedDabBounds.minX,
+          clippedDabBounds.minY,
+          clippedDabBounds.width,
+          clippedDabBounds.height,
+        );
+      } else {
+        // Fast path: no other formula owns paint, so draw directly into the
+        // active mask without getImageData() or a full-size temporary canvas.
+        const gradient = m.ctx.createRadialGradient(px, py, 0, px, py, r);
+        gradient.addColorStop(0, "rgba(255,255,255,0.85)");
+        gradient.addColorStop(1, "rgba(255,255,255,0)");
+        m.ctx.fillStyle = gradient;
+        m.ctx.beginPath();
+        m.ctx.arc(px, py, r, 0, Math.PI * 2);
+        m.ctx.fill();
+      }
+      markTextureDirty(m.tex);
     });
     // Do NOT reset this symptom's reveal: already-revealed areas stay revealed
     // when you paint MORE of the same symptom. New marks show as cream only
@@ -1315,6 +1495,7 @@ roughnessFactor = clamp(
     }
 
     const distance = previous.distanceTo(uv);
+    if (distance < 0.0001) return;
     // Do not bridge distant UV islands across a model seam. Within one island,
     // interpolate dabs so a quick drag still produces one continuous stroke.
     if (distance > 0.2) {
@@ -1322,7 +1503,10 @@ roughnessFactor = clamp(
     } else {
       const brushRadiusUv = (brushSizeRef.current / 100) * 0.09;
       const spacing = Math.max(0.004, brushRadiusUv * 0.35);
-      const steps = Math.min(32, Math.max(1, Math.ceil(distance / spacing)));
+      const steps = Math.min(
+        MAX_PAINT_DABS_PER_POINTER_MOVE,
+        Math.max(1, Math.ceil(distance / spacing)),
+      );
       for (let step = 1; step <= steps; step += 1) {
         dabAt(previous.clone().lerp(uv, step / steps));
       }
@@ -1334,6 +1518,14 @@ roughnessFactor = clamp(
   // check next to the masks means a hover tooltip can never appear on untouched
   // skin just because the pointer happens to be over the model.
   const paintedSymptomsAt = (uv: THREE.Vector2): SkinKey[] => {
+    if (sharedExposureMask) {
+      const mask = masks.redness;
+      const x = Math.max(0, Math.min(mask.canvas.width - 1, Math.floor(uv.x * mask.canvas.width)));
+      const y = Math.max(0, Math.min(mask.canvas.height - 1, Math.floor(uv.y * mask.canvas.height)));
+      return mask.ctx.getImageData(x, y, 1, 1).data[0] > 12
+        ? paintSymptomsRef.current
+        : [];
+    }
     return SKIN_KEYS.filter((k) => {
       const m = masks[k];
       const x = Math.max(0, Math.min(m.canvas.width - 1, Math.floor(uv.x * m.canvas.width)));
@@ -1342,51 +1534,97 @@ roughnessFactor = clamp(
     });
   };
 
-  // Convert a hit point to a human-readable facial region. The vertical bands
-  // are calibrated against the actual eye line, so they continue to work after
-  // rotating or resizing the 3D model.
+  // Convert a world-space hit point to a stable anatomical region. Orbiting the
+  // camera does not change these coordinates, so the label stays attached to
+  // the same part of the head from front, side, and rear views.
   const regionAt = (world: THREE.Vector3): string => {
-    const mesh = skinMesh.current;
-    const localBounds = skinBounds.current;
-    if (!mesh || !localBounds) return "ผิวหน้า";
+    if (!skinMeshes.current.size) return "ผิวหน้า";
 
     if (!faceCalibration.current) {
-      const worldBounds = new THREE.Box3().setFromObject(mesh);
+      const worldBounds = new THREE.Box3();
+      skinMeshes.current.forEach((mesh) => worldBounds.expandByObject(mesh));
+      if (worldBounds.isEmpty()) return "ผิวหน้า";
+
+      const modelCenter = worldBounds.getCenter(new THREE.Vector3());
+      const modelSize = worldBounds.getSize(new THREE.Vector3());
+      const leftEyeCenter = eyeMeshes.current.left
+        ? new THREE.Box3().setFromObject(eyeMeshes.current.left).getCenter(new THREE.Vector3())
+        : null;
+      const rightEyeCenter = eyeMeshes.current.right
+        ? new THREE.Box3().setFromObject(eyeMeshes.current.right).getCenter(new THREE.Vector3())
+        : null;
+
       let eyeY = worldBounds.min.y + (worldBounds.max.y - worldBounds.min.y) * 0.62;
-      if (eyeMesh.current) {
-        eyeY = new THREE.Box3()
-          .setFromObject(eyeMesh.current)
-          .getCenter(new THREE.Vector3()).y;
+      let centerX = modelCenter.x;
+      let eyeSpan = Math.max(modelSize.x * 0.18, 1e-4);
+      let leftIsPositiveX = false;
+      if (leftEyeCenter && rightEyeCenter) {
+        eyeY = (leftEyeCenter.y + rightEyeCenter.y) / 2;
+        centerX = (leftEyeCenter.x + rightEyeCenter.x) / 2;
+        eyeSpan = Math.max(Math.abs(leftEyeCenter.x - rightEyeCenter.x), 1e-4);
+        leftIsPositiveX = leftEyeCenter.x > rightEyeCenter.x;
+      } else if (leftEyeCenter || rightEyeCenter) {
+        const eyeCenter = leftEyeCenter ?? rightEyeCenter!;
+        eyeY = eyeCenter.y;
+        centerX = eyeCenter.x;
       }
+
       faceCalibration.current = {
         minY: worldBounds.min.y,
         maxY: worldBounds.max.y,
+        minZ: worldBounds.min.z,
+        maxZ: worldBounds.max.z,
         eyeY,
+        centerX,
+        eyeSpan,
+        leftIsPositiveX,
       };
     }
 
-    const { minY, maxY, eyeY } = faceCalibration.current;
+    const {
+      minY,
+      maxY,
+      minZ,
+      maxZ,
+      eyeY,
+      centerX,
+      eyeSpan,
+      leftIsPositiveX,
+    } = faceCalibration.current;
     const height = Math.max(1e-4, maxY - minY);
     const normalizedY = (world.y - minY) / height;
     const eyeLine = (eyeY - minY) / height;
     const eyeToCrown = Math.max(1e-4, 1 - eyeLine);
     const relativeY = (normalizedY - eyeLine) / eyeToCrown;
 
-    const local = mesh.worldToLocal(world.clone());
-    const normalizedX =
-      (local.x - localBounds.min.x) /
-      Math.max(1e-4, localBounds.max.x - localBounds.min.x);
-    const side = Math.abs(normalizedX - 0.5);
+    const lateralFromEyes = Math.abs(world.x - centerX) / eyeSpan;
+    const normalizedDepth = (world.z - minZ) / Math.max(1e-4, maxZ - minZ);
+    const isAnatomicalLeft = leftIsPositiveX
+      ? world.x >= centerX
+      : world.x < centerX;
+    const sideLabel = isAnatomicalLeft ? "ซ้าย" : "ขวา";
 
-    if (side > 0.3 && Math.abs(relativeY) < 0.6) return "หู";
+    // Ears occupy the eye-height side band. Depth separates the visible pinna
+    // from the skin immediately behind it when the user rotates the model.
+    if (lateralFromEyes > 0.92 && relativeY > -0.55 && relativeY < 0.48) {
+      return normalizedDepth < 0.4
+        ? `หลังใบหู${sideLabel}`
+        : `หู${sideLabel}`;
+    }
+
+    // Rear-facing hits must be resolved before the ordinary facial bands;
+    // otherwise the back of the skull is incorrectly labelled forehead/cheek.
+    if (normalizedDepth < 0.38 && relativeY > -1.45) return "หลังศีรษะ";
+    if (normalizedDepth < 0.42 && relativeY <= -1.45) return "หลัง";
+
     if (relativeY > 0.8) return "หนังศีรษะ";
     if (relativeY > 0.25) return "หน้าผาก";
     if (relativeY >= -0.2) return "ตา / คิ้ว";
-    if (relativeY >= -0.55) return side < 0.09 ? "จมูก" : "แก้ม";
+    if (relativeY >= -0.55) return lateralFromEyes < 0.35 ? "จมูก" : "แก้ม";
     if (relativeY >= -0.8) return "ปาก / ริมฝีปาก";
     if (relativeY >= -1.15) return "คาง";
     if (relativeY >= -2.2) return "คอ";
-    return "ผิวหน้า";
+    return "ลำตัว";
   };
 
   const isSkin = (o: THREE.Object3D) =>
@@ -1405,8 +1643,9 @@ roughnessFactor = clamp(
     }
   };
   useEffect(() => {
-    window.addEventListener("pointerup", stopPaint);
-    return () => window.removeEventListener("pointerup", stopPaint);
+    const handleWindowPointerUp = () => stopPaint();
+    window.addEventListener("pointerup", handleWindowPointerUp);
+    return () => window.removeEventListener("pointerup", handleWindowPointerUp);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1444,11 +1683,16 @@ roughnessFactor = clamp(
           onHover?.({
             x: e.nativeEvent.offsetX,
             y: e.nativeEvent.offsetY,
-            region: regionAt(e.point),
+            // Prefer the anatomical UV map so the label follows the exact
+            // painted texel. Keep the calibrated XYZ classifier as a safe
+            // fallback for map-loading failures and unmapped UV seams.
+            region: faceRegionAtUv(faceRegionMap.current, e.uv) ?? regionAt(e.point),
             symptoms,
           });
         }}
-        onPointerOut={() => onHover?.(null)}
+        onPointerOut={() => {
+          onHover?.(null);
+        }}
         onPointerUp={stopPaint}
       />
     </group>

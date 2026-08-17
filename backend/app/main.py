@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import assessments, chat, health, models, ocr, projects, substances, tts
+from app.api import assessments, chat, health, models, ocr, projects, pubchem_online, substances, tts
 from app.core.config import settings
 
 
@@ -49,6 +49,11 @@ app.add_middleware(
 app.include_router(health.router, tags=["health"])
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(substances.router, prefix="/api/substances", tags=["substances"])
+app.include_router(
+    pubchem_online.router,
+    prefix="/api/substances/pubchem-online",
+    tags=["substances"],
+)
 app.include_router(assessments.router, prefix="/api/assessments", tags=["assessments"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])

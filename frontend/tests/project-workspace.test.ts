@@ -3,8 +3,10 @@ import test from "node:test";
 
 import {
   deleteProjectWorkspace,
+  FORMULA_GRAPH_DRAFT_ID,
   formulaAssessmentSignature,
   loadProjectWorkspace,
+  normalizeFormulaGraphSnapshot,
   normalizeProjectWorkspace,
   saveProjectWorkspace,
   type ProjectWorkspaceDraft,
@@ -88,12 +90,48 @@ test("normalizes unsafe browser data before restoring it", () => {
   assert.equal(workspace.formulaPanelOpen, true);
 });
 
-test("rejects unsupported, empty, and invalid-project workspaces", () => {
+test("supports an empty formula workspace and rejects unsupported or invalid projects", () => {
   const storage = new MemoryStorage();
   assert.equal(normalizeProjectWorkspace({ version: 2, formulas: [] }), null);
-  assert.equal(normalizeProjectWorkspace({ version: 1, formulas: [] }), null);
+  const emptyWorkspace = normalizeProjectWorkspace({
+    version: 1,
+    formulas: [],
+    activeFormulaId: "missing",
+  });
+  assert.ok(emptyWorkspace);
+  assert.deepEqual(emptyWorkspace.formulas, []);
+  assert.equal(emptyWorkspace.activeFormulaId, "");
   assert.equal(saveProjectWorkspace(0, draft("Invalid"), storage), false);
   assert.equal(loadProjectWorkspace(-1, storage), null);
+});
+
+test("saves and restores a workspace after its last formula is deleted", () => {
+  const storage = new MemoryStorage();
+  const emptyDraft: ProjectWorkspaceDraft = {
+    ...draft("Deleted"),
+    formulas: [],
+    activeFormulaId: "",
+  };
+
+  assert.equal(saveProjectWorkspace(1, emptyDraft, storage), true);
+  const restored = loadProjectWorkspace(1, storage);
+  assert.ok(restored);
+  assert.deepEqual(restored.formulas, []);
+  assert.equal(restored.activeFormulaId, "");
+});
+
+test("preserves an explicit no-formula selection when formulas still exist", () => {
+  const storage = new MemoryStorage();
+  const deselectedDraft: ProjectWorkspaceDraft = {
+    ...draft("Deselected"),
+    activeFormulaId: "",
+  };
+
+  assert.equal(saveProjectWorkspace(1, deselectedDraft, storage), true);
+  const restored = loadProjectWorkspace(1, storage);
+  assert.ok(restored);
+  assert.equal(restored.formulas.length, 1);
+  assert.equal(restored.activeFormulaId, "");
 });
 
 test("deletes only the selected project's workspace", () => {
@@ -184,6 +222,7 @@ test("persists only valid paint masks under their owning formula", () => {
   const workspace = draft("Painted formula");
   workspace.paintByFormulaId = {
     "formula-1": {
+      exposure: "data:image/png;base64,EXPOSURE",
       redness: "data:image/png;base64,AAAA",
       papule: "not-a-data-url",
       hasPaint: true,
@@ -196,12 +235,41 @@ test("persists only valid paint masks under their owning formula", () => {
   assert.equal(saveProjectWorkspace(1, workspace, storage), true);
   const restored = loadProjectWorkspace(1, storage);
   assert.equal(
+    restored?.paintByFormulaId["formula-1"]?.exposure,
+    "data:image/png;base64,EXPOSURE",
+  );
+  assert.equal(
     restored?.paintByFormulaId["formula-1"]?.redness,
     "data:image/png;base64,AAAA",
   );
   assert.equal(restored?.paintByFormulaId["formula-1"]?.papule, undefined);
   assert.equal(restored?.paintByFormulaId["formula-1"]?.hasPaint, true);
   assert.equal(restored?.paintByFormulaId.missing, undefined);
+});
+
+test("keeps legacy paint presence unknown until its mask is inspected", () => {
+  const workspace = normalizeProjectWorkspace({
+    version: 1,
+    formulas: [
+      {
+        id: "formula-1",
+        name: "Legacy paint",
+        items: [],
+      },
+    ],
+    paintByFormulaId: {
+      "formula-1": {
+        redness: "data:image/png;base64,LEGACY",
+      },
+    },
+  });
+
+  assert.ok(workspace);
+  assert.equal(workspace.paintByFormulaId["formula-1"]?.hasPaint, undefined);
+  assert.equal(
+    workspace.paintByFormulaId["formula-1"]?.redness,
+    "data:image/png;base64,LEGACY",
+  );
 });
 
 test("persists node graphs independently under their owning formula", () => {
@@ -230,7 +298,7 @@ test("persists node graphs independently under their owning formula", () => {
           data: {
             region: "face",
             status: "completed",
-            endpoints: { skin: { peak_score: 36 } },
+            endpoints: { skin: { peak_score: 36, timecourse: [22, 36, 18] } },
           },
         },
       ],
@@ -263,6 +331,10 @@ test("persists node graphs independently under their owning formula", () => {
     restored?.graphByFormulaId["formula-1"]?.nodes[1].data.endpoints?.skin.peak_score,
     36,
   );
+  assert.deepEqual(
+    restored?.graphByFormulaId["formula-1"]?.nodes[1].data.endpoints?.skin.timecourse,
+    [22, 36, 18],
+  );
   assert.equal(restored?.graphByFormulaId["formula-1"]?.viewport.zoom, 1.2);
   assert.equal(
     restored?.graphByFormulaId["formula-2"]?.nodes[0].data.smiles,
@@ -270,6 +342,85 @@ test("persists node graphs independently under their owning formula", () => {
   );
   assert.equal(restored?.graphByFormulaId["formula-2"]?.viewport.zoom, 0.8);
   assert.equal(restored?.graphByFormulaId.missing, undefined);
+});
+
+test("persists an intentionally empty node graph instead of restoring defaults", () => {
+  const storage = new MemoryStorage();
+  const workspace = draft("Empty graph");
+  workspace.mode = "nodes";
+  workspace.graphByFormulaId = {
+    "formula-1": {
+      nodes: [],
+      edges: [],
+      viewport: { x: 25, y: -15, zoom: 1.35 },
+    },
+  };
+
+  assert.equal(saveProjectWorkspace(1, workspace, storage), true);
+  const restored = loadProjectWorkspace(1, storage);
+
+  assert.ok(restored);
+  assert.equal(restored.mode, "nodes");
+  assert.equal(Object.hasOwn(restored.graphByFormulaId, "formula-1"), true);
+  assert.deepEqual(restored.graphByFormulaId["formula-1"].nodes, []);
+  assert.deepEqual(restored.graphByFormulaId["formula-1"].edges, []);
+  assert.deepEqual(
+    restored.graphByFormulaId["formula-1"].viewport,
+    { x: 25, y: -15, zoom: 1.35 },
+  );
+});
+
+test("persists a project graph draft when the workspace has no formula", () => {
+  const storage = new MemoryStorage();
+  const workspace: ProjectWorkspaceDraft = {
+    ...draft("Standalone graph"),
+    formulas: [],
+    activeFormulaId: "",
+    mode: "nodes",
+    graphByFormulaId: {
+      [FORMULA_GRAPH_DRAFT_ID]: {
+        nodes: [
+          {
+            id: "s1",
+            type: "substance",
+            position: { x: 90, y: 140 },
+            data: { name: "Ethanol", smiles: "CCO", concentration: 40 },
+          },
+        ],
+        edges: [],
+        viewport: { x: 5, y: -12, zoom: 1.15 },
+      },
+    },
+  };
+
+  assert.equal(saveProjectWorkspace(77, workspace, storage), true);
+  const restored = loadProjectWorkspace(77, storage);
+
+  assert.ok(restored);
+  assert.equal(restored.activeFormulaId, "");
+  assert.equal(
+    restored.graphByFormulaId[FORMULA_GRAPH_DRAFT_ID]?.nodes[0].data.smiles,
+    "CCO",
+  );
+  assert.deepEqual(
+    restored.graphByFormulaId[FORMULA_GRAPH_DRAFT_ID]?.viewport,
+    { x: 5, y: -12, zoom: 1.15 },
+  );
+});
+
+test("normalizes an empty graph snapshot as valid project data", () => {
+  assert.deepEqual(
+    normalizeFormulaGraphSnapshot({
+      nodes: [],
+      edges: [{ id: "orphan", source: "missing-a", target: "missing-b" }],
+      viewport: { x: 0, y: 0, zoom: 1 },
+    }),
+    {
+      nodes: [],
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+    },
+  );
 });
 
 test("sanitizes corrupt node graph data during restore", () => {

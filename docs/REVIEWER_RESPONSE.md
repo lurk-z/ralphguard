@@ -48,7 +48,8 @@ NSC 2026 (ครั้งที่ 28) · หมวด 14 · รหัส 28P14E
 3. **การจัดการ label** — แปลงเป็น binary classification ต่อ endpoint พร้อมเกณฑ์ตัดสิน
 4. **Featurization** — Morgan/ECFP fingerprint + MACCS keys + physicochemical descriptors (เลือก feature mode ต่อ endpoint)
 5. **การแบ่งข้อมูล** — train/test split + nested cross-validation เพื่อประเมินแบบไม่ลำเอียง
-6. **การจัดการ class imbalance** — ใช้ `class_weight="balanced"` และปรับ decision threshold ด้วย Youden's J
+6. **การจัดการ class imbalance** — รวม evidence-quality weight แล้ว normalize
+   ให้น้ำหนักรวมของ Label 0/1 เท่ากัน และปรับ decision threshold ด้วย Youden's J
 
 **ไฟล์ที่เกี่ยวข้อง:** `docs/DATA_PREPARATION.md`, `data_prep.py`, `scientific/featurizer.py`, `scientific/fingerprints.py`, `scientific/descriptors.py`
 
@@ -62,7 +63,7 @@ NSC 2026 (ครั้งที่ 28) · หมวด 14 · รหัส 28P14E
 
 **จุดใหม่ของ RalphGuard (ไม่ใช่ Random Forest เดี่ยวธรรมดา):**
 
-1. **Ensemble v2** — soft-voting ระหว่าง 4 โมเดลที่ต่างธรรมชาติกัน: Random Forest + Extra Trees + Logistic Regression + HistGradientBoosting (ทั้งหมด balanced) ทำให้ลดจุดอ่อนเฉพาะตัวของแต่ละอัลกอริทึม
+1. **Ensemble v2** — soft-voting ระหว่าง 4 โมเดลที่ต่างธรรมชาติกัน: Random Forest + Extra Trees + Logistic Regression + HistGradientBoosting โดยใช้ effective sample weights ชุดเดียวกัน ทำให้ลดจุดอ่อนเฉพาะตัวของแต่ละอัลกอริทึมและไม่เกิด double balancing
 2. **3-Layer Confidence** — รวม Applicability Domain + ความไม่แน่นอนของ ensemble + ความสอดคล้องกับ structural alerts เป็นระบบความเชื่อมั่นเดียว (งาน QSAR ทั่วไปมักมีแค่ค่าความน่าจะเป็น)
 3. **Applicability Domain + Youden Threshold** — ปรับ decision threshold ด้วย Youden's J แทนการใช้ 0.5 คงที่ ทำให้ sensitivity ดีขึ้นอย่างมาก
 4. **การผสาน rule-based + statistical** — รวมกฎเชิงโครงสร้างเข้ากับโมเดลสถิติ (hybrid) เพื่อให้ตีความเชิงกลไกได้ (สอดคล้อง OECD principle 5)

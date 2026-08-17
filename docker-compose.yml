@@ -58,6 +58,10 @@ services:
     volumes:
       - ./backend:/app
       - ./scientific/models:/models:ro
+      # NICE/ICE collectors run in the backend container and write staging/
+      # curated evidence under /data. Bind it to the repository so the
+      # scientific candidate-training scripts see the same files.
+      - ./data:/data
     command: >
       sh -c "alembic upgrade head &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
@@ -81,6 +85,37 @@ services:
       - ./scientific:/app
       - ./data:/data
     command: python worker.py
+
+  # -------------- Reproducible QSAR Trainer --------------
+  # Not started by normal `docker compose up`. Use the `training` profile for
+  # audits/candidate retraining so RDKit/scikit-learn versions match the
+  # scientific image and the repository is mounted read/write for reports.
+  trainer:
+    profiles: ["training"]
+    build:
+      context: ./scientific
+      dockerfile: Dockerfile
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    command: python scripts/train_candidate_v2.py
+
+  # -------------- Official NICE/ICE bulk data preparation --------------
+  # Downloads the four curated experimental/reference workbooks, applies the
+  # documented conservative binary mappings, and refuses success unless at
+  # least 10,000 unique endpoint rows remain after conflict filtering.
+  ice-data-prep:
+    profiles: ["training"]
+    build:
+      context: ./scientific
+      dockerfile: Dockerfile
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    command: >
+      python scripts/prepare_ice_bulk_training.py
+      --download
+      --min-total 10000
 
 volumes:
   postgres-data:
