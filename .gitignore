@@ -42,11 +42,14 @@ data/raw/*
 !data/raw/README.md
 !data/raw/dataset_manifest.example.json
 !data/raw/dataset_manifest.json
+!data/raw/skin_dryness/
+!data/raw/skin_dryness/**
 data/processed/*
 !data/processed/.gitkeep
 data/staging/
 *.pkl
 !scientific/models/*.pkl
+!scientific/models/candidate_v3/skin_dryness_model.pkl
 *.joblib
 *.h5
 models/*.bin

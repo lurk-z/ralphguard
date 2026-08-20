@@ -39,6 +39,58 @@ export function apiErrorMessage(cause: unknown, fallback: string): string {
 
 export type Region = "forearm" | "hand" | "face" | "eye";
 export type ConfidenceLevel = "High" | "Medium" | "Low";
+export type EndpointCode = "skin" | "eye" | "sens" | "acute" | "skin_dryness";
+
+export type HerbalPlantSummary = {
+  id: number;
+  thai_name: string;
+  english_name: string | null;
+  scientific_name: string;
+  accepted_scientific_name: string;
+  family: string | null;
+  synonyms: string[];
+  verification_status: string;
+  source: string;
+};
+
+export type HerbalPlantDetail = {
+  plant: HerbalPlantSummary & { provenance: Record<string, unknown> };
+  materials: Array<{
+    id: number;
+    plant_part: string;
+    material_type: string;
+    extract_type: string | null;
+    solvent: string | null;
+    assessment_method: "compound_qsar" | "botanical_evidence";
+    whole_material_qsar_eligible: boolean;
+    source: string;
+  }>;
+  constituents: Array<{
+    name: string;
+    pubchem_cid: number | null;
+    inchikey: string | null;
+    relationship_type: string;
+    evidence_source: string;
+    structure_resolved: boolean;
+    qsar_eligible: boolean;
+  }>;
+  evidence: Array<{
+    endpoint: string;
+    effect: string;
+    evidence_type: string;
+    source: string;
+    source_url: string | null;
+    doi: string | null;
+  }>;
+  coverage: {
+    known_constituents: number;
+    structure_resolved: number;
+    qsar_assessed: number;
+    literature_only: number;
+    unresolved: number;
+    percentage: number;
+  };
+};
 
 export type FormulaItem = {
   smiles: string;
@@ -55,7 +107,7 @@ export type ValidateResult = {
 };
 
 export type SubstanceHazardSummary = {
-  endpoint: "skin" | "eye" | "sens" | "acute";
+  endpoint: EndpointCode;
   hazard_codes: string[];
   source_count: number;
   verification: "pending" | "consensus_verified" | "verified";
@@ -120,9 +172,12 @@ export type Confidence = {
 export type EndpointResultPayload = {
   label_th: string;
   peak_score: number;
-  timecourse: [number, number, number];
+  timecourse: [number, number, number] | null;
   band: "low" | "moderate" | "high" | "severe";
   confidence: Confidence | null;
+  model_status?: "production" | "research_candidate";
+  model_versions?: string[];
+  evidence_note_th?: string | null;
 };
 
 export type SubstancePayload = {
@@ -143,6 +198,11 @@ export type SubstancePayload = {
       domain_similarity?: number;
       threshold?: number;
       flagged?: boolean;
+      training_exposure?: {
+        seen: boolean;
+        role: "training" | "validation" | "external_holdout" | "unlabeled" | "none";
+        model_version: string;
+      };
       confidence: { level: ConfidenceLevel; reason_th: string };
     }
   >;
@@ -257,6 +317,32 @@ export const api = {
     });
     return http<IngredientRegistryItem[]>(`/api/substances/registry?${params.toString()}`, { signal }, 20000);
   },
+
+  searchReadyIngredientRegistry: (
+    query = "",
+    limit = 250,
+    signal?: AbortSignal,
+  ) => {
+    const params = new URLSearchParams({
+      verification_status: "verified",
+      qsar_eligible: "true",
+      limit: String(limit),
+      offset: "0",
+    });
+    if (query.trim()) params.set("q", query.trim());
+    return http<IngredientRegistryItem[]>(`/api/substances/registry?${params.toString()}`, { signal }, 20000);
+  },
+
+  countReadyIngredientRegistry: (signal?: AbortSignal) =>
+    http<{ count: number }>("/api/substances/registry/ready-count", { signal }, 20000),
+
+  searchHerbs: (query: string, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ q: query.trim(), limit: "50" });
+    return http<HerbalPlantSummary[]>(`/api/herbs?${params.toString()}`, { signal }, 20000);
+  },
+
+  getHerb: (herbId: number, signal?: AbortSignal) =>
+    http<HerbalPlantDetail>(`/api/herbs/${herbId}`, { signal }, 20000),
 
   lookupIngredientInPubChem: (
     name: string,
@@ -415,7 +501,8 @@ export type EndpointMetric = {
   endpoint: string;
   label_en: string;
   label_th: string;
-  oecd_tg: string;
+  oecd_tg: string | null;
+  status?: "production" | "candidate" | "not_trained" | "not_available";
   metrics: {
     accuracy: number;
     balanced_accuracy: number;

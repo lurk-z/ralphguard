@@ -1,0 +1,623 @@
+{
+  "generated_at": "2026-08-20T16:28:11.914493+00:00",
+  "endpoint": "skin_dryness",
+  "candidate_directory": "scientific/models/candidate_v3",
+  "runtime_versions": {
+    "python": "3.11.16",
+    "rdkit": "2025.03.6",
+    "scikit_learn": "1.7.2"
+  },
+  "git_commit": "unavailable",
+  "random_seed": 42,
+  "threshold_selection_method": "Youden's J from 5-fold OOF predictions",
+  "training_profile": "standard",
+  "dataset_sha256": "695a2c70e4396b80f74fa3ea9b6b95743d84b9f965cfaa8646c4f432831b1f54",
+  "n": 38,
+  "positive": 26,
+  "negative": 12,
+  "feature_benchmark": {
+    "endpoint": "skin_dryness",
+    "selection_policy": "scaffold status > scaffold MCC > scaffold balanced accuracy > OOF MCC > OOF AUC > lower dimension",
+    "selected_feature_mode": "descr",
+    "results": {
+      "morgan": {
+        "oof": {
+          "accuracy": 0.737,
+          "balanced_accuracy": 0.718,
+          "sensitivity": 0.769,
+          "specificity": 0.667,
+          "auc": 0.728,
+          "mcc": 0.42,
+          "n_pos": 26,
+          "n_neg": 12,
+          "status": "complete",
+          "protocol": "5-fold stratified out-of-fold",
+          "threshold": 0.65,
+          "threshold_policy": "Youden's J selected from the complete OOF prediction vector"
+        },
+        "scaffold": {
+          "accuracy": 0.632,
+          "balanced_accuracy": 0.596,
+          "sensitivity": 0.692,
+          "specificity": 0.5,
+          "auc": 0.779,
+          "mcc": 0.185,
+          "n_pos": 26,
+          "n_neg": 12,
+          "status": "complete",
+          "protocol": "5-fold StratifiedGroupKFold by Bemis-Murcko scaffold",
+          "threshold_policy": "threshold selected from each outer training fold only",
+          "outer_fold_thresholds": [
+            0.55,
+            0.6,
+            0.65,
+            0.5,
+            0.8
+          ],
+          "group_overlap_per_fold": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "exact_group_overlap_zero": true,
+          "note": "acyclic structures receive structure-specific groups because their Bemis-Murcko scaffold is empty",
+          "unique_groups": 38,
+          "ring_scaffold_rows": 3,
+          "acyclic_rows_unique_group": 35
+        },
+        "threshold": 0.65,
+        "dimensions": 2048
+      },
+      "maccs_descr": {
+        "oof": {
+          "accuracy": 0.816,
+          "balanced_accuracy": 0.776,
+          "sensitivity": 0.885,
+          "specificity": 0.667,
+          "auc": 0.779,
+          "mcc": 0.565,
+          "n_pos": 26,
+          "n_neg": 12,
+          "status": "complete",
+          "protocol": "5-fold stratified out-of-fold",
+          "threshold": 0.45,
+          "threshold_policy": "Youden's J selected from the complete OOF prediction vector"
+        },
+        "scaffold": {
+          "accuracy": 0.816,
+          "balanced_accuracy": 0.776,
+          "sensitivity": 0.885,
+          "specificity": 0.667,
+          "auc": 0.785,
+          "mcc": 0.565,
+          "n_pos": 26,
+          "n_neg": 12,
+          "status": "complete",
+          "protocol": "5-fold StratifiedGroupKFold by Bemis-Murcko scaffold",
+          "threshold_policy": "threshold selected from each outer training fold only",
+          "outer_fold_thresholds": [
+            0.5,
+            0.45,
+            0.45,
+            0.55,
+            0.5
+          ],
+          "group_overlap_per_fold": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "exact_group_overlap_zero": true,
+          "note": "acyclic structures receive structure-specific groups because their Bemis-Murcko scaffold is empty",
+          "unique_groups": 38,
+          "ring_scaffold_rows": 3,
+          "acyclic_rows_unique_group": 35
+        },
+        "threshold": 0.44999999999999996,
+        "dimensions": 177
+      },
+      "morgan_maccs_descr": {
+        "oof": {
+          "accuracy": 0.816,
+          "balanced_accuracy": 0.776,
+          "sensitivity": 0.885,
+          "specificity": 0.667,
+          "auc": 0.782,
+          "mcc": 0.565,
+          "n_pos": 26,
+          "n_neg": 12,
+          "status": "complete",
+          "protocol": "5-fold stratified out-of-fold",
+          "threshold": 0.45,
+          "threshold_policy": "Youden's J selected from the complete OOF prediction vector"
+        },
+        "scaffold": {
+          "accuracy": 0.816,
+          "balanced_accuracy": 0.776,
+          "sensitivity": 0.885,
+          "specificity": 0.667,
+          "auc": 0.795,
+          "mcc": 0.565,
+          "n_pos": 26,
+          "n_neg": 12,
+          "status": "complete",
+          "protocol": "5-fold StratifiedGroupKFold by Bemis-Murcko scaffold",
+          "threshold_policy": "threshold selected from each outer training fold only",
+          "outer_fold_thresholds": [
+            0.6,
+            0.45,
+            0.45,
+            0.6,
+            0.5
+          ],
+          "group_overlap_per_fold": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "exact_group_overlap_zero": true,
+          "note": "acyclic structures receive structure-specific groups because their Bemis-Murcko scaffold is empty",
+          "unique_groups": 38,
+          "ring_scaffold_rows": 3,
+          "acyclic_rows_unique_group": 35
+        },
+        "threshold": 0.44999999999999996,
+        "dimensions": 2225
+      },
+      "descr": {
+        "oof": {
+          "accuracy": 0.895,
+          "balanced_accuracy": 0.856,
+          "sensitivity": 0.962,
+          "specificity": 0.75,
+          "auc": 0.824,
+          "mcc": 0.751,
+          "n_pos": 26,
+          "n_neg": 12,
+          "status": "complete",
+          "protocol": "5-fold stratified out-of-fold",
+          "threshold": 0.5,
+          "threshold_policy": "Youden's J selected from the complete OOF prediction vector"
+        },
+        "scaffold": {
+          "accuracy": 0.816,
+          "balanced_accuracy": 0.776,
+          "sensitivity": 0.885,
+          "specificity": 0.667,
+          "auc": 0.821,
+          "mcc": 0.565,
+          "n_pos": 26,
+          "n_neg": 12,
+          "status": "complete",
+          "protocol": "5-fold StratifiedGroupKFold by Bemis-Murcko scaffold",
+          "threshold_policy": "threshold selected from each outer training fold only",
+          "outer_fold_thresholds": [
+            0.55,
+            0.4,
+            0.5,
+            0.75,
+            0.6
+          ],
+          "group_overlap_per_fold": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "exact_group_overlap_zero": true,
+          "note": "acyclic structures receive structure-specific groups because their Bemis-Murcko scaffold is empty",
+          "unique_groups": 38,
+          "ring_scaffold_rows": 3,
+          "acyclic_rows_unique_group": 35
+        },
+        "threshold": 0.49999999999999994,
+        "dimensions": 10
+      }
+    }
+  },
+  "evidence_tier_distribution": {
+    "A": 14,
+    "B": 1,
+    "C": 23
+  },
+  "sample_weight_distribution": {
+    "0.5": 23,
+    "0.9": 1,
+    "1.0": 14
+  },
+  "evidence_origin_oof_metrics": {
+    "direct_experimental": {
+      "n": 14,
+      "n_pos": 3,
+      "n_neg": 11,
+      "accuracy": 0.714,
+      "sensitivity": 0.667,
+      "specificity": 0.727,
+      "balanced_accuracy": 0.697,
+      "auc": 0.697,
+      "mcc": 0.337,
+      "single_class_warning": null
+    },
+    "formulation_attributed_experimental": {
+      "n": 1,
+      "n_pos": 0,
+      "n_neg": 1,
+      "accuracy": 1.0,
+      "sensitivity": null,
+      "specificity": 1.0,
+      "balanced_accuracy": null,
+      "auc": null,
+      "mcc": null,
+      "single_class_warning": "metrics requiring both classes are intentionally omitted"
+    },
+    "regulatory_weak_positive": {
+      "n": 23,
+      "n_pos": 23,
+      "n_neg": 0,
+      "accuracy": 1.0,
+      "sensitivity": 1.0,
+      "specificity": null,
+      "balanced_accuracy": null,
+      "auc": null,
+      "mcc": null,
+      "single_class_warning": "metrics requiring both classes are intentionally omitted"
+    }
+  },
+  "candidate_oof": {
+    "accuracy": 0.895,
+    "balanced_accuracy": 0.856,
+    "sensitivity": 0.962,
+    "specificity": 0.75,
+    "auc": 0.824,
+    "mcc": 0.751,
+    "n_pos": 26,
+    "n_neg": 12,
+    "status": "complete",
+    "protocol": "5-fold stratified out-of-fold",
+    "threshold": 0.5,
+    "threshold_policy": "Youden's J selected from the complete OOF prediction vector"
+  },
+  "candidate_scaffold_grouped": {
+    "accuracy": 0.816,
+    "balanced_accuracy": 0.776,
+    "sensitivity": 0.885,
+    "specificity": 0.667,
+    "auc": 0.821,
+    "mcc": 0.565,
+    "n_pos": 26,
+    "n_neg": 12,
+    "status": "complete",
+    "protocol": "5-fold StratifiedGroupKFold by Bemis-Murcko scaffold",
+    "threshold_policy": "threshold selected from each outer training fold only",
+    "outer_fold_thresholds": [
+      0.55,
+      0.4,
+      0.5,
+      0.75,
+      0.6
+    ],
+    "group_overlap_per_fold": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "exact_group_overlap_zero": true,
+    "note": "acyclic structures receive structure-specific groups because their Bemis-Murcko scaffold is empty",
+    "unique_groups": 38,
+    "ring_scaffold_rows": 3,
+    "acyclic_rows_unique_group": 35
+  },
+  "external": {
+    "status": "complete",
+    "path": "data/external/skin_dryness.csv",
+    "exact_identity_overlap": 0,
+    "invalid_rows": 0,
+    "external_conflicting_identity_count": 0,
+    "unique_external_structures": 9,
+    "threshold_from_training_oof": 0.5,
+    "metrics": {
+      "accuracy": 0.333,
+      "balanced_accuracy": 0.417,
+      "sensitivity": 0.167,
+      "specificity": 0.667,
+      "auc": 0.5,
+      "mcc": -0.189,
+      "n_pos": 6,
+      "n_neg": 3
+    }
+  },
+  "external_diagnostics": {
+    "status": "complete",
+    "policy": "diagnostic only; external data are not used to tune features, threshold, weights, or hyperparameters",
+    "external_count": 9,
+    "class_counts": {
+      "positive": 6,
+      "negative": 3
+    },
+    "identity_correctness": {
+      "invalid_rows": 0,
+      "conflicting_identities": 0,
+      "exact_training_overlap": 0
+    },
+    "evidence_composition": {
+      "training_label_quality": {
+        "direct_experimental": 14,
+        "formulation_attributed_experimental": 1,
+        "regulatory_weak_positive": 23
+      },
+      "external_label_quality": {
+        "direct_experimental": 9
+      },
+      "training_measurement_type": {
+        "TEWL": 5,
+        "TEWL / skin barrier function": 7,
+        "TEWL; capacitance; visual dryness": 1,
+        "TEWL; skin hydration": 1,
+        "regulatory dryness/cracking statement": 23,
+        "skin hydration": 1
+      },
+      "external_measurement_type": {
+        "TEWL / skin barrier function": 9
+      },
+      "external_test_system": {
+        "ex vivo human skin": 2,
+        "human Finn chamber panel (n=42)": 2,
+        "human volunteer irritation panel (n=8)": 2,
+        "unoccluded dermal exposure in CD hairless rats": 3
+      },
+      "external_species": {
+        "human": 6,
+        "rat": 3
+      },
+      "interpretation": "The development set is regulatory-positive-heavy while the external set is source-held-out direct experimental evidence; this origin and measurement shift is reported as a limitation and is not corrected by tuning on the holdout."
+    },
+    "probability_by_class": {
+      "positive_mean": 0.3382809695898678,
+      "negative_mean": 0.3583035209495488
+    },
+    "applicability_domain": {
+      "threshold": 0.18,
+      "mean_similarity": 0.3243976650321917,
+      "median_similarity": 0.34280071885907126,
+      "in_domain": 6,
+      "out_of_domain": 3,
+      "rows": [
+        {
+          "smiles": "CS(C)=O",
+          "in_domain": false,
+          "domain_similarity": 0.14793650793650795,
+          "label": 1,
+          "probability": 0.7017422556632301,
+          "prediction": 1,
+          "ensemble_disagreement": 0.13574426053146227
+        },
+        {
+          "smiles": "Oc1ccccc1",
+          "in_domain": false,
+          "domain_similarity": 0.06037581699346406,
+          "label": 0,
+          "probability": 0.5856169951493813,
+          "prediction": 1,
+          "ensemble_disagreement": 0.2788631064398158
+        },
+        {
+          "smiles": "CCCCCCCC/C=C\\CCCCCCCC(=O)O",
+          "in_domain": true,
+          "domain_similarity": 0.34280071885907126,
+          "label": 1,
+          "probability": 0.1724614267757668,
+          "prediction": 0,
+          "ensemble_disagreement": 0.19204502274611718
+        },
+        {
+          "smiles": "CCCCCCCC/C=C\\CCCCCCCCO",
+          "in_domain": true,
+          "domain_similarity": 0.3182296650717703,
+          "label": 0,
+          "probability": 0.16826281296604287,
+          "prediction": 0,
+          "ensemble_disagreement": 0.1939850756284101
+        },
+        {
+          "smiles": "CCCCCCCCC(=O)O",
+          "in_domain": true,
+          "domain_similarity": 0.4234889810625105,
+          "label": 1,
+          "probability": 0.2857981516608663,
+          "prediction": 0,
+          "ensemble_disagreement": 0.13732549478050027
+        },
+        {
+          "smiles": "CN(C)CCCN1c2ccccc2CCc2ccccc21",
+          "in_domain": false,
+          "domain_similarity": 0.08305164319248827,
+          "label": 0,
+          "probability": 0.3210307547332223,
+          "prediction": 0,
+          "ensemble_disagreement": 0.11209052170351468
+        },
+        {
+          "smiles": "CCCCCCCCC",
+          "in_domain": true,
+          "domain_similarity": 0.5145652173913043,
+          "label": 1,
+          "probability": 0.4008622978439028,
+          "prediction": 0,
+          "ensemble_disagreement": 0.07351037645538101
+        },
+        {
+          "smiles": "CCCCCCCCCCCC",
+          "in_domain": true,
+          "domain_similarity": 0.5145652173913043,
+          "label": 1,
+          "probability": 0.2574282500689684,
+          "prediction": 0,
+          "ensemble_disagreement": 0.14708496267432836
+        },
+        {
+          "smiles": "CCCCCCCCCCCCCC",
+          "in_domain": true,
+          "domain_similarity": 0.5145652173913043,
+          "label": 1,
+          "probability": 0.21139343552647208,
+          "prediction": 0,
+          "ensemble_disagreement": 0.16724901857231816
+        }
+      ]
+    },
+    "performance_by_applicability_domain": {
+      "in_domain": {
+        "status": "insufficient_sample",
+        "n": 6,
+        "positive": 5,
+        "negative": 1,
+        "reason": "requires both classes with at least two observations per class"
+      },
+      "out_of_domain": {
+        "status": "insufficient_sample",
+        "n": 3,
+        "positive": 1,
+        "negative": 2,
+        "reason": "requires both classes with at least two observations per class"
+      }
+    },
+    "uncertainty": {
+      "definition": "standard deviation of ensemble member probabilities",
+      "mean": 0.15976642661464976,
+      "maximum": 0.2788631064398158
+    },
+    "scaffolds": {
+      "training_unique": 38,
+      "external_unique": 9,
+      "overlap": 0
+    },
+    "source_overlap": [],
+    "likely_blockers": [
+      "external sample is too small for a stable final claim",
+      "external class counts are below the configured minimum",
+      "external set has no shared scaffold groups; structural distribution shift is likely",
+      "training labels are dominated by regulatory weak positives"
+    ]
+  },
+  "external_root_cause_report": {
+    "path": "scientific/models/candidate_v3/skin_dryness_external_root_cause_report.json",
+    "sha256": "18d790c0348b1a55ee1cef651e0a61163fb6715917e25cb59961c26b8544762d"
+  },
+  "promotion_status": "research_only_blocked",
+  "accuracy_target": {
+    "target": 0.85,
+    "primary_metric": "balanced_accuracy",
+    "reason": "Balanced accuracy prevents a majority-class prediction from appearing to meet the target.",
+    "oof": {
+      "accuracy": 0.895,
+      "balanced_accuracy": 0.856,
+      "meets_target": true
+    },
+    "scaffold_grouped": {
+      "accuracy": 0.816,
+      "balanced_accuracy": 0.776,
+      "meets_target": false
+    },
+    "external": {
+      "accuracy": 0.333,
+      "balanced_accuracy": 0.417,
+      "meets_target": false
+    },
+    "all_validation_levels_meet_target": false
+  },
+  "promotion_checks": {
+    "training_contains_two_classes": true,
+    "training_positive_at_least_25": true,
+    "training_negative_at_least_25": false,
+    "scaffold_validation_complete": true,
+    "scaffold_mcc_at_least_0_40": true,
+    "oof_accuracy_at_least_0_85": true,
+    "oof_balanced_accuracy_at_least_0_85": true,
+    "scaffold_accuracy_at_least_0_85": false,
+    "scaffold_balanced_accuracy_at_least_0_85": false,
+    "external_validation_complete": true,
+    "external_positive_at_least_15": false,
+    "external_negative_at_least_15": false,
+    "external_accuracy_at_least_0_85": false,
+    "external_balanced_accuracy_at_least_0_85": false,
+    "external_auc_at_least_0_75": false,
+    "external_mcc_at_least_0_40": false,
+    "external_exact_identity_overlap_zero": true,
+    "external_source_overlap_zero": true,
+    "unresolved_same_tier_conflicts_zero": true,
+    "dataset_manifest_hashes_valid": true,
+    "protected_production_artifacts_unchanged": true
+  },
+  "promotion_blockers": [
+    "training_negative_at_least_25",
+    "scaffold_accuracy_at_least_0_85",
+    "scaffold_balanced_accuracy_at_least_0_85",
+    "external_positive_at_least_15",
+    "external_negative_at_least_15",
+    "external_accuracy_at_least_0_85",
+    "external_balanced_accuracy_at_least_0_85",
+    "external_auc_at_least_0_75",
+    "external_mcc_at_least_0_40"
+  ],
+  "manifest_verification": {
+    "files": {
+      "training": {
+        "path": "data/curated/skin_dryness_training.csv",
+        "expected_sha256": "695a2c70e4396b80f74fa3ea9b6b95743d84b9f965cfaa8646c4f432831b1f54",
+        "actual_sha256": "695a2c70e4396b80f74fa3ea9b6b95743d84b9f965cfaa8646c4f432831b1f54",
+        "valid": true
+      },
+      "review": {
+        "path": "data/staging/skin_dryness_review_queue.csv",
+        "expected_sha256": "81ed9626d9449ecc6fbd09ecfc2fd478f5d3f26ebd5637bbf965bdbf626a8623",
+        "actual_sha256": "81ed9626d9449ecc6fbd09ecfc2fd478f5d3f26ebd5637bbf965bdbf626a8623",
+        "valid": true
+      },
+      "unlabeled": {
+        "path": "data/staging/skin_dryness_unlabeled_pool.csv",
+        "expected_sha256": "6feef63a08fbb50c71a36c048223b363557de516d20e1212513980e7d6b513c0",
+        "actual_sha256": "6feef63a08fbb50c71a36c048223b363557de516d20e1212513980e7d6b513c0",
+        "valid": true
+      },
+      "external": {
+        "path": "data/external/skin_dryness.csv",
+        "expected_sha256": "a36f15c0a1b2afa016ab58c8aec8d0d15cd2acae6df96802e001a59d935baf78",
+        "actual_sha256": "a36f15c0a1b2afa016ab58c8aec8d0d15cd2acae6df96802e001a59d935baf78",
+        "valid": true
+      },
+      "external_manifest": {
+        "path": "data/external/skin_dryness_manifest.json",
+        "expected_sha256": "ae8b3ce08aeb0204c1e62a1a3c309a4eb0c9f07d7fa7eb522333cf7913fba274",
+        "actual_sha256": "ae8b3ce08aeb0204c1e62a1a3c309a4eb0c9f07d7fa7eb522333cf7913fba274",
+        "valid": true
+      }
+    },
+    "all_valid": true
+  },
+  "protected_production_artifact_hashes": {
+    "before": {
+      "skin": "28989690e6b6b446797e844e850c19c4abcb0f4a4ea3dd1520d8eac555bea68c",
+      "eye": "5a11d564342326862be9b44227a852a06df8aa85337998f659eb91724fa13545",
+      "sens": "8cc2e16751fcb6d1e98de06018cf5c3953091010961d379fe41abc3814625d6c",
+      "acute": "01bec136dca0e2aa88d2c45a3305e05654bfad688178b91b27d9a2d22479840d"
+    },
+    "after": {
+      "skin": "28989690e6b6b446797e844e850c19c4abcb0f4a4ea3dd1520d8eac555bea68c",
+      "eye": "5a11d564342326862be9b44227a852a06df8aa85337998f659eb91724fa13545",
+      "sens": "8cc2e16751fcb6d1e98de06018cf5c3953091010961d379fe41abc3814625d6c",
+      "acute": "01bec136dca0e2aa88d2c45a3305e05654bfad688178b91b27d9a2d22479840d"
+    }
+  },
+  "external_source_overlap": [],
+  "research_preview": true,
+  "production_models_modified": false
+}

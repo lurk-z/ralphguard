@@ -1,5 +1,8 @@
-export const ASSISTANT_MIN_THINK_MS = 650;
-export const ASSISTANT_TYPING_INTERVAL_MS = 32;
+// Keep the thinking state visible long enough to be perceived even when the
+// API responds from a warm cache. The delay is measured from request start,
+// so genuinely slow responses are never held back for an extra 1.6 seconds.
+export const ASSISTANT_MIN_THINK_MS = 1_600;
+export const ASSISTANT_TYPING_INTERVAL_MS = 40;
 export const ASSISTANT_MAX_TYPING_STEPS = 100;
 
 export function assistantThinkDelay(elapsedMs: number): number {

@@ -5,19 +5,21 @@ import type {
   ModelMetricsPayload,
 } from "@/lib/api";
 
-const ENDPOINT_KEYS = ["skin", "eye", "sens", "acute"] as const;
+const ENDPOINT_KEYS = ["skin", "eye", "sens", "acute", "skin_dryness"] as const;
 const DAY_LABELS = [1, 3, 7] as const;
 const ENDPOINT_LABELS = {
   skin: "ระคายเคืองผิว",
   eye: "ระคายเคืองตา",
   sens: "แพ้ผิวหนัง",
   acute: "พิษเฉียบพลันต่อร่างกาย",
+  skin_dryness: "ศักยภาพทำให้ผิวแห้ง",
 } as const;
 const ENDPOINT_COLORS = {
   skin: "#F43F5E",
   eye: "#06B6D4",
   sens: "#8B5CF6",
   acute: "#D97706",
+  skin_dryness: "#8B5A2B",
 } as const;
 const BAND_COLORS = {
   low: "#15803D",
@@ -93,7 +95,7 @@ export function buildAssessmentReportHtml(input: AssessmentReportInput) {
     0,
   );
 
-  const riskSeries = ENDPOINT_KEYS.map((key) => {
+  const riskSeries = ENDPOINT_KEYS.filter((key) => Boolean(endpoints?.[key])).map((key) => {
     const endpoint = endpoints?.[key];
     const scores = DAY_LABELS.map((_, index) =>
       Math.round(endpoint?.timecourse?.[index] ?? endpoint?.peak_score ?? 0),

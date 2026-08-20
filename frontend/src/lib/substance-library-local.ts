@@ -7,7 +7,7 @@ export const SUBSTANCE_FAVORITES_STORAGE_KEY = "ralphguard:substance-favorites:v
 const MAX_CUSTOM_SUBSTANCES = 500;
 const MAX_FAVORITES = 2_000;
 
-export type SubstanceSource = "system" | "local";
+export type SubstanceSource = "system" | "local" | "herb";
 
 export type LocalSubstance = {
   id: string;
@@ -32,6 +32,8 @@ export type LibrarySubstance = {
   substanceType?: string;
   qsarEligible?: boolean;
   localId?: string;
+  herbId?: number;
+  botanicalName?: string;
 };
 
 type VersionedItems<T> = { version: typeof STORAGE_VERSION; items: T[] };

@@ -1,0 +1,26 @@
+{
+  "model_version": "candidate_v2",
+  "source": "scientific/models/candidate_v2",
+  "endpoints": {
+    "acute": {
+      "count": 15000,
+      "file": "training_identity_indexes/candidate_v2/acute.csv.gz",
+      "sha256": "251eae573448aa376f8b9c1212d817b251deec2897de50d42fed9a015a70d15f"
+    },
+    "eye": {
+      "count": 15000,
+      "file": "training_identity_indexes/candidate_v2/eye.csv.gz",
+      "sha256": "cd0c91ea2e2c8e12798d2b5ca8dca48725ac5c19ce40c1bc67c46c5aa5306541"
+    },
+    "sens": {
+      "count": 9358,
+      "file": "training_identity_indexes/candidate_v2/sens.csv.gz",
+      "sha256": "9c467ae0ffa18d85b208a09080b901f8397cfa65fc2744fd49819cf0fec28e65"
+    },
+    "skin": {
+      "count": 15000,
+      "file": "training_identity_indexes/candidate_v2/skin.csv.gz",
+      "sha256": "fadd14b71d5df5c7c0ea0bbdecb4427b201bd955a493574fda88227ed70ba1cf"
+    }
+  }
+}

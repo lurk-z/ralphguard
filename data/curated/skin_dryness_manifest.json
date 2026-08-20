@@ -1,0 +1,76 @@
+{
+  "dataset": "skin_dryness_evidence_pool_v2",
+  "generated_at": "2026-08-20T16:18:34.336421+00:00",
+  "label_policy_version": "1.1-exposure-aware",
+  "target_pool": 10000,
+  "counts": {
+    "total_pool": 10082,
+    "unique_inchikey": 10032,
+    "valid_structures": 10081,
+    "qsar_eligible": 10081,
+    "training_eligible": 38,
+    "experimental_ground_truth": 14,
+    "curated_labeled": 1,
+    "regulatory_weak_positive": 23,
+    "positive_count": 26,
+    "negative_count": 12,
+    "unlabeled": 10003,
+    "review_queue": 43,
+    "same_tier_conflicts": 0,
+    "same_tier_same_exposure_conflicts": 0,
+    "exposure_dependent_review": 0,
+    "external_quarantined": 8,
+    "external_unique_identities": 9,
+    "external_positive_count": 6,
+    "external_negative_count": 3,
+    "train_external_exact_overlap_after_quarantine": 0,
+    "train_external_scaffold_overlap": 0,
+    "duplicate_evidence_rows": 0,
+    "duplicate_identity_rows": 49,
+    "remaining_pool_gap": 0
+  },
+  "evidence_tier_distribution": {
+    "A": 14,
+    "B": 1,
+    "C": 23,
+    "D": 0
+  },
+  "training_label_quality_distribution": {
+    "direct_experimental": 14,
+    "formulation_attributed_experimental": 1,
+    "regulatory_weak_positive": 23
+  },
+  "tier_weights": {
+    "A": 1.0,
+    "B": 0.9,
+    "C": 0.5,
+    "D": 0.25
+  },
+  "aggregation_policy": "highest evidence tier per exact identity; same-tier opposite labels with the same exposure are quarantined as conflicts; opposite labels under different exposure contexts require review; no majority vote",
+  "minimum_pool_met": true,
+  "supervised_fit_ready": true,
+  "negative_policy": "explicit negative evidence only; absence of EUH066/AUH066 is not label 0",
+  "production_models_modified": false,
+  "files": {
+    "training": {
+      "path": "data/curated/skin_dryness_training.csv",
+      "sha256": "695a2c70e4396b80f74fa3ea9b6b95743d84b9f965cfaa8646c4f432831b1f54"
+    },
+    "review": {
+      "path": "data/staging/skin_dryness_review_queue.csv",
+      "sha256": "81ed9626d9449ecc6fbd09ecfc2fd478f5d3f26ebd5637bbf965bdbf626a8623"
+    },
+    "unlabeled": {
+      "path": "data/staging/skin_dryness_unlabeled_pool.csv",
+      "sha256": "6feef63a08fbb50c71a36c048223b363557de516d20e1212513980e7d6b513c0"
+    },
+    "external": {
+      "path": "data/external/skin_dryness.csv",
+      "sha256": "a36f15c0a1b2afa016ab58c8aec8d0d15cd2acae6df96802e001a59d935baf78"
+    },
+    "external_manifest": {
+      "path": "data/external/skin_dryness_manifest.json",
+      "sha256": "ae8b3ce08aeb0204c1e62a1a3c309a4eb0c9f07d7fa7eb522333cf7913fba274"
+    }
+  }
+}

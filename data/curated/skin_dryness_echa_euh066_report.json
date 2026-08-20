@@ -1,0 +1,20 @@
+{
+  "generated_at": "2026-08-20T12:24:47.771761+00:00",
+  "source_file": "data\\raw\\skin_dryness\\regulatory\\clp_annex_vi_table_3_1.pdf",
+  "source_sha256": "d2519996627284a4b80cc962ca062ec01d5478fc535ed914d3617331d62ab3e9",
+  "source_url": "https://ust.is/library/Skrar/Atvinnulif/Efni/Flokkun-og-merkingar/CLP-annex_vi_tafla_3-1.pdf",
+  "current_echa_table_url": "https://echa.europa.eu/information-on-chemicals/annex-vi-to-clp",
+  "label_policy": "EUH066 only -> regulatory weak positive (tier C, weight 0.5); absence is never negative",
+  "annex_index_cas_pairs": 25,
+  "resolved_unique_structures": 24,
+  "unresolved_count": 1,
+  "unresolved": [
+    {
+      "annex_index": "607-130-00-2",
+      "annex_name": "pentyl acetate; [1] isopentyl acetate; [2] 1-methylbutyl acetate; [3] 2-methylbutyl acetat; [4] 2(or 3)-methylbutyl acetate [5]",
+      "cas_number": "84145-37-9"
+    }
+  ],
+  "output_file": "data\\curated\\skin_dryness_echa_euh066.csv",
+  "output_sha256": "20f6ee12fed8ae1e2fadbac5a30ea50cb3a4037751d2a8eed28a1aa8cae67182"
+}

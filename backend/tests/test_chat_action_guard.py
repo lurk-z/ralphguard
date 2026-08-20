@@ -2,10 +2,13 @@
 
 from app.api.chat import (
     _gentle_toner_fallback,
+    _has_action_markup,
     _is_sensitisation_ui_test_request,
     _is_toner_creation_request,
+    _is_workspace_mutation_request,
     _parse_actions,
     _sensitisation_ui_test_fallback,
+    _strip_action_markup,
     _unsupported_action_ingredients,
 )
 
@@ -66,3 +69,18 @@ def test_high_sensitisation_ui_fixture_is_reviewed_and_totals_100_percent():
         "smiles": "O=C/C=C/c1ccccc1",
         "concentration": 65.0,
     }
+
+
+def test_detects_formula_mutation_requests_that_require_actions():
+    assert _is_workspace_mutation_request("ปรับสูตรให้ปลอดภัยกว่านี้หน่อย")
+    assert _is_workspace_mutation_request("ลดความเข้มข้น Ethanol แล้วประเมินใหม่")
+    assert _is_workspace_mutation_request("adjust the formula and run the assessment")
+    assert not _is_workspace_mutation_request("สารตัวไหนเสี่ยงที่สุด")
+
+
+def test_rejects_and_hides_a_truncated_action_block():
+    answer = 'เตรียมรายการปรับแล้วค่ะ <action>[{"type":"set_concentration","name":"E'
+
+    assert _has_action_markup(answer)
+    assert _parse_actions(answer) == []
+    assert _strip_action_markup(answer) == "เตรียมรายการปรับแล้วค่ะ"

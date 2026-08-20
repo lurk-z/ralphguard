@@ -1,0 +1,37 @@
+{
+  "dataset": "skin_dryness_source_held_out_external_v2",
+  "generated_at": "2026-08-20T16:18:14.828506+00:00",
+  "mapping_version": "skin-dryness-literature-v2.2",
+  "freeze_policy": "source-held-out; not used for feature, threshold, hyperparameter, class-weight, or evidence-weight selection",
+  "source_ids": [
+    "PMID:15941007",
+    "PMID:37950377",
+    "PMID:4028973",
+    "PMID:8565486"
+  ],
+  "unique_identities": 9,
+  "positive": 6,
+  "negative": 3,
+  "development_source_overlap": [],
+  "development_exact_identity_overlap": [],
+  "file": "data/external/skin_dryness.csv",
+  "sha256": "a36f15c0a1b2afa016ab58c8aec8d0d15cd2acae6df96802e001a59d935baf78",
+  "sources": {
+    "PMID:4028973": {
+      "sha256": "45b32becd40f9045e810833c0c6d5ffdd877ed56da11bc034d8077164d3aa8ac",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/4028973/"
+    },
+    "PMID:37950377": {
+      "sha256": "bc36ce8ee5c2f7695e2340b8f0323c6412e02cb1b8ae6d666eebad4a1c7826fe",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/37950377/"
+    },
+    "PMID:8565486": {
+      "sha256": "37f4add4d59cfb8928e6fbc4036013386766d9904ab23241e3838e7374234d68",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/8565486/"
+    },
+    "PMID:15941007": {
+      "sha256": "cf876374122d1c8bc66f8c1b2456e31ea09d093d2c917f7247a98f4b75a8c03e",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/15941007/"
+    }
+  }
+}

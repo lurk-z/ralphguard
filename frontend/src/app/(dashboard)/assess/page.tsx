@@ -22,7 +22,6 @@ import {
   AssessmentRecord,
   ApiError,
   apiErrorMessage,
-  EndpointMetric,
   FormulaItem,
   IngredientRegistryItem,
   ModelInfoPayload,
@@ -172,7 +171,7 @@ const FORMULA_REGION_OPTIONS: {
       description: "ประเมินการใช้รอบดวงตา โดยให้น้ำหนักความเสี่ยงระคายเคืองตามากขึ้น และยังแสดงผลครบ 4 ด้าน",
     },
   ];
-const ENDPOINTS = ["skin", "eye", "sens", "acute"] as const;
+const ENDPOINTS = ["skin", "eye", "sens", "acute", "skin_dryness"] as const;
 type AssessmentEndpoint = (typeof ENDPOINTS)[number];
 type DeveloperTestScores = Record<AssessmentEndpoint, number>;
 const DEFAULT_DEVELOPER_TEST_SCORES: DeveloperTestScores = {
@@ -180,12 +179,14 @@ const DEFAULT_DEVELOPER_TEST_SCORES: DeveloperTestScores = {
   eye: 50,
   sens: 50,
   acute: 50,
+  skin_dryness: 50,
 };
 const ENDPOINT_LABEL_TH: Record<string, string> = {
   skin: "ระคายเคืองผิว",
   eye: "ระคายเคืองตา",
   sens: "แพ้ผิวหนัง",
   acute: "พิษเฉียบพลันต่อร่างกาย",
+  skin_dryness: "ศักยภาพทำให้ผิวแห้ง",
 };
 const DAY_LABELS = [1, 3, 7];
 const bandOf = (s: number) => (s < 25 ? "low" : s < 50 ? "moderate" : s < 75 ? "high" : "severe");
@@ -201,6 +202,7 @@ const EP_COLOR: Record<string, string> = {
   eye: "#22D3EE",   // ฟ้า
   sens: "#A855F7",  // ม่วง
   acute: "#F59E0B", // ส้ม
+  skin_dryness: "#8B5A2B", // น้ำตาลแห้ง
 };
 
 const PRODUCT_TYPES = [
@@ -692,6 +694,10 @@ export default function StudioPage() {
   const assessment = activeAssessmentSnapshot?.assessment ?? null;
   const running = submittingFormulaIds.includes(activeId);
   const endpoints = assessment?.result?.endpoints ?? null;
+  const availableEndpoints = useMemo(
+    () => ENDPOINTS.filter((endpoint) => Boolean(endpoints?.[endpoint])),
+    [endpoints],
+  );
   const completed = assessment?.status === "completed";
   const assessing = running || (!!jobId && !completed && assessment?.status !== "failed");
   const formulaCoverage = assessment?.result?.formula_coverage;
@@ -707,13 +713,14 @@ export default function StudioPage() {
     if (!endpoints) return [];
     return [0, 1, 2].map((i) => {
       const row: Record<string, number | string> = { day: `วันที่ ${DAY_LABELS[i]}` };
-      ENDPOINTS.forEach((ep) => {
-        row[ep] = Math.round(endpoints[ep]?.timecourse?.[i] ?? 0);
+      availableEndpoints.forEach((ep) => {
+        const endpoint = endpoints[ep];
+        row[ep] = Math.round(endpoint?.timecourse?.[i] ?? endpoint?.peak_score ?? 0);
       });
       return row as { day: string } & Record<string, number | string>;
     });
-  }, [endpoints]);
-  const trendLines = ENDPOINTS.map((ep) => ({
+  }, [availableEndpoints, endpoints]);
+  const trendLines = availableEndpoints.map((ep) => ({
     key: ep,
     label: ENDPOINT_LABEL_TH[ep],
     color: EP_COLOR[ep],
@@ -722,9 +729,9 @@ export default function StudioPage() {
   const trendAnalytics = useMemo(() => {
     if (!endpoints) return null;
 
-    const series = ENDPOINTS.map((endpoint) => {
+    const series = availableEndpoints.map((endpoint) => {
       const scores = [0, 1, 2].map((index) =>
-        Math.round(endpoints[endpoint]?.timecourse?.[index] ?? 0),
+        Math.round(endpoints[endpoint]?.timecourse?.[index] ?? endpoints[endpoint]?.peak_score ?? 0),
       );
       const peakScore = Math.max(...scores);
       const peakIndex = scores.indexOf(peakScore);
@@ -740,6 +747,7 @@ export default function StudioPage() {
       };
     });
 
+    if (!series.length) return null;
     const peak = series.reduce((highest, current) =>
       current.peakScore > highest.peakScore ? current : highest,
     );
@@ -757,12 +765,12 @@ export default function StudioPage() {
     );
 
     return { series, peak, largestChange, directions };
-  }, [endpoints]);
+  }, [availableEndpoints, endpoints]);
 
   // Per-endpoint paint layers — each endpoint paints in its own neon color.
   const paintLayers = useMemo(() => {
     if (!endpoints) return [];
-    return ENDPOINTS.map((ep) => {
+    return availableEndpoints.map((ep) => {
       const endpoint = endpoints[ep];
       const sc = endpoint?.timecourse?.[dayIdx] ?? endpoint?.peak_score ?? 0;
       return {
@@ -775,7 +783,7 @@ export default function StudioPage() {
         inDomain: endpoint?.confidence?.in_domain,
       };
     });
-  }, [endpoints, dayIdx]);
+  }, [availableEndpoints, endpoints, dayIdx]);
 
   const resultConfidenceSummary = useMemo(() => {
     if (!endpoints) return null;
@@ -783,7 +791,7 @@ export default function StudioPage() {
     let lowestOrder = Number.POSITIVE_INFINITY;
     let outOfDomainCount = 0;
 
-    ENDPOINTS.forEach((ep) => {
+    availableEndpoints.forEach((ep) => {
       const confidence = endpoints[ep]?.confidence;
       if (!confidence) return;
       const order = CONF_ORDER[confidence.level] ?? 1;
@@ -795,7 +803,7 @@ export default function StudioPage() {
     });
 
     return level ? { level, outOfDomainCount } : null;
-  }, [endpoints]);
+  }, [availableEndpoints, endpoints]);
 
   const activeRegionLabel = REGIONS.find((item) => item.value === region)?.label ?? region;
 
@@ -1598,7 +1606,7 @@ export default function StudioPage() {
           break;
         }
         case "goto":
-          if (a.tab === "assess" || a.tab === "nodes" || a.tab === "trust") nextMode = a.tab;
+          if (a.tab === "assess" || a.tab === "nodes") nextMode = a.tab;
           break;
         case "run":
           shouldRun = true;
@@ -2351,7 +2359,6 @@ export default function StudioPage() {
               [
                 ["assess", "ประเมิน", "flask"],
                 ["nodes", "Nodes", "puzzle"],
-                ["trust", "ความน่าเชื่อถือ", "shield"],
               ] as [Mode, string, SemanticIconName][]
             ).map(([m, label, icon]) => {
               const active = mode === m;
@@ -3115,8 +3122,6 @@ export default function StudioPage() {
               />
             </div>
           )}
-          {mode === "trust" && <TrustReport />}
-
           {/* Paint follows formula readiness; assessment follows paint ownership. */}
           {mode === "assess" && activeNavigationItem === "assessment" && (
             <div ref={bottomToolbarRef} className="assess-bottom-toolbar pointer-events-none absolute inset-x-0 z-40 flex justify-center print:hidden md:inset-x-auto md:right-4 md:justify-end">
@@ -3215,11 +3220,7 @@ export default function StudioPage() {
             inert={isCompactWorkspace && compactPanel !== "inspector" ? ("true" as unknown as boolean) : undefined}
             className="assess-right-inspector col-start-4 row-start-2 flex h-full min-h-0 w-full flex-col overflow-hidden border-l border-border bg-card"
           >
-            {mode === "trust" ? (
-              <div className="p-4 text-xs leading-relaxed text-slate-800/55">
-                เลือก <b>Pages › ประเมินความเสี่ยง</b> เพื่อแก้สูตรและดูผลบนหุ่น 3D
-              </div>
-            ) : (
+            {(
               <>
                 <div
                   role="tabpanel"
@@ -3305,9 +3306,27 @@ export default function StudioPage() {
                                     <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
                                       <AnimatedScoreBar score={layer.score} color={BAND_HEX[layer.band]} />
                                     </div>
+                                    {endpoints[layer.key]?.model_status === "research_candidate" && (
+                                      <div className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[9px] leading-relaxed text-amber-800">
+                                        {endpoints[layer.key]?.evidence_note_th || "โมเดลทดลองสำหรับคัดกรอง ยังไม่ผ่านเกณฑ์เลื่อนเป็น production"}
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               })}
+                              {!endpoints.skin_dryness && (
+                                <div className={`${group.layers.length > 0 ? "border-t" : ""} border-slate-100 bg-slate-50/70 p-3.5`}>
+                                  <div className="flex items-baseline justify-between gap-3">
+                                    <div className="min-w-0 truncate text-xs font-semibold text-slate-700">{ENDPOINT_LABEL_TH.skin_dryness}</div>
+                                    <div className="shrink-0 font-mono text-base font-semibold text-slate-400">—<span className="text-[10px] font-medium">/100</span></div>
+                                  </div>
+                                  <div className="mt-1 flex items-center justify-between gap-3 text-[10px]">
+                                    <div className="min-w-0 text-slate-500">ยังไม่มีโมเดลที่ผ่านหลักฐานและการตรวจสอบครบถ้วน</div>
+                                    <div className="shrink-0 font-semibold text-slate-400">ยังไม่พร้อมประเมิน</div>
+                                  </div>
+                                  <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-slate-200" />
+                                </div>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -3403,7 +3422,7 @@ export default function StudioPage() {
                             <button
                               key={score}
                               type="button"
-                              onClick={() => setDeveloperTestScores({ skin: score, eye: score, sens: score, acute: score })}
+                              onClick={() => setDeveloperTestScores({ skin: score, eye: score, sens: score, acute: score, skin_dryness: score })}
                               className="rounded-md border border-violet-200 bg-white px-2 py-1 text-[9px] font-medium text-violet-700 hover:bg-violet-100"
                             >
                               ทั้งหมด {score}
@@ -3477,6 +3496,8 @@ export default function StudioPage() {
                   className={`${rightInspectorTab === "assistant" ? "flex" : "hidden"} h-full min-h-0 flex-col`}
                 >
                   <VoiceAssistant
+                    key={`assistant:${projectId ?? "standalone"}`}
+                    projectId={projectId}
                     productName={productName}
                     layers={paintLayers}
                     ready={completed}
@@ -4857,126 +4878,6 @@ function Viewport({
             ))}
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-function TrustReport() {
-  const [metrics, setMetrics] = useState<ModelMetricsPayload | null>(null);
-  const [info, setInfo] = useState<ModelInfoPayload | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    api.getModelMetrics(controller.signal).then(setMetrics).catch((cause) => {
-      if (!isAbortError(cause)) logRequestFailure("load trust metrics", cause);
-    });
-    api.getModelInfo(controller.signal).then(setInfo).catch((cause) => {
-      if (!isAbortError(cause)) logRequestFailure("load trust model info", cause);
-    });
-    return () => controller.abort();
-  }, []);
-  const pct = (x: number | null | undefined) => (x == null ? "—" : x.toFixed(2));
-
-  return (
-    <div className="absolute inset-0 overflow-x-hidden overflow-y-auto p-3 sm:p-8">
-      <div className="mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-4 shadow-card sm:p-8">
-        <h1 className="font-display text-xl font-bold sm:text-2xl">ความน่าเชื่อถือของโมเดล</h1>
-        <p className="mt-2 text-xs leading-relaxed text-slate-800/60 sm:text-sm">
-          ทุกการทำนายมาพร้อมตัวชี้วัดประสิทธิภาพ ความไม่แน่นอน และขอบเขตการใช้งาน (Applicability Domain) ตามหลัก OECD สำหรับ QSAR
-        </p>
-
-        <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 sm:mt-6">
-          <table className="w-full table-fixed text-xs sm:text-sm">
-            <colgroup>
-              <col className="w-[38%] sm:w-auto" />
-              <col className="w-[15.5%] sm:w-auto" />
-              <col className="w-[15.5%] sm:w-auto" />
-              <col className="w-[15.5%] sm:w-auto" />
-              <col className="w-[15.5%] sm:w-auto" />
-            </colgroup>
-            <thead className="bg-slate-100 text-[9px] text-slate-800/55 sm:text-xs">
-              <tr>
-                <th className="px-2 py-2.5 text-left sm:px-4">Endpoint</th>
-                <th className="px-1 py-2.5 text-center sm:px-4">AUC</th>
-                <th className="px-1 py-2.5 text-center sm:px-4">
-                  <span className="sm:hidden">Bal.<br />Acc</span>
-                  <span className="hidden sm:inline">Balanced Acc</span>
-                </th>
-                <th className="px-1 py-2.5 text-center sm:px-4">
-                  <span className="sm:hidden">Sens.</span>
-                  <span className="hidden sm:inline">Sensitivity</span>
-                </th>
-                <th className="px-1 py-2.5 text-center sm:px-4">
-                  <span className="sm:hidden">Spec.</span>
-                  <span className="hidden sm:inline">Specificity</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {metrics?.endpoints.map((m: EndpointMetric) => (
-                <tr key={m.endpoint} className="border-t border-slate-200">
-                  <td className="px-2 py-3 sm:px-4">
-                    <span className="block break-words font-medium leading-snug">{m.label_th}</span>{" "}
-                    <span className="font-mono text-[9px] text-slate-800/40 sm:text-xs">{m.endpoint}</span>
-                    {m.endpoint === "eye" && (
-                      <span className="ml-1 rounded bg-amber-50 px-1 py-0.5 text-[8px] font-semibold text-amber-700 sm:ml-1.5 sm:px-1.5 sm:text-[9px]">preliminary</span>
-                    )}
-                    {m.metrics && (
-                      <div className="mt-0.5 text-[9px] text-slate-400">
-                        n={(m.metrics.n_pos ?? 0) + (m.metrics.n_neg ?? 0) || "—"}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-1 py-3 text-center font-mono font-semibold tabular-nums text-brand sm:px-4">{pct(m.metrics?.auc)}</td>
-                  <td className="px-1 py-3 text-center font-mono tabular-nums sm:px-4">{pct(m.metrics?.balanced_accuracy)}</td>
-                  <td className="px-1 py-3 text-center font-mono tabular-nums sm:px-4">{pct(m.metrics?.sensitivity)}</td>
-                  <td className="px-1 py-3 text-center font-mono tabular-nums sm:px-4">{pct(m.metrics?.specificity)}</td>
-                </tr>
-              ))}
-              {!metrics?.endpoints?.length && (
-                <tr><td colSpan={5} className="px-4 py-6 text-center text-xs text-slate-800/40">ยังไม่มีข้อมูล (รัน data_prep.py)</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {metrics?.note_th && (
-          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[11px] leading-relaxed text-amber-800">
-            <b>ขอบเขตของตัวเลข:</b> {metrics.note_th}
-          </div>
-        )}
-
-        <div className="mt-5 grid gap-4 md:grid-cols-2">
-          <div className="rounded-xl border border-slate-200 p-4">
-            <h3 className="mb-2 font-semibold">สัญญาณความเชื่อมั่น</h3>
-            <ul className="space-y-1.5 text-xs text-slate-800/70">
-              <li><b>1 · Domain</b> — ระยะห่างจากชุดฝึก (in/out-of-domain)</li>
-              <li><b>2 · Model score</b> — ความห่างจาก operating threshold</li>
-              <li><b>3 · Structural alert</b> — ความสอดคล้องกับกฎ SMARTS</li>
-              <li><b>4 · Ensemble</b> — ความเห็นต่างระหว่างสมาชิกโมเดล</li>
-            </ul>
-          </div>
-          <div className="rounded-xl border border-slate-200 p-4">
-            <h3 className="mb-2 font-semibold">มาตรฐาน OECD</h3>
-            <p className="text-xs leading-relaxed text-slate-800/70">
-              Endpoint ชัดเจน · อัลกอริทึมโปร่งใส · Applicability Domain · Goodness-of-fit &amp; robustness · การตีความเชิงกลไก
-            </p>
-          </div>
-        </div>
-
-        {info?.methodology?.limitations && (
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <h3 className="mb-2 text-sm font-semibold">ข้อจำกัดที่เปิดเผย</h3>
-            <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed text-slate-600">
-              {info.methodology.limitations.map((item) => <li key={item}>{item}</li>)}
-            </ul>
-          </div>
-        )}
-
-        <div className="mt-5 rounded-xl border border-brand/20 bg-teal-50/40 px-4 py-3 text-xs text-slate-800/70">
-          โมเดลนี้เป็นเครื่องมือ <b>คัดกรอง</b> เพื่อจัดลำดับความเสี่ยงในระยะต้น ไม่ใช่การทดแทนการทดสอบตามข้อกำหนดหรือการประเมินโดยผู้เชี่ยวชาญ
-          {info?.disclaimer_th ? "" : ""}
-        </div>
       </div>
     </div>
   );

@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from rdkit import Chem
 
 
-Endpoint = Literal["skin", "eye", "sens", "acute"]
+Endpoint = Literal["skin", "eye", "sens", "acute", "skin_dryness"]
 Region = Literal["forearm", "hand", "face", "eye"]
 ConfidenceLevel = Literal["High", "Medium", "Low"]
 
@@ -64,7 +64,10 @@ class Confidence(BaseModel):
 
 class EndpointResult(BaseModel):
     peak_score: float = Field(..., description="0-100 peak risk score")
-    timecourse: List[int] = Field(..., description="Day 1, Day 3, Day 7 scores 0-100")
+    timecourse: Optional[List[int]] = Field(
+        None,
+        description="Day 1, Day 3, Day 7 scores when an evidence-backed temporal profile exists",
+    )
     band: Literal["low", "moderate", "high", "severe"]
     confidence: Confidence
 

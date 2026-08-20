@@ -38,6 +38,7 @@ OUT = BASE / "scientific" / "models"
 OUT.mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(BASE / "scientific"))
 from featurizer import featurize_mol, morgan_bits  # noqa: E402
+from endpoints import ENDPOINT_CONFIG  # noqa: E402
 
 DATASETS = {
     "skin":  DATA / "skin_irritation.csv",
@@ -45,12 +46,18 @@ DATASETS = {
     "sens":  DATA / "skin_sensitization.csv",
     "acute": DATA / "acute_oral_toxicity.csv",
 }
+# Skin dryness intentionally stays out of the legacy four-endpoint trainer.
+# Its feature mode must first be selected by the notebook benchmark, after
+# which scripts/skin_dryness_workflow.py trains candidate_v3.  Merely having a
+# header-only curated CSV must never make the legacy trainer treat it as ready.
 CURATED_PUBCHEM_DATASETS = {
     endpoint: BASE / "data" / "curated" / f"pubchem_verified_{endpoint}.csv"
     for endpoint in DATASETS
 }
-ENDPOINT_NAMES = {"skin": "Skin Irritation", "eye": "Eye Irritation",
-                  "sens": "Skin Sensitization", "acute": "Acute Toxicity"}
+ENDPOINT_NAMES = {
+    endpoint: str(config["label_en"])
+    for endpoint, config in ENDPOINT_CONFIG.items()
+}
 # feature mode per endpoint (from nested-CV study)
 FEATURE_MODE = {"skin": "maccs_descr", "eye": "maccs_descr",
                 "sens": "morgan", "acute": "morgan_maccs_descr"}

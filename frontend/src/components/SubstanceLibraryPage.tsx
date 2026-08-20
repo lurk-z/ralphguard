@@ -44,6 +44,7 @@ import {
   api,
   apiErrorMessage,
   substanceDepictionUrl,
+  type HerbalPlantSummary,
   type IngredientRegistryItem,
   type SubstanceProfile,
 } from "@/lib/api";
@@ -86,6 +87,7 @@ type EditorDraft = {
 };
 
 const REGISTRY_CATEGORY = "สารจากฐานข้อมูลที่ยืนยันแล้ว";
+const HERB_CATEGORY = "สมุนไพรไทย";
 const FAVORITE_CATEGORY = "รายการโปรด";
 const PROFILE_CACHE = new Map<string, SubstanceProfile | null>();
 const ROW_HEIGHT = 86;
@@ -95,7 +97,7 @@ const GRID_GAP = 10;
 const GRID_MIN_CARD_WIDTH = 250;
 
 const CATEGORY_OPTIONS = Array.from(
-  new Set([...SUBSTANCE_LIBRARY.map((group) => group.category), REGISTRY_CATEGORY, "สารที่เพิ่มเอง", FAVORITE_CATEGORY]),
+  new Set([...SUBSTANCE_LIBRARY.map((group) => group.category), HERB_CATEGORY, REGISTRY_CATEGORY, "สารที่เพิ่มเอง", FAVORITE_CATEGORY]),
 );
 
 const browserStorage = () => {
@@ -130,6 +132,7 @@ export default function SubstanceLibraryPage({
   const [categorySheetOpen, setCategorySheetOpen] = useState(false);
   const [toolbarHost, setToolbarHost] = useState<HTMLElement | null>(null);
   const [registryItems, setRegistryItems] = useState<IngredientRegistryItem[]>([]);
+  const [herbItems, setHerbItems] = useState<HerbalPlantSummary[]>([]);
   const [registryLoading, setRegistryLoading] = useState(false);
   const [registryError, setRegistryError] = useState<string | null>(null);
   const [reloadRequest, setReloadRequest] = useState(0);
@@ -196,10 +199,35 @@ export default function SubstanceLibraryPage({
     };
   }, [active, registryItems.length, reloadRequest]);
 
-  const libraryItems = useMemo(
-    () => mergeSubstanceLibrary(SUBSTANCE_LIBRARY, registryItems, localItems),
-    [localItems, registryItems],
-  );
+  useEffect(() => {
+    if (!active || herbItems.length) return;
+    const controller = new AbortController();
+    api.searchHerbs("", controller.signal)
+      .then(setHerbItems)
+      .catch((cause: unknown) => {
+        if (!isAbortError(cause)) {
+          toast.error(apiErrorMessage(cause, "โหลดคลังสมุนไพรไทยไม่สำเร็จ"));
+        }
+      });
+    return () => controller.abort();
+  }, [active, herbItems.length, reloadRequest]);
+
+  const libraryItems = useMemo(() => {
+    const substances = mergeSubstanceLibrary(SUBSTANCE_LIBRARY, registryItems, localItems);
+    const herbs: LibrarySubstance[] = herbItems.map((herb) => ({
+      key: `herb:${herb.id}`,
+      source: "herb",
+      name: herb.thai_name,
+      smiles: "",
+      category: HERB_CATEGORY,
+      concentration: 0,
+      qsarEligible: false,
+      substanceType: "whole_botanical",
+      herbId: herb.id,
+      botanicalName: herb.accepted_scientific_name,
+    }));
+    return [...substances, ...herbs];
+  }, [herbItems, localItems, registryItems]);
   const selectedConcentrationBySmiles = useMemo(
     () => new Map(selectedItems.map((item) => [normalizedSmiles(item.smiles), item.concentration])),
     [selectedItems],
@@ -220,6 +248,7 @@ export default function SubstanceLibraryPage({
   const categoryIconByName = useMemo(
     () => new Map<string, SemanticIconName>([
       ...SUBSTANCE_LIBRARY.map((group) => [group.category, group.icon] as [string, SemanticIconName]),
+      [HERB_CATEGORY, "leaf"],
       [REGISTRY_CATEGORY, "beaker"],
       ["สารที่เพิ่มเอง", "pencil"],
       [FAVORITE_CATEGORY, "star"],
@@ -239,7 +268,7 @@ export default function SubstanceLibraryPage({
     for (const item of libraryItems) {
       if (
         debouncedQuery &&
-        !`${item.name} ${item.smiles} ${item.category} ${item.molecularFormula || ""}`
+        !`${item.name} ${item.botanicalName || ""} ${item.smiles} ${item.category} ${item.molecularFormula || ""}`
           .toLocaleLowerCase()
           .includes(debouncedQuery)
       ) {
@@ -258,7 +287,7 @@ export default function SubstanceLibraryPage({
       if (category === FAVORITE_CATEGORY && !favoriteSet.has(item.key)) return false;
       if (category !== "all" && category !== FAVORITE_CATEGORY && item.category !== category) return false;
       if (!debouncedQuery) return true;
-      return `${item.name} ${item.smiles} ${item.category} ${item.molecularFormula || ""}`
+      return `${item.name} ${item.botanicalName || ""} ${item.smiles} ${item.category} ${item.molecularFormula || ""}`
         .toLocaleLowerCase()
         .includes(debouncedQuery);
     });
@@ -916,6 +945,30 @@ const SubstanceRow = memo(function SubstanceRow({
   const selected = selectedConcentration != null;
   const displayedConcentration = selected ? selectedConcentration : item.concentration;
   const toggleFormula = () => onToggleFormula(item);
+
+  if (item.source === "herb") {
+    return (
+      <div
+        role="group"
+        aria-label={`${item.name} เป็นวัตถุดิบสมุนไพร ใช้หลักฐานพฤกษศาสตร์และยังไม่สามารถเพิ่มเข้า QSAR เป็นโมเลกุลเดียวได้`}
+        title="สมุนไพรหรือสารสกัดมีองค์ประกอบหลายชนิด จึงไม่ใช้ SMILES ของสารตัวเดียวแทนทั้งวัตถุดิบ"
+        className="group flex h-full min-w-0 cursor-default items-center gap-3 overflow-hidden rounded-xl border border-emerald-200 bg-emerald-50/40 px-3 py-2.5 shadow-sm"
+      >
+        <span className="grid size-12 shrink-0 place-items-center rounded-lg border border-emerald-200 bg-white text-emerald-600">
+          <SemanticIcon name="leaf" className="size-5" />
+        </span>
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <span className="line-clamp-1 text-[13px] font-medium leading-4 text-slate-800">{item.name}</span>
+          <span className="mt-1.5 block truncate text-[10px] italic text-slate-500" title={item.botanicalName}>
+            {item.botanicalName}
+          </span>
+        </div>
+        <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-1 text-[9px] font-semibold text-emerald-700">
+          หลักฐานพฤกษศาสตร์
+        </span>
+      </div>
+    );
+  }
 
   return (
     <SubstanceHoverCard

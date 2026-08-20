@@ -7,6 +7,7 @@ const LINKS: { href: string; label: string }[] = [
   { href: "/how-to", label: "วิธีใช้งาน" },
   { href: "/methodology", label: "วิธีการ & AI" },
   { href: "/models", label: "ความน่าเชื่อถือ" },
+  { href: "/herbs", label: "สมุนไพรไทย" },
   { href: "/history", label: "ประวัติ" },
   { href: "/about", label: "เกี่ยวกับ" },
 ];

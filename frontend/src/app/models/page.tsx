@@ -44,8 +44,12 @@ function MetricRow({ m }: { m: EndpointMetric }) {
   return (
     <tr className="border-t border-border/60">
       <td className="px-3 py-2">
-        <div className="font-medium">{m.label_th}</div>
-        <div className="text-xs text-ink2/55">{m.label_en} · {m.oecd_tg}</div>
+        <div className="flex items-center gap-2 font-medium">
+          {m.label_th}
+          {m.status === "candidate" && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] text-amber-800">Candidate</span>}
+          {m.status === "not_trained" && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">ยังไม่เทรน</span>}
+        </div>
+        <div className="text-xs text-ink2/55">{m.label_en}{m.oecd_tg ? ` · ${m.oecd_tg}` : " · evidence-defined endpoint"}</div>
       </td>
       <td className="px-3 py-2 text-center font-mono">
         {met ? `${total} (${met.n_pos ?? "—"}/${met.n_neg ?? "—"})` : "—"}

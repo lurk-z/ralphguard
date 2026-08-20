@@ -5,6 +5,7 @@ from app.services.pubchem_evidence import (
     parse_global_hazard_class_annotations,
     parse_global_ghs_annotations,
     parse_pubchem_ghs_evidence,
+    parse_skin_dryness_discovery_candidates,
     promote_single_regulatory_evidence,
     screen_pubchem_property,
 )
@@ -76,6 +77,48 @@ def test_eye_category_2b_h320_maps_to_eye_hazard():
     assert len(rows) == 1
     assert rows[0]["endpoint"] == "eye"
     assert rows[0]["candidate_label"] == 1
+
+
+def test_euh066_and_auh066_create_skin_dryness_positive_candidates():
+    rows = parse_pubchem_ghs_evidence(
+        _payload(
+            "EUH066: Repeated exposure may cause skin dryness or cracking",
+            "AUH 066: Repeated exposure may cause skin dryness and cracking",
+        )
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["endpoint"] == "skin_dryness"
+    assert rows[0]["candidate_label"] == 1
+    assert rows[0]["evidence_type"] == "regulatory_skin_dryness"
+    assert rows[0]["hazard_codes"] == ["AUH066", "EUH066"]
+
+
+def test_h315_does_not_imply_skin_dryness():
+    rows = parse_pubchem_ghs_evidence(_payload("H315: Causes skin irritation"))
+    assert {row["endpoint"] for row in rows} == {"skin"}
+
+
+def test_missing_supplemental_code_never_creates_dryness_negative():
+    rows = parse_pubchem_ghs_evidence(_payload("Not Classified"))
+    assert rows == []
+
+
+def test_dryness_keyword_is_review_candidate_not_training_label():
+    payload = _payload("H315: Causes skin irritation")
+    information = payload["Record"]["Section"][0]["Section"][0]["Information"]
+    information.append(
+        {
+            "ReferenceNumber": 10,
+            "Name": "Study result",
+            "Value": {"StringWithMarkup": [{"String": "A significant increase in TEWL was observed."}]},
+        }
+    )
+    rows = parse_skin_dryness_discovery_candidates(payload)
+    assert len(rows) == 1
+    assert rows[0]["candidate_label"] is None
+    assert rows[0]["label_status"] == "review_required"
+    assert rows[0]["provenance"]["negative_inference_allowed"] is False
 
 
 def test_non_classified_and_unrelated_hazards_do_not_create_negative_labels():
@@ -279,6 +322,7 @@ def test_global_import_coverage_requires_every_endpoint_target():
         "eye": 0,
         "sens": 1,
         "acute": 0,
+        "skin_dryness": 2,
     }
 
 

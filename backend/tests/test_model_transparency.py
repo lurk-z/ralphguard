@@ -68,3 +68,23 @@ def test_model_info_exposes_evidence_and_integrity_status(monkeypatch) -> None:
     assert "evidence_sources" in payload
     assert "validation_status" in payload
     assert payload["training_integrity"] is None
+
+
+def test_blocked_dryness_candidate_is_not_presented_as_production(monkeypatch) -> None:
+    monkeypatch.setattr(models, "_load_metrics", lambda: {})
+    monkeypatch.setattr(
+        models,
+        "_load_skin_dryness_candidate_metric",
+        lambda: {
+            "auc": 0.82,
+            "n_train": 31,
+            "promotion_status": "research_only_blocked",
+            "research_preview": True,
+        },
+    )
+
+    payload = asyncio.run(models.model_metrics())
+    dryness = next(item for item in payload["endpoints"] if item["endpoint"] == "skin_dryness")
+
+    assert dryness["status"] == "research_candidate_blocked"
+    assert dryness["metrics"]["research_preview"] is True
