@@ -23,12 +23,12 @@
 ผู้ใช้ (เบราว์เซอร์)
    │  พิมพ์/พูด (SpeechRecognition th-TH)
    ▼
-VoiceAssistant.tsx  ──POST /api/chat──►  FastAPI (backend)  ──►  LLM (Groq: llama-3.3-70b-versatile, OpenAI-compatible)
+VoiceAssistant.tsx  ──POST /api/chat──►  FastAPI (backend)  ──►  LLM (Groq: openai/gpt-oss-120b, OpenAI-compatible)
    ▲  เล่นเสียงตอบ                         │
    └────POST /api/tts (edge-tts, เสียงไทย) ◄┘  แปลงข้อความตอบเป็นเสียง
 ```
 
-- **โมเดลปัจจุบัน:** Groq `llama-3.3-70b-versatile` (จะสลับเป็นโมเดลที่เทรนเองได้ที่ endpoint เดียวกัน)
+- **โมเดลปัจจุบัน:** Groq `openai/gpt-oss-120b` (จะสลับเป็นโมเดลที่เทรนเองได้ที่ endpoint เดียวกัน)
 - **TTS:** edge-tts (`th-TH-PremwadeeNeural`) — ฟรี ไม่ต้องมี key
 - **generationConfig ปัจจุบัน:** temperature 0.6, top_p 0.95, max_tokens 800
 

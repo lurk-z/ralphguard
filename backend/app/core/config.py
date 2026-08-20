@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     # LLM for the voice assistant — Groq (OpenAI-compatible, free). Key is read
     # from the environment / .env only — never hard-coded, never sent to browser.
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
 
 
 settings = Settings()

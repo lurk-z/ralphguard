@@ -1,0 +1,13 @@
+*
+!backend/
+!backend/**
+backend/tests/
+backend/**/__pycache__/
+backend/**/*.py[cod]
+!scientific/
+scientific/*
+!scientific/models/
+!scientific/models/**
+scientific/models/candidate_v2/
+scientific/models/training_manifests/
+!Dockerfile.backend.prod

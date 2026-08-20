@@ -73,6 +73,9 @@ Thumbs.db
 
 # ============ Docker ============
 *.dockerignore
+!.dockerignore
+!backend/.dockerignore
+!scientific/.dockerignore
 
 # ============ Database ============
 *.sqlite3

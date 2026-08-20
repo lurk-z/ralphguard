@@ -1,0 +1,39 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    MODELS_DIR=/models \
+    PORT=10000
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    libxrender1 \
+    libxext6 \
+    libsm6 \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt ./requirements.txt
+RUN pip install -r requirements.txt
+
+COPY backend/ ./
+COPY scientific/models/ /models/
+
+RUN test -s /models/skin_model.pkl \
+    && test -s /models/eye_model.pkl \
+    && test -s /models/sens_model.pkl \
+    && test -s /models/acute_model.pkl \
+    && test -s /models/candidate_v3/skin_dryness_model.pkl \
+    && useradd --create-home --uid 10001 ralphguard \
+    && chown -R ralphguard:ralphguard /app /models
+
+USER ralphguard
+
+EXPOSE 10000
+
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}"]
