@@ -1827,7 +1827,7 @@ export default function StudioPage() {
         "ช่วยปรับอัตราส่วน % ของสารในสูตรนี้ให้สมจริงตามมาตรฐานเครื่องสำอางและปลอดภัยที่สุด " +
         "(ลดสารก่อระคายเคือง/สารกันเสียลงสู่ระดับที่ใช้จริง เช่น สารกันเสีย <1%, กรด 2-10%, humectant 3-15%). " +
         "ห้ามเพิ่มหรือลบสาร คงสารเดิมและ SMILES เดิมไว้ทุกตัว ไม่ต้องใส่ Water. " +
-        'ตอบกลับเป็น <formula>[{"name","smiles","concentration"}]</formula> เท่านั้น:\n' +
+        'ตอบกลับเป็น <action>[{"type":"set_formula","items":[{"name":"ชื่อสาร","smiles":"SMILES","concentration":1}]}]</action> เท่านั้น:\n' +
         list;
       const r = await fetch(`${API}/api/chat/`, {
         method: "POST",

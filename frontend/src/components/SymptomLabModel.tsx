@@ -182,6 +182,7 @@ export type AssessmentEndpointScores = {
   eye: number;
   sens: number;
   acute: number;
+  skin_dryness: number;
 };
 
 /**
@@ -197,6 +198,7 @@ export const ASSESSMENT_VISUAL_THRESHOLDS = {
   eye: 0.25,
   sens: 0.25,
   acute: 0.25,
+  skinDryness: 0.25,
   // Peeling is a deliberately conservative visual proxy for a strong skin
   // response. It is not a separate RalphGuard prediction endpoint.
   skinPeeling: 0.75,
@@ -238,7 +240,11 @@ export function mapAssessmentEndpointsToSymptoms(scores: AssessmentEndpointScore
     scores.acute,
     ASSESSMENT_VISUAL_THRESHOLDS.acute,
   );
-  const peelingReaction = visualActivation(
+  const drynessReaction = visualActivation(
+    scores.skin_dryness,
+    ASSESSMENT_VISUAL_THRESHOLDS.skinDryness,
+  );
+  const severeSkinPeelingFallback = visualActivation(
     scores.skin,
     ASSESSMENT_VISUAL_THRESHOLDS.skinPeeling,
   );
@@ -249,7 +255,13 @@ export function mapAssessmentEndpointsToSymptoms(scores: AssessmentEndpointScore
       papule: sensitisationReaction,
       // Once desquamation is active it needs enough contrast to remain legible
       // on top of simultaneous erythema and edema.
-      peeling: Math.min(1, peelingReaction * 1.3),
+      // Skin dryness is now a first-class model endpoint. Keep the historical
+      // severe-irritation proxy as a fallback for older assessment payloads,
+      // but let the dedicated dryness score drive the visible flakes directly.
+      peeling: Math.min(
+        1,
+        Math.max(drynessReaction, severeSkinPeelingFallback * 1.3),
+      ),
       // A positive skin-irritation result includes swelling in this product's
       // visual language. Keep it subtler than erythema while using the same
       // formula-risk band cut-off.

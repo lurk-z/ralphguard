@@ -3,13 +3,14 @@
 /**
  * SymptomFaceCanvas — results-driven wrapper around SymptomLabModel's rich
  * paint renderer (from the update-model commit). Instead of manual mark-then-run,
- * it maps the assessment's 4 endpoint scores onto the four skin symptoms and
+ * it maps the assessment's 5 endpoint scores onto the four skin symptoms and
  * develops them across the face automatically:
  *
  *   skin (ระคายเคืองผิว)  → redness + edema (+ peeling when severe)
  *   sens (แพ้ผิวหนัง)      → papule
  *   acute                 → whole-face pallor/clammy-skin systemic proxy
  *   eye  (ระคายเคืองตา)   → per-eye redness
+ *   skin_dryness          → peeling / dry flakes
  *
  * Drop-in replacement for FacePaintCanvas (same props) so the assess viewport
  * can use the richer rendering.
@@ -51,7 +52,7 @@ const SYMPTOM_LABEL: Record<SkinKey, string> = {
 };
 
 const regionEndpoints = (region: string) =>
-  region.includes("ตา") ? ["eye"] : ["skin", "sens", "acute"];
+  region.includes("ตา") ? ["eye"] : ["skin", "sens", "acute", "skin_dryness"];
 
 const regionSensitivity = (region: string) => {
   if (region.includes("ตา")) return 1.3;
@@ -111,11 +112,19 @@ export function SymptomFaceCanvas({
   const eye = scoreOf("eye");
   const sens = scoreOf("sens");
   const acute = scoreOf("acute");
+  const skinDryness = scoreOf("skin_dryness");
   // Visual mapping is defined only in SymptomLabModel; this assessment wrapper
   // supplies the four endpoint scores without maintaining a second recipe.
   const { sev, eyeRed, acuteSystemic } = useMemo(
-    () => mapAssessmentEndpointsToSymptoms({ skin, eye, sens, acute }),
-    [skin, eye, sens, acute],
+    () =>
+      mapAssessmentEndpointsToSymptoms({
+        skin,
+        eye,
+        sens,
+        acute,
+        skin_dryness: skinDryness,
+      }),
+    [skin, eye, sens, acute, skinDryness],
   );
 
   const dominant: SkinKey = useMemo(() => {

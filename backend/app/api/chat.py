@@ -3,6 +3,7 @@
 The API key stays in the backend environment. The frontend posts the current
 formula/assessment context and previews every mutating action before execution.
 """
+import asyncio
 import json
 import re
 
@@ -304,12 +305,29 @@ async def chat(body: ChatIn):
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             for attempt in range(3):
-                r = await client.post(
-                    GROQ_URL,
-                    headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
-                    json=payload,
-                )
+                # Groq can briefly return 429 while its per-minute token/request
+                # window resets. Respect Retry-After and retry the same request
+                # instead of surfacing it as an unrelated 502 immediately.
+                for rate_attempt in range(3):
+                    r = await client.post(
+                        GROQ_URL,
+                        headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
+                        json=payload,
+                    )
+                    if r.status_code != 429 or rate_attempt >= 2:
+                        break
+                    retry_after = r.headers.get("Retry-After", "")
+                    try:
+                        delay = float(retry_after)
+                    except ValueError:
+                        delay = 1.5 * (2**rate_attempt)
+                    await asyncio.sleep(min(max(delay, 0.25), 8.0))
                 if r.status_code != 200:
+                    if r.status_code == 429:
+                        raise HTTPException(
+                            status_code=429,
+                            detail="AI มีคำขอมากเกินโควตาชั่วคราว กรุณารอสักครู่แล้วลองใหม่",
+                        )
                     raise HTTPException(status_code=502, detail=f"LLM error {r.status_code}: {r.text[:300]}")
                 data = r.json()
                 try:
