@@ -583,6 +583,10 @@ export default function LabelScanModal({
       if (!response.ok) {
         const detail = await response.json().catch(() => ({}));
         if (response.status === 422) {
+          const backendDetail = String(detail?.detail || "").toLowerCase();
+          if (backendDetail.includes("timed out") || backendDetail.includes("timeout")) {
+            throw new Error("เซิร์ฟเวอร์อ่านฉลากไม่ทันเวลา กรุณาลองอีกครั้งหลัง Render ประมวลผลเสร็จ");
+          }
           throw new Error("ไม่พบข้อความส่วนผสมที่อ่านได้ กรุณาถ่ายภาพให้คมชัด ตรง และไม่มีแสงสะท้อน");
         }
         if (response.status >= 500) {

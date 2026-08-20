@@ -19,7 +19,7 @@ from app.api.ocr import (
 
 
 def test_production_ocr_uses_bounded_pass_plan_without_online_lookup_by_default():
-    assert len(OCR_PASS_PLAN) == 4
+    assert len(OCR_PASS_PLAN) == 3
     assert len(set(OCR_PASS_PLAN)) == len(OCR_PASS_PLAN)
     assert inspect.signature(read_label).parameters["online"].default is False
 

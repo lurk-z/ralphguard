@@ -539,12 +539,11 @@ OCR_PASS_PLAN = (
     ("sharpened", 6),
     ("autocontrast", 11),
     ("binary_otsu", 6),
-    ("autocontrast", 4),
 )
 OCR_PRIMARY_PASS_COUNT = 2
-OCR_PASS_TIMEOUT_SECONDS = 12
-OCR_EMERGENCY_WIDTH = 1000
-OCR_EMERGENCY_TIMEOUT_SECONDS = 8
+OCR_PASS_TIMEOUT_SECONDS = 10
+OCR_EMERGENCY_WIDTH = 800
+OCR_EMERGENCY_TIMEOUT_SECONDS = 15
 
 
 @dataclass(frozen=True)
@@ -648,15 +647,16 @@ def _prepare_image_variants(data: bytes):
     gray = _deskew_image(gray)
 
     # Normalize both tiny phone crops and unnecessarily large camera frames.
-    # Render's free CPU can time out on repeated 2200px Tesseract passes.  A
-    # 1600px working image retains small INCI text while cutting pixel work by
-    # roughly half; a smaller emergency pass below handles especially slow
+    # Render's free CPU can time out on repeated high-resolution Tesseract
+    # passes.  A 1200px working image retains the INCI text seen in phone
+    # screenshots while cutting pixel work substantially; a smaller fallback
+    # below handles especially slow
     # images instead of returning an empty result after every pass times out.
-    target_width = 1600
+    target_width = 1200
     if gray.width < target_width:
         scale = min(4.0, target_width / max(1, gray.width))
-    elif gray.width > 2400:
-        scale = 2400 / gray.width
+    elif gray.width > 1800:
+        scale = 1800 / gray.width
     else:
         scale = 1.0
     if scale != 1.0:
@@ -833,12 +833,14 @@ def _run_ocr_ensemble(pytesseract, data: bytes):
     images = dict(variants)
     passes: list[OcrPass] = []
     timed_out_passes = 0
+    pass_errors: list[str] = []
     for pass_index, (variant_name, psm) in enumerate(OCR_PASS_PLAN):
         image = images[variant_name]
         try:
             text, confidence = _ocr_candidate(pytesseract, image, psm)
-        except RuntimeError:
+        except RuntimeError as exc:
             timed_out_passes += 1
+            pass_errors.append(str(exc))
             continue  # one timed-out segmentation mode must not fail the scan
         if not text:
             continue
@@ -876,7 +878,8 @@ def _run_ocr_ensemble(pytesseract, data: bytes):
                 6,
                 timeout_seconds=OCR_EMERGENCY_TIMEOUT_SECONDS,
             )
-        except RuntimeError:
+        except RuntimeError as exc:
+            pass_errors.append(str(exc))
             text = ""
             confidence = 0.0
         if text:
@@ -890,6 +893,10 @@ def _run_ocr_ensemble(pytesseract, data: bytes):
                 )
             )
     if not passes:
+        if pass_errors:
+            if any("timeout" in error.lower() for error in pass_errors):
+                raise ValueError("OCR processing timed out on the server")
+            raise ValueError(f"OCR engine error: {pass_errors[0][:160]}")
         raise ValueError("no text recognized in any OCR pass")
 
     ranked = sorted(passes, key=lambda item: (item.quality, item.confidence, len(item.text)), reverse=True)
