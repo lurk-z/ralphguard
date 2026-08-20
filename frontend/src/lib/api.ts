@@ -1,3 +1,5 @@
+import { getSession } from "next-auth/react";
+
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export class ApiTimeoutError extends Error {
@@ -260,10 +262,15 @@ async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Pro
     ctrl.abort();
   }, timeoutMs);
   try {
+    const session = await getSession();
     const res = await fetch(`${API}${path}`, {
       ...init,
       signal: ctrl.signal,
-      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      headers: {
+        "Content-Type": "application/json",
+        ...(session?.backendToken ? { Authorization: `Bearer ${session.backendToken}` } : {}),
+        ...(init?.headers ?? {}),
+      },
     });
     if (!res.ok) {
       const body = await res.text();

@@ -204,7 +204,7 @@ export const ASSESSMENT_VISUAL_THRESHOLDS = {
   skinPeeling: 0.75,
 } as const;
 
-function visualActivation(score: number, threshold: number): number {
+function visualActivation(score: number, threshold: number, minimum = 0.14): number {
   const value = Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : 0;
   if (value < threshold) return 0;
 
@@ -212,7 +212,7 @@ function visualActivation(score: number, threshold: number): number {
   // effect smoothly to full intensity. Low-band results remain exactly zero,
   // so e.g. sens=1/100 cannot create papules.
   const progress = (value - threshold) / (1 - threshold);
-  return Math.min(1, 0.14 + progress * 0.86);
+  return Math.min(1, minimum + progress * (1 - minimum));
 }
 
 /**
@@ -243,6 +243,10 @@ export function mapAssessmentEndpointsToSymptoms(scores: AssessmentEndpointScore
   const drynessReaction = visualActivation(
     scores.skin_dryness,
     ASSESSMENT_VISUAL_THRESHOLDS.skinDryness,
+    // At the first moderate score, use enough coverage for flakes to remain
+    // visible after the procedural patch/noise gates. Higher scores still
+    // scale continuously to 1, increasing both patch area and flake count.
+    0.32,
   );
   const severeSkinPeelingFallback = visualActivation(
     scores.skin,
@@ -1158,8 +1162,13 @@ if (gPeel > 0.001) {
   // curly, like lifted flake edges) BROKEN into small separate chips by a
   // second noise. High frequency + crisped edges = small SHARP flakes.
   float _fn   = fbm(vLocalPos * 230.0);
-  float _band = 1.0 - smoothstep(0.0, 0.030, abs(_fn - 0.45));   // thin curvy ribbon
-  float _keep = smoothstep(0.49, 0.58, fbm(vLocalPos * 145.0 + 7.3)); // fragment it
+  // Moderate dryness starts with sparse narrow chips. Severity widens the
+  // ribbons and lowers the fragment gate, so the maximum band visibly has
+  // more flakes rather than only making the same flakes brighter.
+  float _bandWidth = mix(0.026, 0.045, gPeel);
+  float _band = 1.0 - smoothstep(0.0, _bandWidth, abs(_fn - 0.45));
+  float _keepNoise = fbm(vLocalPos * 145.0 + 7.3);
+  float _keep = smoothstep(mix(0.52, 0.40, gPeel), mix(0.61, 0.50, gPeel), _keepNoise);
   float _flake = _band * _keep * _patch * (0.40 + 0.60 * gPeel); // denser w/ severity
   _flake = smoothstep(0.15, 0.60, _flake);                       // crisp edges
 

@@ -3,6 +3,7 @@ from unittest.mock import Mock
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
+from app.core.auth import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
 from app.services import assessment_service
@@ -20,6 +21,7 @@ def test_inline_mode_schedules_local_inference_without_redis(monkeypatch):
     monkeypatch.setattr(assessment_service, "enqueue_assessment", enqueue)
     monkeypatch.setattr(assessment_service, "process_assessment_inline", process_inline)
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(id="google-user-1")
     try:
         response = TestClient(app).post(
             "/api/assessments/",
@@ -32,6 +34,7 @@ def test_inline_mode_schedules_local_inference_without_redis(monkeypatch):
         )
     finally:
         app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_user, None)
 
     assert response.status_code == 202
     enqueue.assert_not_called()

@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
     API_SECRET_KEY: str = "change-me"
+    AUTH_SECRET: str = ""
     # Comma-separated list of allowed origins, or "*" to allow every origin.
     CORS_ORIGINS: str = "*"
 

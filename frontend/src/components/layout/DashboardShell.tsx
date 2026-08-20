@@ -7,6 +7,7 @@ import { Fragment } from "react";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { Folder } from "lucide-react";
+import { AuthUserMenu } from "@/components/auth/AuthUserMenu";
 
 import {
   Sidebar,
@@ -152,9 +153,10 @@ export default function DashboardShell({
               </Breadcrumb>
             </div>
 
-            {actions && (
-              <div className="flex shrink-0 items-center gap-2">{actions}</div>
-            )}
+            <div className="flex shrink-0 items-center gap-2">
+              {actions}
+              <AuthUserMenu />
+            </div>
           </header>
 
           <main className="min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,hsl(var(--background))_0%,hsl(var(--muted))_100%)]">{children}</main>

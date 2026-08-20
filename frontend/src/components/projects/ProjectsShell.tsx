@@ -12,6 +12,7 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import { FolderKanban } from "lucide-react";
+import { AuthUserMenu } from "@/components/auth/AuthUserMenu";
 
 const SIDEBAR_STORAGE_KEY = "ralphguard:projects-sidebar-width:v2";
 const DEFAULT_SIDEBAR_WIDTH = 308;
@@ -209,7 +210,10 @@ export default function ProjectsShell({
           </div>
 
           <header className="min-w-0 flex-1">
-            {header}
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">{header}</div>
+              <div className="shrink-0 pr-4"><AuthUserMenu /></div>
+            </div>
           </header>
         </div>
 

@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.api.projects import create_project
+from app.core.auth import CurrentUser
 from app.schemas.project import ProjectCreate, ProjectUpdate
 
 
@@ -62,11 +63,13 @@ async def test_create_project_persists_and_returns_the_backend_identity():
     result = await create_project(
         ProjectCreate(name="  Safety Lab  ", description="  screening notes  "),
         db,
+        CurrentUser(id="google-user-1", email="user@example.com"),
     )
 
     assert db.commits == 1
     assert db.added.name == "Safety Lab"
     assert db.added.description == "screening notes"
+    assert db.added.owner_id == "google-user-1"
     assert result.id == 42
     assert result.name == "Safety Lab"
     assert result.color_key == "teal"

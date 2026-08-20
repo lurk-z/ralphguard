@@ -38,14 +38,14 @@ export default function Navbar() {
           </span>
         </a>
 
-        {/* Right side — enter the app (login removed) */}
+        {/* Authentication entry point */}
         <Button
           asChild
           variant="outline"
           className="h-9 rounded-full border-brand/40 bg-transparent px-3 text-xs text-foreground hover:border-brand/70 hover:bg-brand/10 sm:h-10 sm:px-4 sm:text-sm"
         >
-          <a href="/projects">
-            เข้าใช้งาน
+          <a href="/login">
+            เข้าสู่ระบบ
             <ArrowRight className="text-brand" />
           </a>
         </Button>

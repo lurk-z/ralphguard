@@ -4,6 +4,9 @@ from types import SimpleNamespace
 import pytest
 
 from app.api.projects import delete_project, restore_project
+from app.core.auth import CurrentUser
+
+USER = CurrentUser(id="google-user-1")
 
 
 class FakeSession:
@@ -28,6 +31,7 @@ class FakeSession:
 def project_row():
     return SimpleNamespace(
         id=7,
+        owner_id=USER.id,
         name="Safety Lab",
         description=None,
         color_key="teal",
@@ -44,7 +48,7 @@ async def test_delete_project_is_soft_and_preserves_assessments():
     row = project_row()
     db = FakeSession(row)
 
-    response = await delete_project(row.id, db)
+    response = await delete_project(row.id, db, USER)
 
     assert response.status_code == 204
     assert row.deleted_at is not None
@@ -59,7 +63,7 @@ async def test_restore_project_clears_deleted_at():
     row.deleted_at = datetime(2026, 7, 30, tzinfo=timezone.utc)
     db = FakeSession(row)
 
-    restored = await restore_project(row.id, db)
+    restored = await restore_project(row.id, db, USER)
 
     assert row.deleted_at is None
     assert restored.id == row.id

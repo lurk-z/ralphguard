@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { IBM_Plex_Mono, Noto_Sans_Thai } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { SessionProvider } from "@/components/auth/SessionProvider";
 import "./globals.css";
 
 // LINE Seed Sans TH — Thai + Latin body text
@@ -54,7 +55,7 @@ export default function RootLayout({
       className={`${lineSeedTH.variable} ${ibmPlexMono.variable} ${notoSansThai.variable}`}
     >
       <body className="antialiased" suppressHydrationWarning>
-        {children}
+        <SessionProvider>{children}</SessionProvider>
         <Toaster />
       </body>
     </html>

@@ -20,6 +20,7 @@ class Assessment(Base):
     __tablename__ = "assessments"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     project_id: Mapped[int | None] = mapped_column(
         ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
     )

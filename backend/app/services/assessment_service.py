@@ -16,12 +16,14 @@ def create_assessment(
     db: Session,
     payload: CreateAssessmentRequest,
     *,
+    owner_id: str | None = None,
     enqueue: bool = True,
 ) -> Assessment:
     """Persist a queued assessment and optionally push it to Redis."""
     job_id = str(uuid.uuid4())
     row = Assessment(
         id=job_id,
+        owner_id=owner_id,
         project_id=payload.project_id,
         region=payload.region,
         formula=[item.model_dump() for item in payload.formula],

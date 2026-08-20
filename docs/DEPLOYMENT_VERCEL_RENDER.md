@@ -14,6 +14,7 @@
 4. ใส่ค่าที่ระบบถาม:
    - `CORS_ORIGINS`: ใส่ `*` ชั่วคราวใน deploy แรก
    - `GROQ_API_KEY`: API key จริงจาก Groq ห้าม commit ลง Git
+   - `AUTH_SECRET`: สร้างข้อความสุ่มยาวอย่างน้อย 32 ตัวอักษร และเก็บไว้ใช้ค่าเดียวกับ Vercel
 5. ตรวจสอบค่าใช้จ่ายที่ Render แสดงก่อนกด Apply
 6. รอ API และ PostgreSQL ขึ้นครบ
 7. ทดสอบ:
@@ -30,7 +31,18 @@ Blueprint กำหนด `plan: free` ทุก resource และรัน QSA
 3. ตั้ง Environment Variables:
    - `NEXT_PUBLIC_API_URL=https://<render-api>`
    - `NEXT_PUBLIC_APP_NAME=RalphGuard`
+   - `NEXTAUTH_URL=https://<vercel-domain>`
+   - `NEXTAUTH_SECRET=<ค่าเดียวกับ AUTH_SECRET บน Render>`
+   - `GOOGLE_CLIENT_ID=<Google OAuth client ID>`
+   - `GOOGLE_CLIENT_SECRET=<Google OAuth client secret>`
 4. Deploy และเปิด URL ที่ Vercel สร้างให้
+
+### ตั้งค่า Google Login
+
+1. สร้าง OAuth Client แบบ **Web application** ใน Google Cloud Console
+2. เพิ่ม Authorized JavaScript origin เป็น `https://<vercel-domain>`
+3. เพิ่ม Authorized redirect URI เป็น `https://<vercel-domain>/api/auth/callback/google`
+4. นำ Client ID และ Client Secret ไปใส่ใน Vercel แล้ว Redeploy
 
 ## 4. ล็อก CORS หลังทราบ URL จริง
 
