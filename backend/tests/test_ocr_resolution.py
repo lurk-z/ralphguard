@@ -1,5 +1,6 @@
 """Ingredient resolution must identify structures without inventing a dose."""
 
+import inspect
 from pathlib import Path
 
 import pytest
@@ -7,12 +8,20 @@ import pytest
 from app.api.ocr import (
     OcrItem,
     OcrPass,
+    OCR_PASS_PLAN,
     _consensus_text,
     _run_ocr_ensemble,
     _sort_matches_by_label_order,
     _tokens,
+    read_label,
     resolve,
 )
+
+
+def test_production_ocr_uses_bounded_pass_plan_without_online_lookup_by_default():
+    assert len(OCR_PASS_PLAN) == 4
+    assert len(set(OCR_PASS_PLAN)) == len(OCR_PASS_PLAN)
+    assert inspect.signature(read_label).parameters["online"].default is False
 
 
 def test_resolve_known_inci_names():

@@ -172,15 +172,6 @@ const FORMULA_REGION_OPTIONS: {
     },
   ];
 const ENDPOINTS = ["skin", "eye", "sens", "acute", "skin_dryness"] as const;
-type AssessmentEndpoint = (typeof ENDPOINTS)[number];
-type DeveloperTestScores = Record<AssessmentEndpoint, number>;
-const DEFAULT_DEVELOPER_TEST_SCORES: DeveloperTestScores = {
-  skin: 50,
-  eye: 50,
-  sens: 50,
-  acute: 50,
-  skin_dryness: 50,
-};
 const ENDPOINT_LABEL_TH: Record<string, string> = {
   skin: "ระคายเคืองผิว",
   eye: "ระคายเคืองตา",
@@ -484,13 +475,6 @@ export default function StudioPage() {
   const announcedTimedOutJobIds = useRef(new Set<string>());
   const pollingFailuresByJobId = useRef<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
-  // Local visual QA only. These values never enter an assessment payload or
-  // the project workspace snapshot, so they cannot replace scientific output.
-  const [developerTestEnabled, setDeveloperTestEnabled] = useState(false);
-  const [developerTestScores, setDeveloperTestScores] = useState<DeveloperTestScores>(
-    DEFAULT_DEVELOPER_TEST_SCORES,
-  );
-
   // Formula-owned snapshots must never outlive their formula. The standalone
   // project Graph draft is intentionally retained when no formula is selected.
   useEffect(() => {
@@ -807,23 +791,9 @@ export default function StudioPage() {
 
   const activeRegionLabel = REGIONS.find((item) => item.value === region)?.label ?? region;
 
-  const developerTestLayers = useMemo(
-    () =>
-      ENDPOINTS.map((ep) => {
-        const score = developerTestScores[ep];
-        return {
-          key: ep,
-          label: ENDPOINT_LABEL_TH[ep],
-          score,
-          color: EP_COLOR[ep],
-          band: bandOf(score),
-        };
-      }),
-    [developerTestScores],
-  );
-  const resultReady = completed || developerTestEnabled;
-  const paintReady = formulaReady || developerTestEnabled;
-  const modelLayers = developerTestEnabled ? developerTestLayers : paintLayers;
+  const resultReady = completed;
+  const paintReady = formulaReady;
+  const modelLayers = paintLayers;
 
   useEffect(() => {
     if (!hasActivePaint) setEraseMode(false);
@@ -1142,8 +1112,6 @@ export default function StudioPage() {
     }
   };
   const run = () => {
-    // A real run always returns the viewport to scientific assessment output.
-    setDeveloperTestEnabled(false);
     setEraseMode(false);
     runFormula(formula);
   };
@@ -2917,7 +2885,7 @@ export default function StudioPage() {
               region={region}
               paintReady={paintReady}
               resultReady={resultReady}
-              productName={developerTestEnabled ? `${productName} · ค่าทดสอบ` : productName}
+              productName={productName}
               activeFormulaName={activeFormula?.name}
               layers={modelLayers}
               eraseMode={eraseMode}
@@ -3397,85 +3365,6 @@ export default function StudioPage() {
                       </div>
                     )}
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDeveloperTestEnabled((enabled) => {
-                          if (enabled) setEraseMode(false);
-                          return !enabled;
-                        });
-                      }}
-                      aria-pressed={developerTestEnabled}
-                      className={`mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border px-3 text-xs font-semibold transition-colors print:hidden ${developerTestEnabled
-                        ? "border-violet-700 bg-violet-700 text-white hover:bg-violet-800"
-                        : "border-violet-200 bg-violet-50/60 text-violet-800 hover:bg-violet-100"
-                        }`}
-                    >
-                      <SemanticIcon name="flask" className="size-4" />
-                      {developerTestEnabled ? "ปิดโหมดทดสอบ" : "โหมดทดสอบ"}
-                    </button>
-
-                    {developerTestEnabled && (
-                      <div className="mt-2 space-y-3 rounded-xl border border-violet-200 bg-violet-50/40 p-3 print:hidden">
-                        <div className="flex flex-wrap gap-1.5">
-                          {[0, 30, 55, 85].map((score) => (
-                            <button
-                              key={score}
-                              type="button"
-                              onClick={() => setDeveloperTestScores({ skin: score, eye: score, sens: score, acute: score, skin_dryness: score })}
-                              className="rounded-md border border-violet-200 bg-white px-2 py-1 text-[9px] font-medium text-violet-700 hover:bg-violet-100"
-                            >
-                              ทั้งหมด {score}
-                            </button>
-                          ))}
-                          <button
-                            type="button"
-                            onClick={() => setDeveloperTestScores(DEFAULT_DEVELOPER_TEST_SCORES)}
-                            className="ml-auto rounded-md px-2 py-1 text-[9px] font-medium text-slate-500 hover:bg-white"
-                          >
-                            รีเซ็ต
-                          </button>
-                        </div>
-
-                        {ENDPOINTS.map((endpoint) => {
-                          const score = developerTestScores[endpoint];
-                          const band = bandOf(score);
-                          return (
-                            <label key={endpoint} className="grid grid-cols-[minmax(0,1fr)_46px] items-center gap-x-2 gap-y-1">
-                              <span className="flex min-w-0 items-center justify-between gap-2 text-[10px] text-slate-700">
-                                <span className="truncate">{ENDPOINT_LABEL_TH[endpoint]}</span>
-                                <span className="shrink-0 font-mono font-semibold tabular-nums" style={{ color: BAND_HEX[band] }}>
-                                  {score} · {BAND_LABEL[band]}
-                                </span>
-                              </span>
-                              <input
-                                aria-label={`${ENDPOINT_LABEL_TH[endpoint]} (0 ถึง 100)`}
-                                type="number"
-                                min={0}
-                                max={100}
-                                step={1}
-                                value={score}
-                                onChange={(event) => {
-                                  const nextScore = Math.max(0, Math.min(100, Number(event.target.value) || 0));
-                                  setDeveloperTestScores((current) => ({ ...current, [endpoint]: nextScore }));
-                                }}
-                                className="row-span-2 h-8 rounded-lg border border-violet-200 bg-white px-1 text-center font-mono text-[11px] font-semibold text-violet-800 outline-none focus:border-violet-500"
-                              />
-                              <input
-                                aria-label={`ปรับ${ENDPOINT_LABEL_TH[endpoint]}`}
-                                type="range"
-                                min={0}
-                                max={100}
-                                step={1}
-                                value={score}
-                                onChange={(event) => setDeveloperTestScores((current) => ({ ...current, [endpoint]: Number(event.target.value) }))}
-                                className="h-1.5 w-full cursor-pointer accent-violet-600"
-                              />
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
                   </Section>
 
                   <div className="border-t border-slate-200 bg-white px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 md:hidden">

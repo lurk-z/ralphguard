@@ -31,6 +31,10 @@ export function apiErrorMessage(cause: unknown, fallback: string): string {
     return `${fallback}: หมดเวลาการเชื่อมต่อเซิร์ฟเวอร์`;
   }
   if (cause instanceof ApiError) {
+    if (cause.status === 401) return `${fallback}: เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่`;
+    if (cause.status === 503 && cause.detail?.includes("AUTH_SECRET")) {
+      return `${fallback}: ระบบยืนยันตัวตนของเซิร์ฟเวอร์ยังตั้งค่าไม่ครบ`;
+    }
     if (cause.status === 404) return `${fallback}: ไม่พบข้อมูลที่ร้องขอ`;
     if (cause.status === 422 && cause.detail) return `${fallback}: ${cause.detail}`;
     if (cause.status >= 500) return `${fallback}: เซิร์ฟเวอร์ยังไม่พร้อมใช้งาน`;

@@ -164,6 +164,21 @@ https://<โดเมน-vercel>/api/auth/callback/google
 
 ข้อมูลที่สร้างก่อนมีระบบผู้ใช้ยังไม่มี `owner_id` ระบบจึงซ่อนไว้เพื่อไม่ให้ข้อมูลเดิมหลุดไปยังบัญชีใดโดยอัตโนมัติ
 
+## ตรวจ Production ครบในคำสั่งเดียว
+
+หลังตั้งค่าและ Redeploy ทั้ง Vercel กับ Render แล้ว ให้รันจาก root ของโปรเจกต์:
+
+```powershell
+.\scripts\verify_deployment.ps1 `
+  -FrontendUrl "https://ralphguard.vercel.app" `
+  -BackendUrl "https://ralphguard-api.onrender.com" `
+  -AuthSecret "<ค่าเดียวกับ NEXTAUTH_SECRET บน Vercel>"
+```
+
+คำสั่งนี้ตรวจ Backend, Database schema, CORS, Auth/AI configuration, Google provider, ไฟล์โมเดล 3D, QSAR metrics, คลังสาร, สมุนไพรไทย, เรียก AI จริงหนึ่งครั้ง และ Projects API ที่มี token หากมีข้อใดไม่พร้อมจะคืน exit code 1 ทันที โดยจะไม่แสดง secret หรือ token ในผลลัพธ์
+
+หากพบ `AUTH_SECRET not configured` ให้เปิด **Render > ralphguard-api > Environment** เพิ่ม `AUTH_SECRET` โดยใช้ค่าเดียวกับ `NEXTAUTH_SECRET` บน Vercel แล้วกด **Save and Deploy**
+
 ## ข้อควรระวัง
 
 - ห้ามใส่ Secret จริงในไฟล์ที่ commit ขึ้น GitHub

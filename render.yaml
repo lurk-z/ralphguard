@@ -6,7 +6,7 @@ services:
     region: singapore
     dockerfilePath: ./Dockerfile.backend.prod
     dockerContext: .
-    healthCheckPath: /health
+    healthCheckPath: /health/ready
     autoDeployTrigger: commit
     envVars:
       - key: APP_ENV

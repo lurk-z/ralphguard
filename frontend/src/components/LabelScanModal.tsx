@@ -105,6 +105,7 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const OCR_MIN_ZOOM = 1;
 const OCR_MAX_ZOOM = 3;
 const OCR_ZOOM_STEP = 0.5;
+const OCR_REQUEST_TIMEOUT_MS = 45_000;
 const OCR_REFERENCE_BY_SMILES = new Map(
   SUBSTANCE_FLAT.map((item) => [item.smiles.trim(), item.conc]),
 );
@@ -503,8 +504,8 @@ export default function LabelScanModal({
     if (phase !== "scanning") return;
     const interval = window.setInterval(() => {
       setScanProgress((progress) => {
-        if (progress >= 92) return progress;
-        return Math.min(92, progress + Math.max(1, Math.ceil((92 - progress) * 0.08)));
+        if (progress >= 88) return progress;
+        return Math.min(88, progress + Math.max(1, Math.ceil((88 - progress) * 0.08)));
       });
     }, 180);
     return () => window.clearInterval(interval);
@@ -559,6 +560,11 @@ export default function LabelScanModal({
     setShowEstimateNotice(true);
     const requestId = ++scanRequestIdRef.current;
     const controller = new AbortController();
+    let timedOut = false;
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, OCR_REQUEST_TIMEOUT_MS);
     scanControllerRef.current = controller;
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     previewUrlRef.current = URL.createObjectURL(file);
@@ -570,12 +576,18 @@ export default function LabelScanModal({
       const form = new FormData();
       form.append("file", file);
       const [response] = await Promise.all([
-        fetch(`${API}/api/ocr/`, { method: "POST", body: form, signal: controller.signal }),
+        fetch(`${API}/api/ocr/?online=false`, { method: "POST", body: form, signal: controller.signal }),
         wait(250),
       ]);
       if (requestId !== scanRequestIdRef.current || controller.signal.aborted) return;
       if (!response.ok) {
         const detail = await response.json().catch(() => ({}));
+        if (response.status === 422) {
+          throw new Error("ไม่พบข้อความส่วนผสมที่อ่านได้ กรุณาถ่ายภาพให้คมชัด ตรง และไม่มีแสงสะท้อน");
+        }
+        if (response.status >= 500) {
+          throw new Error("บริการอ่านฉลากยังไม่พร้อม กรุณาลองใหม่อีกครั้ง");
+        }
         throw new Error(detail?.detail || `HTTP ${response.status}`);
       }
       const data = (await response.json()) as Result;
@@ -620,10 +632,21 @@ export default function LabelScanModal({
         };
       }));
     } catch (cause: any) {
-      if (cause?.name === "AbortError" || requestId !== scanRequestIdRef.current) return;
-      setError(cause?.message || String(cause));
+      if (requestId !== scanRequestIdRef.current) return;
+      if (cause?.name === "AbortError") {
+        if (timedOut) {
+          setError("ใช้เวลาอ่านฉลากเกิน 45 วินาที กรุณาลองภาพที่ครอบเฉพาะรายการ Ingredients");
+        }
+        return;
+      }
+      setError(
+        cause instanceof TypeError
+          ? "เชื่อมต่อบริการอ่านฉลากไม่ได้ กรุณาตรวจอินเทอร์เน็ตแล้วลองใหม่"
+          : cause?.message || String(cause),
+      );
     } finally {
-      if (requestId === scanRequestIdRef.current && !controller.signal.aborted) {
+      window.clearTimeout(timeoutId);
+      if (requestId === scanRequestIdRef.current) {
         scanControllerRef.current = null;
         setPhase("done");
       }

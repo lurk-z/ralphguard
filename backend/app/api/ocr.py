@@ -532,7 +532,16 @@ class OcrOut(BaseModel):
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/tiff"}
-OCR_PSM_MODES = (4, 6, 11)
+# Four complementary passes are enough for consensus while keeping the request
+# below the timeout of small production instances.  The previous 3x3 matrix
+# launched nine Tesseract processes sequentially and could exceed a minute.
+OCR_PASS_PLAN = (
+    ("sharpened", 6),
+    ("autocontrast", 4),
+    ("autocontrast", 11),
+    ("binary_otsu", 6),
+)
+OCR_PASS_TIMEOUT_SECONDS = 7
 
 
 @dataclass(frozen=True)
@@ -677,7 +686,7 @@ def _ocr_candidate(pytesseract, img, psm: int) -> tuple[str, float]:
         lang="eng",
         config=config,
         output_type=Output.DICT,
-        timeout=12,
+        timeout=OCR_PASS_TIMEOUT_SECONDS,
     )
     lines: dict[tuple, list[str]] = {}
     confidence_total = 0.0
@@ -808,24 +817,25 @@ def _consensus_text(passes: list[OcrPass]) -> str:
 
 def _run_ocr_ensemble(pytesseract, data: bytes):
     variants = _prepare_image_variants(data)
+    images = dict(variants)
     passes: list[OcrPass] = []
-    for variant_name, image in variants:
-        for psm in OCR_PSM_MODES:
-            try:
-                text, confidence = _ocr_candidate(pytesseract, image, psm)
-            except RuntimeError:
-                continue  # one timed-out segmentation mode must not fail the scan
-            if not text:
-                continue
-            passes.append(
-                OcrPass(
-                    text=text,
-                    confidence=confidence,
-                    variant=variant_name,
-                    psm=psm,
-                    quality=_candidate_quality(text, confidence),
-                )
+    for variant_name, psm in OCR_PASS_PLAN:
+        image = images[variant_name]
+        try:
+            text, confidence = _ocr_candidate(pytesseract, image, psm)
+        except RuntimeError:
+            continue  # one timed-out segmentation mode must not fail the scan
+        if not text:
+            continue
+        passes.append(
+            OcrPass(
+                text=text,
+                confidence=confidence,
+                variant=variant_name,
+                psm=psm,
+                quality=_candidate_quality(text, confidence),
             )
+        )
     if not passes:
         raise ValueError("no text recognized in any OCR pass")
 
@@ -848,7 +858,7 @@ def _run_ocr_ensemble(pytesseract, data: bytes):
 @router.post("/", response_model=OcrOut)
 async def read_label(
     file: UploadFile = File(...),
-    online: bool = True,
+    online: bool = False,
     db: Session = Depends(get_db),
 ):
     data = await file.read()
