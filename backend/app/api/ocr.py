@@ -532,18 +532,14 @@ class OcrOut(BaseModel):
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/tiff"}
-# Four complementary passes are enough for consensus while keeping the request
-# below the timeout of small production instances.  The previous 3x3 matrix
-# launched nine Tesseract processes sequentially and could exceed a minute.
-OCR_PASS_PLAN = (
-    ("sharpened", 6),
-    ("autocontrast", 11),
-    ("binary_otsu", 6),
-)
-OCR_PRIMARY_PASS_COUNT = 2
-OCR_PASS_TIMEOUT_SECONDS = 10
-OCR_EMERGENCY_WIDTH = 800
-OCR_EMERGENCY_TIMEOUT_SECONDS = 15
+# Render's free CPU cannot finish several short-lived Tesseract processes: the
+# engine was killed three times at 10 seconds and again on the fallback, so a
+# clear 662x502 label failed after ~48 seconds.  Give one well-suited pass time
+# to finish; only then try a small emergency image.
+OCR_PASS_PLAN = (("sharpened", 6),)
+OCR_PASS_TIMEOUT_SECONDS = 42
+OCR_EMERGENCY_WIDTH = 500
+OCR_EMERGENCY_TIMEOUT_SECONDS = 12
 
 
 @dataclass(frozen=True)
@@ -646,17 +642,13 @@ def _prepare_image_variants(data: bytes):
     gray = ImageOps.exif_transpose(img).convert("L")
     gray = _deskew_image(gray)
 
-    # Normalize both tiny phone crops and unnecessarily large camera frames.
-    # Render's free CPU can time out on repeated high-resolution Tesseract
-    # passes.  A 1200px working image retains the INCI text seen in phone
-    # screenshots while cutting pixel work substantially; a smaller fallback
-    # below handles especially slow
-    # images instead of returning an empty result after every pass times out.
-    target_width = 1200
-    if gray.width < target_width:
-        scale = min(4.0, target_width / max(1, gray.width))
-    elif gray.width > 1800:
-        scale = 1800 / gray.width
+    # Do not enlarge already readable screenshots: upscaling a 662px image to
+    # 1200px more than tripled its pixel work on Render.  Only rescue genuinely
+    # tiny inputs and cap large camera images.
+    if gray.width < 500:
+        scale = min(1.5, 700 / max(1, gray.width))
+    elif gray.width > 1400:
+        scale = 1400 / gray.width
     else:
         scale = 1.0
     if scale != 1.0:
@@ -832,16 +824,14 @@ def _run_ocr_ensemble(pytesseract, data: bytes):
     variants = _prepare_image_variants(data)
     images = dict(variants)
     passes: list[OcrPass] = []
-    timed_out_passes = 0
     pass_errors: list[str] = []
-    for pass_index, (variant_name, psm) in enumerate(OCR_PASS_PLAN):
+    for variant_name, psm in OCR_PASS_PLAN:
         image = images[variant_name]
         try:
             text, confidence = _ocr_candidate(pytesseract, image, psm)
         except RuntimeError as exc:
-            timed_out_passes += 1
             pass_errors.append(str(exc))
-            continue  # one timed-out segmentation mode must not fail the scan
+            continue
         if not text:
             continue
         passes.append(
@@ -853,17 +843,7 @@ def _run_ocr_ensemble(pytesseract, data: bytes):
                 quality=_candidate_quality(text, confidence),
             )
         )
-        # Two complementary passes are sufficient for a clear label.  Difficult
-        # labels continue through the binary and column-layout fallbacks.
-        if pass_index + 1 == OCR_PRIMARY_PASS_COUNT and len(passes) >= 2:
-            provisional = _consensus_text(passes) or max(
-                passes, key=lambda item: item.quality
-            ).text
-            matched, no_structure, _unmatched = resolve(provisional, online=False)
-            if len(matched) + len(no_structure) >= 3:
-                break
-
-    if not passes and timed_out_passes:
+    if not passes:
         from PIL import Image
 
         emergency = images["autocontrast"].copy()
@@ -909,7 +889,7 @@ def _run_ocr_ensemble(pytesseract, data: bytes):
         "consensus_text": consensus,
         "confidence": ensemble_confidence,
         "pass_count": len(passes),
-        "variants": [name for name, _ in variants],
+        "variants": list(dict.fromkeys(item.variant for item in passes)),
         "selected_variant": best.variant,
         "selected_psm": best.psm,
     }
