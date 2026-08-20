@@ -4,6 +4,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     MODELS_DIR=/models \
+    SCIENTIFIC_RUNTIME_DIR=/scientific \
+    ASSESSMENT_EXECUTION_MODE=inline \
+    PYTHONPATH=/scientific \
     PORT=10000
 
 WORKDIR /app
@@ -19,9 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt ./requirements.txt
-RUN pip install -r requirements.txt
+COPY scientific/requirements.worker.txt ./requirements.worker.txt
+RUN pip install -r requirements.txt -r requirements.worker.txt
 
 COPY backend/ ./
+COPY scientific/*.py /scientific/
+COPY scientific/qsar/ /scientific/qsar/
 COPY scientific/models/ /models/
 
 RUN test -s /models/skin_model.pkl \
@@ -30,10 +36,10 @@ RUN test -s /models/skin_model.pkl \
     && test -s /models/acute_model.pkl \
     && test -s /models/candidate_v3/skin_dryness_model.pkl \
     && useradd --create-home --uid 10001 ralphguard \
-    && chown -R ralphguard:ralphguard /app /models
+    && chown -R ralphguard:ralphguard /app /models /scientific
 
 USER ralphguard
 
 EXPOSE 10000
 
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}"]
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}"]

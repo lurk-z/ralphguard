@@ -1,6 +1,6 @@
 """Application configuration loaded from environment variables."""
 from pathlib import Path
-from typing import List
+from typing import List, Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -41,9 +41,11 @@ class Settings(BaseSettings):
     # Redis / Queue
     REDIS_URL: str = "redis://redis:6379/0"
     QUEUE_STREAM_NAME: str = "ralphguard:jobs"
+    ASSESSMENT_EXECUTION_MODE: Literal["queue", "inline"] = "queue"
 
     # Models (read-only mount of scientific/models — used for the model card)
     MODELS_DIR: str = "/models"
+    SCIENTIFIC_RUNTIME_DIR: str = "/scientific"
 
     # LLM for the voice assistant — Groq (OpenAI-compatible, free). Key is read
     # from the environment / .env only — never hard-coded, never sent to browser.

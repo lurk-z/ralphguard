@@ -48,6 +48,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-ralphguard}:${POSTGRES_PASSWORD:-ralphguard_dev}@postgres:5432/${POSTGRES_DB:-ralphguard}
       REDIS_URL: redis://redis:6379/0
+      ASSESSMENT_EXECUTION_MODE: ${ASSESSMENT_EXECUTION_MODE:-queue}
       API_SECRET_KEY: ${API_SECRET_KEY:-dev-secret-change-me}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
       MODELS_DIR: /models

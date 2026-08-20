@@ -1,11 +1,12 @@
 """Risk assessment endpoints — create + list + poll."""
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.core.config import settings
 from app.models import Assessment
 from app.schemas.assessment import (
     AssessmentResult,
@@ -26,10 +27,14 @@ router = APIRouter()
 )
 async def create_assessment(
     payload: CreateAssessmentRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> CreateAssessmentResponse:
-    """Queue a formula for QSAR risk assessment. Poll the result via GET /{job_id}."""
-    row = assessment_service.create_assessment(db, payload)
+    """Start a formula assessment and poll the result via GET /{job_id}."""
+    inline = settings.ASSESSMENT_EXECUTION_MODE == "inline"
+    row = assessment_service.create_assessment(db, payload, enqueue=not inline)
+    if inline:
+        background_tasks.add_task(assessment_service.process_assessment_inline, row.id)
     return CreateAssessmentResponse(job_id=row.id, status=AssessmentStatus(row.status.value))
 
 

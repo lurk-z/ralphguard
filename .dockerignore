@@ -6,6 +6,10 @@ backend/**/__pycache__/
 backend/**/*.py[cod]
 !scientific/
 scientific/*
+!scientific/*.py
+!scientific/qsar/
+!scientific/qsar/**
+!scientific/requirements.worker.txt
 !scientific/models/
 !scientific/models/**
 scientific/models/candidate_v2/

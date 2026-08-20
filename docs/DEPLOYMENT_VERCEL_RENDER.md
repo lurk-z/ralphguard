@@ -1,6 +1,6 @@
-# RalphGuard: Deploy ด้วย Vercel + Render
+# RalphGuard: Deploy แบบ Free ด้วย Vercel + Render
 
-ชุดไฟล์นี้เตรียมไว้สำหรับ Frontend บน Vercel และ Backend, Worker, PostgreSQL, Redis บน Render
+ชุดนี้ใช้ Frontend บน Vercel Free และใช้ FastAPI Web Service + PostgreSQL บน Render Free โดยไม่สร้าง Background Worker หรือ Redis
 
 ## 1. Push ไฟล์ขึ้น GitHub
 
@@ -15,13 +15,13 @@
    - `CORS_ORIGINS`: ใส่ `*` ชั่วคราวใน deploy แรก
    - `GROQ_API_KEY`: API key จริงจาก Groq ห้าม commit ลง Git
 5. ตรวจสอบค่าใช้จ่ายที่ Render แสดงก่อนกด Apply
-6. รอ API, Worker, PostgreSQL และ Redis ขึ้นครบ
+6. รอ API และ PostgreSQL ขึ้นครบ
 7. ทดสอบ:
    - `https://<render-api>/health`
    - `https://<render-api>/health/ready`
    - `https://<render-api>/docs`
 
-Blueprint ใช้ paid instance สำหรับบริการที่ต้องทำงานต่อเนื่อง โดยเฉพาะ Background Worker ซึ่ง Render ไม่มี Free plan
+Blueprint กำหนด `plan: free` ทุก resource และรัน QSAR inference ภายใน FastAPI จากโมเดลที่บรรจุใน Docker image
 
 ## 3. สร้าง Frontend บน Vercel
 
@@ -47,14 +47,16 @@ https://ralphguard.vercel.app
 1. เปิดหน้าเว็บ Vercel
 2. สร้างหรือเปิดโปรเจกต์
 3. เพิ่มสารและกดประเมิน
-4. ตรวจว่า Worker ประมวลผลจนสถานะเสร็จ
+4. ตรวจว่า FastAPI ประมวลผลจนสถานะเสร็จ
 5. ตรวจผลทั้ง 5 endpoint รวม Skin Dryness
 6. ทดลอง AI Assistant
 
 ## หมายเหตุ
 
-- Production image บรรจุ 4 production models และ Skin Dryness candidate รุ่นปัจจุบันจาก `scientific/models`
-- Database migration ทำผ่าน `preDeployCommand` ก่อน API รุ่นใหม่เริ่มทำงาน
+- Docker image บรรจุ 4 production models และ Skin Dryness candidate รุ่นปัจจุบันจาก `scientific/models`
+- Database migration ทำตอน Container เริ่ม เพราะ Free Web Service ไม่รองรับ `preDeployCommand`
 - โมเดล Groq เริ่มต้นคือ `openai/gpt-oss-120b`
-- การเพิ่มกำลัง Worker ให้ปรับจำนวน instance ใน Render ไม่ใช้ `WORKER_CONCURRENCY`
+- Free Web Service จะพักเมื่อไม่มี request และ request แรกหลังพักอาจใช้เวลาประมาณหนึ่งนาที
+- Free PostgreSQL หมดอายุหลัง 30 วัน จึงเหมาะสำหรับ demo/testing
+- งาน train, bulk import, evidence crawling และ continual learning ให้รันบนเครื่องพัฒนา ไม่รันบน Render
 - ห้ามใส่ API key หรือรหัสผ่านจริงในไฟล์ repository
