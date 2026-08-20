@@ -537,11 +537,14 @@ ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/tiff"}
 # launched nine Tesseract processes sequentially and could exceed a minute.
 OCR_PASS_PLAN = (
     ("sharpened", 6),
-    ("autocontrast", 4),
     ("autocontrast", 11),
     ("binary_otsu", 6),
+    ("autocontrast", 4),
 )
-OCR_PASS_TIMEOUT_SECONDS = 7
+OCR_PRIMARY_PASS_COUNT = 2
+OCR_PASS_TIMEOUT_SECONDS = 12
+OCR_EMERGENCY_WIDTH = 1000
+OCR_EMERGENCY_TIMEOUT_SECONDS = 8
 
 
 @dataclass(frozen=True)
@@ -645,11 +648,15 @@ def _prepare_image_variants(data: bytes):
     gray = _deskew_image(gray)
 
     # Normalize both tiny phone crops and unnecessarily large camera frames.
-    target_width = 2200
+    # Render's free CPU can time out on repeated 2200px Tesseract passes.  A
+    # 1600px working image retains small INCI text while cutting pixel work by
+    # roughly half; a smaller emergency pass below handles especially slow
+    # images instead of returning an empty result after every pass times out.
+    target_width = 1600
     if gray.width < target_width:
         scale = min(4.0, target_width / max(1, gray.width))
-    elif gray.width > 3200:
-        scale = 3200 / gray.width
+    elif gray.width > 2400:
+        scale = 2400 / gray.width
     else:
         scale = 1.0
     if scale != 1.0:
@@ -676,7 +683,13 @@ def _prepare_image(data: bytes):
     return _prepare_image_variants(data)[0][1]
 
 
-def _ocr_candidate(pytesseract, img, psm: int) -> tuple[str, float]:
+def _ocr_candidate(
+    pytesseract,
+    img,
+    psm: int,
+    *,
+    timeout_seconds: int = OCR_PASS_TIMEOUT_SECONDS,
+) -> tuple[str, float]:
     """Return OCR text and length-weighted confidence from one Tesseract call."""
     from pytesseract import Output
 
@@ -686,7 +699,7 @@ def _ocr_candidate(pytesseract, img, psm: int) -> tuple[str, float]:
         lang="eng",
         config=config,
         output_type=Output.DICT,
-        timeout=OCR_PASS_TIMEOUT_SECONDS,
+        timeout=timeout_seconds,
     )
     lines: dict[tuple, list[str]] = {}
     confidence_total = 0.0
@@ -819,11 +832,13 @@ def _run_ocr_ensemble(pytesseract, data: bytes):
     variants = _prepare_image_variants(data)
     images = dict(variants)
     passes: list[OcrPass] = []
-    for variant_name, psm in OCR_PASS_PLAN:
+    timed_out_passes = 0
+    for pass_index, (variant_name, psm) in enumerate(OCR_PASS_PLAN):
         image = images[variant_name]
         try:
             text, confidence = _ocr_candidate(pytesseract, image, psm)
         except RuntimeError:
+            timed_out_passes += 1
             continue  # one timed-out segmentation mode must not fail the scan
         if not text:
             continue
@@ -836,6 +851,44 @@ def _run_ocr_ensemble(pytesseract, data: bytes):
                 quality=_candidate_quality(text, confidence),
             )
         )
+        # Two complementary passes are sufficient for a clear label.  Difficult
+        # labels continue through the binary and column-layout fallbacks.
+        if pass_index + 1 == OCR_PRIMARY_PASS_COUNT and len(passes) >= 2:
+            provisional = _consensus_text(passes) or max(
+                passes, key=lambda item: item.quality
+            ).text
+            matched, no_structure, _unmatched = resolve(provisional, online=False)
+            if len(matched) + len(no_structure) >= 3:
+                break
+
+    if not passes and timed_out_passes:
+        from PIL import Image
+
+        emergency = images["autocontrast"].copy()
+        emergency.thumbnail(
+            (OCR_EMERGENCY_WIDTH, OCR_EMERGENCY_WIDTH * 4),
+            Image.Resampling.LANCZOS,
+        )
+        try:
+            text, confidence = _ocr_candidate(
+                pytesseract,
+                emergency,
+                6,
+                timeout_seconds=OCR_EMERGENCY_TIMEOUT_SECONDS,
+            )
+        except RuntimeError:
+            text = ""
+            confidence = 0.0
+        if text:
+            passes.append(
+                OcrPass(
+                    text=text,
+                    confidence=confidence,
+                    variant="emergency_downscale",
+                    psm=6,
+                    quality=_candidate_quality(text, confidence),
+                )
+            )
     if not passes:
         raise ValueError("no text recognized in any OCR pass")
 

@@ -105,7 +105,7 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const OCR_MIN_ZOOM = 1;
 const OCR_MAX_ZOOM = 3;
 const OCR_ZOOM_STEP = 0.5;
-const OCR_REQUEST_TIMEOUT_MS = 45_000;
+const OCR_REQUEST_TIMEOUT_MS = 65_000;
 const OCR_REFERENCE_BY_SMILES = new Map(
   SUBSTANCE_FLAT.map((item) => [item.smiles.trim(), item.conc]),
 );
@@ -635,7 +635,7 @@ export default function LabelScanModal({
       if (requestId !== scanRequestIdRef.current) return;
       if (cause?.name === "AbortError") {
         if (timedOut) {
-          setError("ใช้เวลาอ่านฉลากเกิน 45 วินาที กรุณาลองภาพที่ครอบเฉพาะรายการ Ingredients");
+          setError("ใช้เวลาอ่านฉลากเกิน 65 วินาที กรุณาลองภาพที่ครอบเฉพาะรายการ Ingredients");
         }
         return;
       }
