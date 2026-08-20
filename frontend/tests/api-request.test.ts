@@ -86,3 +86,30 @@ test("project creation surfaces backend failure instead of returning a fake proj
     globalThis.fetch = originalFetch;
   }
 });
+
+test("ready registry search requests QSAR-ready verified substances and exposes the count", async () => {
+  const originalFetch = globalThis.fetch;
+  const urls: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    urls.push(url);
+    const body = url.includes("ready-count") ? { count: 189_302 } : [];
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    await api.searchReadyIngredientRegistry("niacinamide", 25);
+    const count = await api.countReadyIngredientRegistry();
+    const searchUrl = new URL(urls[0]);
+    assert.equal(searchUrl.searchParams.get("verification_status"), "verified");
+    assert.equal(searchUrl.searchParams.get("qsar_eligible"), "true");
+    assert.equal(searchUrl.searchParams.get("q"), "niacinamide");
+    assert.equal(searchUrl.searchParams.get("limit"), "25");
+    assert.equal(count.count, 189_302);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

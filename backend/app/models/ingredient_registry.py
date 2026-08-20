@@ -137,3 +137,55 @@ class ExperimentalEvidence(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class SubstanceObservation(Base):
+    """User/external identity observation; never training evidence by itself."""
+
+    __tablename__ = "substance_observations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ingredient_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ingredient_registry.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    original_query: Mapped[str] = mapped_column(String(1000), nullable=False)
+    normalized_query: Mapped[str] = mapped_column(String(1000), nullable=False)
+    query_type: Mapped[str] = mapped_column(String(30), nullable=False, default="auto")
+    resolution_status: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    canonical_smiles: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    inchikey: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    registry_status: Mapped[str] = mapped_column(String(40), nullable=False)
+    qsar_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    model_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    prediction_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    training_exposure: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    applicability_domain: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    uncertainty: Mapped[float | None] = mapped_column(Float, nullable=True)
+    training_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+
+class ContinualLearningQueue(Base):
+    """Verified-evidence queue for candidate updates; no automatic promotion."""
+
+    __tablename__ = "continual_learning_queue"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    endpoint: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    canonical_smiles: Mapped[str] = mapped_column(String(2000), nullable=False)
+    inchikey: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    label: Mapped[int] = mapped_column(Integer, nullable=False)
+    evidence_id: Mapped[int] = mapped_column(
+        ForeignKey("experimental_evidence.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    evidence_tier: Mapped[str] = mapped_column(String(10), nullable=False)
+    sample_weight: Mapped[float] = mapped_column(Float, nullable=False)
+    review_status: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    base_model_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    added_to_candidate_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    eligibility_reason: Mapped[str] = mapped_column(String(200), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

@@ -22,6 +22,8 @@ SubstanceType = Literal[
 class RegistryLookupInput(BaseModel):
     name: str = Field(..., min_length=2, max_length=300)
     refresh: bool = False
+    query_type: Literal["auto", "name", "inci", "cas", "pubchem_cid", "smiles"] = "auto"
+    persist_observation: bool = True
 
 
 class RegistryVerifyInput(BaseModel):
@@ -52,7 +54,7 @@ class ExperimentalEvidenceOut(BaseModel):
     id: int
     ingredient_id: int
     pubchem_cid: int
-    endpoint: Literal["skin", "eye", "sens", "acute"]
+    endpoint: Literal["skin", "eye", "sens", "acute", "skin_dryness"]
     candidate_label: int
     evidence_type: str
     hazard_codes: list[str]
@@ -79,7 +81,7 @@ class EvidenceImportSummary(BaseModel):
 
 
 class TrainingExportSummary(BaseModel):
-    endpoint: Literal["skin", "eye", "sens", "acute"]
+    endpoint: Literal["skin", "eye", "sens", "acute", "skin_dryness"]
     verified_rows: int
     unique_structures: int
     skipped_conflicts: int
@@ -117,7 +119,7 @@ class IngredientRegistryOut(BaseModel):
 
 
 class SubstanceHazardSummary(BaseModel):
-    endpoint: Literal["skin", "eye", "sens", "acute"]
+    endpoint: Literal["skin", "eye", "sens", "acute", "skin_dryness"]
     hazard_codes: list[str]
     source_count: int
     verification: Literal["pending", "consensus_verified", "verified"]

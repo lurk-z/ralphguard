@@ -165,10 +165,19 @@ def load_candidate_endpoint(
     base_path = training.DATASETS[endpoint]
     pubchem_path = training.CURATED_PUBCHEM_DATASETS[endpoint]
     nice_path = CURATED_DIR / f"nice_verified_{endpoint}.csv"
-    experimental_path = CURATED_DIR / f"{endpoint}_negative_clean.csv"
+    experimental_paths = [CURATED_DIR / f"{endpoint}_negative_clean.csv"]
+    if endpoint == "sens":
+        experimental_paths.append(CURATED_DIR / "sens_hppt_clean.csv")
 
     base = _source_frame(base_path, "base")
-    experimental = _source_frame(experimental_path, "external_experimental")
+    experimental_frames = [
+        _source_frame(path, "external_experimental") for path in experimental_paths
+    ]
+    experimental = pd.concat(
+        [frame for frame in experimental_frames if not frame.empty],
+        ignore_index=True,
+        sort=False,
+    ) if any(not frame.empty for frame in experimental_frames) else pd.DataFrame()
     nice = _source_frame(nice_path, "nice_reviewed")
     pubchem = _source_frame(pubchem_path, "pubchem_reviewed")
     frames = [frame for frame in (base, experimental, nice, pubchem) if not frame.empty]
@@ -826,6 +835,20 @@ def main() -> int:
                 },
             },
             "production_models_modified": False,
+        }
+        identity_index_path = OUT / f"{endpoint}_training_identities.csv.gz"
+        pd.DataFrame(
+            {
+                "endpoint": endpoint,
+                "identity_key": train_identity_keys,
+                "canonical_smiles": smiles,
+                "exposure_role": "training",
+            }
+        ).to_csv(identity_index_path, index=False, compression="gzip")
+        bundle["training_identity_index"] = {
+            "file": identity_index_path.name,
+            "sha256": hashlib.sha256(identity_index_path.read_bytes()).hexdigest(),
+            "count": len(train_identity_keys),
         }
         with (OUT / f"{endpoint}_model.pkl").open("wb") as handle:
             pickle.dump(bundle, handle)

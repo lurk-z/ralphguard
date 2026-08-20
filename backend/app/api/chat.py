@@ -59,6 +59,30 @@ def _parse_actions(text: str) -> list[dict]:
     return [item for item in actions if isinstance(item, dict)] if isinstance(actions, list) else []
 
 
+def _has_action_markup(text: str) -> bool:
+    """Return whether the model attempted to emit an executable action block."""
+    return bool(re.search(r"<action>", text, flags=re.IGNORECASE))
+
+
+def _is_workspace_mutation_request(question: str) -> bool:
+    """Detect requests that must return executable actions, not prose alone."""
+    return bool(
+        re.search(
+            r"(ปรับสูตร|แก้(?:ไข)?สูตร|ทำสูตร|สร้างสูตร|เพิ่มสาร|เติมสาร|ลดสาร|ลดความเข้มข้น|"
+            r"เปลี่ยนสาร|เอา.+ออก|ลบสาร|ตั้งชื่อสูตร|รัน|ประเมินใหม่|"
+            r"adjust\s+(?:the\s+)?formula|modify\s+(?:the\s+)?formula|create\s+(?:a\s+)?formula|"
+            r"add\s+(?:an?\s+)?ingredient|remove\s+(?:an?\s+)?ingredient|run\s+(?:the\s+)?assessment)",
+            question,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _strip_action_markup(text: str) -> str:
+    """Remove complete or truncated action payloads before showing prose to users."""
+    return re.sub(r"<action>[\s\S]*?(?:</action>|$)", "", text, flags=re.IGNORECASE).strip()
+
+
 def _unsupported_action_ingredients(text: str) -> list[str]:
     """Find extract/mixture names the model attempted to create as molecules."""
     names: list[str] = []
@@ -178,6 +202,10 @@ set_formula{items} · create_formula{name,items} · goto{tab:"assess"|"nodes"|"t
 - "ตั้งชื่อสูตร/เปลี่ยนชื่อสูตรเป็น ..." → ใช้ rename_formula{name:"..."} (เปลี่ยนชื่อสูตรที่เปิดอยู่)
 - สำคัญมาก: ทำ "ทุกอย่าง" ที่ผู้ใช้สั่งในข้อความเดียวให้ครบ โดยแนบหลายคำสั่งใน <action>[...]</action> เดียว
   เช่นถ้าเขาบอก "ลด A, เปลี่ยน B เป็น C, เติม D, ตั้งชื่อสูตร E แล้ว Run" → ต้องมีครบทั้ง 5 คำสั่ง อย่าทำแค่บางอัน
+- เมื่อเป็นคำสั่งแก้ workspace ต้องวาง <action>...</action> ที่สมบูรณ์เป็นบล็อกแรกของคำตอบ ก่อนข้อความอธิบายเสมอ
+  จากนั้นอธิบายไม่เกิน 180 คำ ห้ามเริ่ม JSON แล้วปล่อยค้าง และห้ามใช้ Markdown code fence ครอบ action
+- ก่อนผู้ใช้กด "ยืนยันการเปลี่ยนแปลง" ให้พูดว่า "เตรียมรายการปรับแล้ว" หรือ "เสนอให้ปรับ" เท่านั้น
+  ห้ามกล่าวว่าแก้สูตรเรียบร้อยแล้ว เพราะ frontend ยังไม่เปลี่ยน workspace จนกว่าผู้ใช้จะยืนยัน
 - ถ้าเขาสั่ง "สร้างให้เลย/ทำให้หน่อย" → ใช้ <action> create_formula (ลงมือทำ)
 - ถ้าเขาแค่ "ขอสูตร/แนะนำสูตร" ให้เขากดนำเข้าเอง → แนบ <formula>[{name,smiles,concentration}]</formula> (แสดงเป็นการ์ดให้กด Add)
 ใส่ SMILES ที่ถูกต้องเสมอ
@@ -263,14 +291,19 @@ async def chat(body: ChatIn):
         ],
         "temperature": 0.6,
         "top_p": 0.95,
-        "max_tokens": 800,
+        # Reasoning-capable replacement models can spend substantially more
+        # completion tokens than the retired Llama model. Keep enough room for
+        # a complete action block and validate it before returning to the UI.
+        "max_tokens": 1600,
     }
 
     text = ""
     invalid_names: list[str] = []
+    mutation_requested = _is_workspace_mutation_request(question)
+    action_error = False
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            for attempt in range(2):
+            for attempt in range(3):
                 r = await client.post(
                     GROQ_URL,
                     headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
@@ -287,23 +320,33 @@ async def chat(body: ChatIn):
                     raise HTTPException(status_code=502, detail="LLM returned empty response")
 
                 invalid_names = _unsupported_action_ingredients(text)
-                if not invalid_names:
+                actions = _parse_actions(text)
+                action_error = mutation_requested and not actions
+                if not invalid_names and not action_error:
                     break
-                if attempt == 0:
+                if attempt >= 2:
+                    continue
+
+                if invalid_names:
                     allowed = ", ".join(GENTLE_ACTION_SUBSTANCES)
-                    payload["messages"].extend(
-                        [
-                            {"role": "assistant", "content": text},
-                            {
-                                "role": "user",
-                                "content": (
-                                    "คำตอบก่อนหน้าถูกระบบปฏิเสธ เพราะพยายามแทนสารสกัด/สารผสมด้วย SMILES เดี่ยว: "
-                                    f"{', '.join(invalid_names)} กรุณาตอบใหม่และสร้าง action ใหม่โดยไม่กล่าวถึงหรือใช้สารเหล่านั้น "
-                                    f"สำหรับสูตรอ่อนโยนให้เลือกจากรายการที่ตรวจสอบแล้วนี้เท่านั้น: {allowed}"
-                                ),
-                            },
-                        ]
+                    correction = (
+                        "คำตอบก่อนหน้าถูกระบบปฏิเสธ เพราะพยายามแทนสารสกัด/สารผสมด้วย SMILES เดี่ยว: "
+                        f"{', '.join(invalid_names)} กรุณาสร้าง action ใหม่โดยไม่ใช้สารเหล่านั้น "
+                        f"สำหรับสูตรอ่อนโยนให้เลือกจากรายการที่ตรวจสอบแล้วนี้เท่านั้น: {allowed}"
                     )
+                else:
+                    attempted = "มี <action> ที่ไม่สมบูรณ์หรือ JSON ผิดรูปแบบ" if _has_action_markup(text) else "ไม่มี <action>"
+                    correction = (
+                        f"คำตอบก่อนหน้า{attempted} ทั้งที่ผู้ใช้สั่งแก้ workspace กรุณาตอบใหม่แบบกระชับ "
+                        "โดยเริ่มคำตอบด้วย <action>[JSON array ที่ถูกต้อง]</action> ให้ครบทุกคำสั่งก่อนข้อความอธิบาย "
+                        "ใช้ชื่อสารเดิมให้ตรงกับข้อมูลสูตรในบริบท และอย่ากล่าวว่าแก้เสร็จก่อนผู้ใช้ยืนยัน"
+                    )
+                payload["messages"].extend(
+                    [
+                        {"role": "assistant", "content": text},
+                        {"role": "user", "content": correction},
+                    ]
+                )
     except HTTPException:
         raise
     except Exception as e:  # network / DNS / timeout
@@ -317,6 +360,11 @@ async def chat(body: ChatIn):
         if fallback:
             text = fallback
         else:
-            text = re.sub(r"<action>[\s\S]*?</action>", "", text, flags=re.IGNORECASE).strip()
+            text = _strip_action_markup(text)
             text += "\n\nยังไม่เปลี่ยน workspace เพราะสูตรมีสารสกัดที่ไม่มีโครงสร้างโมเลกุลเดี่ยว กรุณาเลือกสารที่มีโครงสร้างยืนยันแล้วค่ะ"
+    elif mutation_requested and not _parse_actions(text):
+        text = _strip_action_markup(text)
+        if text:
+            text += "\n\n"
+        text += "ยังไม่ได้เปลี่ยนสูตร เพราะ AI สร้างรายการคำสั่งไม่สมบูรณ์ กรุณาลองสั่งอีกครั้งค่ะ"
     return ChatOut(answer=text)

@@ -4,11 +4,11 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from rdkit import Chem
 from rdkit.Chem.Draw import rdMolDraw2D
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models.ingredient_registry import ExperimentalEvidence, IngredientRegistry, PubChemCache
+from app.models.ingredient_registry import ExperimentalEvidence, IngredientRegistry, PubChemCache, SubstanceObservation
 from app.schemas.ingredient_registry import (
     EvidenceImportSummary,
     EvidenceReviewInput,
@@ -39,11 +39,11 @@ from app.services.pubchem_evidence import (
     promote_consensus_evidence,
     verified_training_rows,
 )
+from app.core.endpoints import ENDPOINT_ORDER
+from app.services.training_exposure import endpoint_training_exposure
+from app.services.continual_learning import enqueue_verified_evidence, external_holdout_identity_keys
 
 router = APIRouter()
-
-
-ENDPOINT_ORDER = {"skin": 0, "eye": 1, "sens": 2, "acute": 3}
 
 
 @router.post("/validate", response_model=SmilesValidationResult)
@@ -201,6 +201,8 @@ def get_substance_profile(
 @router.get("/registry", response_model=list[IngredientRegistryOut])
 async def list_ingredient_registry(
     verification_status: str | None = Query(None, max_length=30),
+    qsar_eligible: bool | None = Query(None),
+    q: str | None = Query(None, min_length=1, max_length=300),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -208,6 +210,19 @@ async def list_ingredient_registry(
     query = select(IngredientRegistry)
     if verification_status:
         query = query.where(IngredientRegistry.verification_status == verification_status)
+    if qsar_eligible is not None:
+        query = query.where(IngredientRegistry.qsar_eligible == qsar_eligible)
+    if q and q.strip():
+        pattern = f"%{q.strip()}%"
+        query = query.where(
+            or_(
+                IngredientRegistry.inci_name.ilike(pattern),
+                IngredientRegistry.canonical_name.ilike(pattern),
+                IngredientRegistry.normalized_name.ilike(pattern),
+                IngredientRegistry.canonical_smiles.ilike(pattern),
+                IngredientRegistry.cas_number.ilike(pattern),
+            )
+        )
     rows = db.execute(
         # A stable secondary key is required for offset pagination. Seeded rows
         # often share the same timestamp; ordering only by last_seen_at caused
@@ -220,6 +235,22 @@ async def list_ingredient_registry(
     return [IngredientRegistryOut.model_validate(registry_row_to_dict(row)) for row in rows]
 
 
+@router.get("/registry/ready-count")
+async def count_ready_ingredient_registry(
+    db: Session = Depends(get_db),
+) -> dict[str, int]:
+    """Return unique verified structures that can be used by the QSAR UI."""
+    count = db.scalar(
+        select(func.count(func.distinct(IngredientRegistry.canonical_smiles))).where(
+            IngredientRegistry.verification_status == "verified",
+            IngredientRegistry.qsar_eligible.is_(True),
+            IngredientRegistry.canonical_smiles.is_not(None),
+            func.length(func.trim(IngredientRegistry.canonical_smiles)) > 0,
+        )
+    )
+    return {"count": int(count or 0)}
+
+
 @router.post("/registry/lookup", response_model=IngredientRegistryOut)
 async def lookup_ingredient(
     payload: RegistryLookupInput,
@@ -228,6 +259,23 @@ async def lookup_ingredient(
     key = normalize_ingredient_name(payload.name)
     row = db.scalar(select(IngredientRegistry).where(IngredientRegistry.normalized_name == key))
     if row and row.verification_status == "verified" and not payload.refresh:
+        if payload.persist_observation:
+            db.add(
+                SubstanceObservation(
+                    ingredient_id=row.id,
+                    original_query=payload.name,
+                    normalized_query=key,
+                    query_type=payload.query_type,
+                    resolution_status="local_verified",
+                    canonical_smiles=row.canonical_smiles,
+                    inchikey=row.inchikey,
+                    registry_status="local_verified",
+                    qsar_eligible=row.qsar_eligible,
+                    training_exposure=endpoint_training_exposure(row.inchikey or ""),
+                    training_eligible=False,
+                )
+            )
+            db.commit()
         return IngredientRegistryOut.model_validate(registry_row_to_dict(row))
     if payload.refresh:
         cache = db.get(PubChemCache, key)
@@ -245,6 +293,22 @@ async def lookup_ingredient(
         source="manual:pubchem_lookup",
         ocr_confidence=None,
     )
+    if payload.persist_observation:
+        db.add(
+            SubstanceObservation(
+                ingredient_id=row.id,
+                original_query=payload.name,
+                normalized_query=key,
+                query_type=payload.query_type,
+                resolution_status="external_resolved",
+                canonical_smiles=row.canonical_smiles,
+                inchikey=row.inchikey,
+                registry_status="external_resolved",
+                qsar_eligible=row.qsar_eligible,
+                training_exposure=endpoint_training_exposure(row.inchikey or ""),
+                training_eligible=False,
+            )
+        )
     db.commit()
     db.refresh(row)
     return IngredientRegistryOut.model_validate(registry_row_to_dict(row))
@@ -437,6 +501,40 @@ async def review_experimental_evidence(
     return ExperimentalEvidenceOut.model_validate(evidence_row_to_dict(row))
 
 
+@router.post("/evidence/{evidence_id}/continual-queue")
+async def queue_experimental_evidence(
+    evidence_id: int,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Stage reviewed evidence for an experimental candidate update.
+
+    This endpoint performs no fitting and no production promotion. Exact
+    identities reserved by the endpoint external holdout are rejected here;
+    the candidate trainer repeats that authoritative overlap check.
+    """
+    evidence = db.get(ExperimentalEvidence, evidence_id)
+    if evidence is None:
+        raise HTTPException(status_code=404, detail=f"evidence {evidence_id} not found")
+    row, decision = enqueue_verified_evidence(
+        db,
+        evidence,
+        reserved_holdout_identities=external_holdout_identity_keys(evidence.endpoint),
+    )
+    if not decision.eligible:
+        raise HTTPException(status_code=422, detail=decision.reason)
+    db.commit()
+    return {
+        "queue_id": row.id if row else None,
+        "endpoint": evidence.endpoint,
+        "eligible": True,
+        "reason": decision.reason,
+        "evidence_tier": decision.evidence_tier,
+        "sample_weight": decision.sample_weight,
+        "training_started": False,
+        "production_modified": False,
+    }
+
+
 @router.get("/training-evidence/export", response_model=TrainingExportSummary)
 async def export_verified_training_evidence(
     endpoint: str = Query(...),
@@ -446,3 +544,12 @@ async def export_verified_training_evidence(
         raise HTTPException(status_code=422, detail=f"endpoint must be one of {sorted(ENDPOINTS)}")
     rows, stats = verified_training_rows(db, endpoint)
     return TrainingExportSummary(endpoint=endpoint, rows=rows, **stats)
+@router.get("/training-exposure")
+def get_training_exposure(
+    inchikey: str = Query(..., min_length=1, max_length=80),
+) -> dict:
+    return {
+        "inchikey": inchikey.strip(),
+        "endpoints": endpoint_training_exposure(inchikey),
+        "note": "Seen means exact identity was part of fitting for the selected model version; unseen molecules can still be predicted with AD and uncertainty.",
+    }

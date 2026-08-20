@@ -38,7 +38,7 @@ const BAND_COLOR: Record<string, string> = {
   high: "#F97316",
   severe: "#DC2626",
 };
-const ENDPOINT_SHORT_TH: Record<string, string> = { skin: "ผิว", eye: "ตา", sens: "แพ้", acute: "พิษ" };
+const ENDPOINT_SHORT_TH: Record<string, string> = { skin: "ผิว", eye: "ตา", sens: "แพ้", acute: "พิษ", skin_dryness: "ผิวแห้ง" };
 const REGION_LABEL_TH: Record<Region, string> = {
   forearm: "ท่อนแขน", hand: "มือ", face: "ใบหน้า", eye: "ดวงตา",
 };
@@ -154,7 +154,7 @@ function Scene({
               {REGION_LABEL_TH[value]}{band ? ` · ${band}` : ""}
             </div>
             <div className="flex gap-1.5 font-mono">
-              {(["skin", "eye", "sens", "acute"] as const).map((ep) =>
+              {(["skin", "eye", "sens", "acute", "skin_dryness"] as const).map((ep) =>
                 scores[ep] != null ? <span key={ep}>{ENDPOINT_SHORT_TH[ep]} {Math.round(scores[ep])}</span> : null,
               )}
             </div>

@@ -204,11 +204,18 @@ def external_holdout_identity_keys(endpoint: str) -> set[str]:
 
 def build_endpoint_frame(endpoint: str) -> tuple[pd.DataFrame, dict[str, Any]]:
     base_path = DATASETS[endpoint]
-    experimental_path = CURATED_DIR / f"{endpoint}_negative_clean.csv"
+    experimental_paths = [CURATED_DIR / f"{endpoint}_negative_clean.csv"]
+    if endpoint == "sens":
+        experimental_paths.append(CURATED_DIR / "sens_hppt_clean.csv")
     nice_path = CURATED_DIR / f"nice_verified_{endpoint}.csv"
     pubchem_path = CURATED_DIR / f"pubchem_verified_{endpoint}.csv"
     base = load_source(base_path, "base")
-    experimental = load_source(experimental_path, "external_experimental")
+    experimental_frames = [load_source(path, "external_experimental") for path in experimental_paths]
+    experimental = pd.concat(
+        [frame for frame in experimental_frames if not frame.empty],
+        ignore_index=True,
+        sort=False,
+    ) if any(not frame.empty for frame in experimental_frames) else pd.DataFrame()
     nice = load_source(nice_path, "nice_reviewed")
     pubchem = load_source(pubchem_path, "pubchem_reviewed")
 
@@ -217,7 +224,7 @@ def build_endpoint_frame(endpoint: str) -> tuple[pd.DataFrame, dict[str, Any]]:
         return pd.DataFrame(), {
             "status": "missing_training_data",
             "base_file": str(base_path.relative_to(BASE)),
-            "external_experimental_file": str(experimental_path.relative_to(BASE)),
+            "external_experimental_files": [str(path.relative_to(BASE)) for path in experimental_paths],
             "nice_file": str(nice_path.relative_to(BASE)),
             "pubchem_file": str(pubchem_path.relative_to(BASE)),
         }
@@ -289,7 +296,7 @@ def build_endpoint_frame(endpoint: str) -> tuple[pd.DataFrame, dict[str, Any]]:
         "singleton_scaffolds": int((scaffold_counts == 1).sum()),
         "largest_scaffold_group": int(scaffold_counts.max()) if not scaffold_counts.empty else 0,
         "base_file": str(base_path.relative_to(BASE)),
-        "external_experimental_file": str(experimental_path.relative_to(BASE)),
+        "external_experimental_files": [str(path.relative_to(BASE)) for path in experimental_paths],
         "nice_file": str(nice_path.relative_to(BASE)),
         "pubchem_file": str(pubchem_path.relative_to(BASE)),
         "duplicate_preference": "base ICE and peer-reviewed curated experimental evidence (same tier) > human-reviewed NICE/ICE > PubChem regulatory weak label; lower-tier contradictions are overridden and same-tier contradictions are excluded",

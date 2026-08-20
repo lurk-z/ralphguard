@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Dict, List, Tuple
 
 from rdkit import Chem
+from endpoints import ENDPOINTS
 
 # (alert_name, SMARTS, endpoints it applies to)
 _ALERTS: List[Tuple[str, str, Tuple[str, ...]]] = [
@@ -35,7 +36,9 @@ def check_structural_alerts(smiles: str) -> Dict[str, List[str]]:
     Empty list means no alert for that endpoint.
     """
     mol = Chem.MolFromSmiles(smiles)
-    result: Dict[str, List[str]] = {"skin": [], "eye": [], "sens": [], "acute": []}
+    # Skin dryness intentionally starts with no invented SMARTS alerts.  It is
+    # still included so optional fifth-endpoint bundles remain schema-stable.
+    result: Dict[str, List[str]] = {endpoint: [] for endpoint in ENDPOINTS}
     if mol is None:
         return result
 

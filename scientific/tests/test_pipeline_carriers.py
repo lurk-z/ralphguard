@@ -86,3 +86,36 @@ def test_botanical_surrogate_is_unresolved_and_never_sent_to_qsar():
     assert aloe["assessment_method"] == "unsupported_composition"
     assert result["formula_coverage"]["unresolved_ingredients"] == 1
     assert result["formula_coverage"]["coverage_percentage"] == 66.7
+
+
+def test_optional_skin_dryness_endpoint_has_no_invented_timecourse():
+    predictor = FakePredictor()
+    original_predict = predictor.predict
+
+    def predict_with_dryness(smiles: str):
+        prediction = original_predict(smiles)
+        prediction.per_endpoint["skin_dryness"] = SimpleNamespace(
+            score=20.0,
+            probability=0.2,
+            alerts=[],
+            rule_agrees=True,
+            uncertainty=0.1,
+            in_domain=True,
+            domain_similarity=0.8,
+            threshold=0.5,
+            flagged=False,
+            confidence=SimpleNamespace(level="High", reason_th="in-domain", score=0.9),
+        )
+        return prediction
+
+    predictor.predict = predict_with_dryness
+    result = run_pipeline(
+        predictor,
+        [{"name": "Glycerin", "smiles": "OCC(O)CO", "concentration": 10}],
+        region="face",
+    )
+
+    dryness = result["endpoints"]["skin_dryness"]
+    assert dryness["peak_score"] == 2.0
+    assert dryness["timecourse"] is None
+    assert dryness["label_th"] == "ศักยภาพทำให้ผิวแห้ง"

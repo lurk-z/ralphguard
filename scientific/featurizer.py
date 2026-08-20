@@ -7,6 +7,7 @@ docs/MODEL_IMPROVEMENT.md):
     - "morgan"              : Morgan/ECFP fingerprint (2048 bits)
     - "maccs_descr"         : MACCS keys (167) + physicochemical descriptors (10)
     - "morgan_maccs_descr"  : Morgan + MACCS + descriptors
+    - "descr"               : physicochemical descriptors only (transparent baseline)
 
 AD (applicability domain) always uses the Morgan fingerprint regardless of the
 model's feature mode, so we expose `morgan_bits()` separately.

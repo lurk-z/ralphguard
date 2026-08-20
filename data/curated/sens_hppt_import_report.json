@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-08-20T12:47:19.117498+00:00",
+  "endpoint": "sens",
+  "source": "NICEATM Human Predictive Patch Test Database",
+  "source_url": "https://ntp.niehs.nih.gov/iccvam/methods/immunotox/hppt/hppt_database_14feb2023.xlsx",
+  "peer_reviewed_description": "https://doi.org/10.1007/s00204-023-03530-3",
+  "source_file": "data\\raw\\skin_sensitization_sources\\hppt_database_14feb2023.xlsx",
+  "source_sha256": "69a6f36d8aec0ff3f67bc32b7499cb93c83999dae125d7907ded79254d5b275a",
+  "output_file": "data\\curated\\sens_hppt_clean.csv",
+  "output_sha256": "91c76a7825742acb03757931dba7ae2da4597f2cc9a49b1a6d20e9e886e7f614",
+  "label_policy": "Explicit HPPT Active=1 and Inactive=0 only; RRS 1-4; no label inferred from missing information",
+  "identity_policy": "Canonical structure/InChIKey; exact contradictory identities excluded",
+  "weight_policy": {
+    "1": 1.0,
+    "2": 0.95,
+    "3": 0.8,
+    "4": 0.6
+  },
+  "raw_test_rows": 2277,
+  "accepted_unique_structures": 937,
+  "label_1": 78,
+  "label_0": 859,
+  "accepted_by_reliability_rating": {
+    "1": 52,
+    "2": 19,
+    "3": 791,
+    "4": 75
+  },
+  "external_holdout_identities_quarantined": 6,
+  "review_queue": "data\\staging\\sens_hppt_review_queue.csv",
+  "review_rows": 1046,
+  "review_reasons": {
+    "conflicting_active_inactive_calls": 540,
+    "invalid_or_multicomponent_structure": 466,
+    "external_holdout_overlap": 26,
+    "reliability_rating_not_1_to_4": 14
+  }
+}

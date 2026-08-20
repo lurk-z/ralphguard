@@ -7,7 +7,9 @@ Current approach: dose-additivity weighted by concentration.
 Future work: account for synergy / quenching (EFSA mixture guidelines).
 """
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional
+
+from endpoints import ENDPOINT_CONFIG
 
 
 @dataclass
@@ -38,7 +40,7 @@ def compute_formula_risk(
       3. Clamp to [0, 100]
     """
     region_factor = REGION_SENSITIVITY.get(region, REGION_SENSITIVITY["forearm"])
-    base: Dict[str, float] = {"skin": 0.0, "eye": 0.0, "sens": 0.0, "acute": 0.0}
+    base: Dict[str, float] = {}
 
     for item in items:
         frac = item.concentration / 100.0
@@ -56,16 +58,19 @@ def compute_formula_risk(
 # Temporal profiles by endpoint (Day 1, Day 3, Day 7 relative to peak)
 # Heuristic profiles aligned with OECD TG 404 (irritation) and TG 429 (sensitization).
 TEMPORAL_PROFILES: Dict[str, List[float]] = {
-    "skin":  [0.72, 1.00, 0.60],   # peak at 48-72h
-    "eye":   [0.80, 1.00, 0.62],
-    "sens":  [0.50, 0.82, 1.00],   # delayed-type hypersensitivity
-    "acute": [1.00, 0.88, 0.78],   # immediate peak
+    endpoint: list(config["temporal_profile"])
+    for endpoint, config in ENDPOINT_CONFIG.items()
+    if config["temporal_profile"] is not None
 }
 
 
-def expand_timecourse(peak_scores: Dict[str, float]) -> Dict[str, List[int]]:
-    """Expand peak scores to Day 1/3/7 using temporal profiles."""
+def expand_timecourse(peak_scores: Dict[str, float]) -> Dict[str, Optional[List[int]]]:
+    """Expand scores only where a documented temporal profile exists."""
     return {
-        ep: [int(round(peak_scores[ep] * m)) for m in TEMPORAL_PROFILES[ep]]
+        ep: (
+            [int(round(peak_scores[ep] * m)) for m in TEMPORAL_PROFILES[ep]]
+            if ep in TEMPORAL_PROFILES
+            else None
+        )
         for ep in peak_scores
     }

@@ -10,15 +10,9 @@ from pathlib import Path
 from fastapi import APIRouter
 
 from app.core.config import settings
+from app.core.endpoints import ENDPOINT_META
 
 router = APIRouter()
-
-ENDPOINT_META = {
-    "skin": {"label_en": "Skin Irritation", "label_th": "การระคายเคืองผิวหนัง", "oecd_tg": "OECD TG 404 / 439"},
-    "eye": {"label_en": "Eye Irritation", "label_th": "การระคายเคืองดวงตา", "oecd_tg": "OECD TG 405 / 492 / 494"},
-    "sens": {"label_en": "Skin Sensitization", "label_th": "การแพ้สัมผัสผิวหนัง", "oecd_tg": "OECD TG 429 / 442"},
-    "acute": {"label_en": "Acute Toxicity", "label_th": "ความเป็นพิษเฉียบพลัน", "oecd_tg": "OECD TG 420 / CATMoS"},
-}
 
 OECD_PRINCIPLES = [
     "1. A defined endpoint",
@@ -135,6 +129,27 @@ def _load_metrics() -> dict:
     return _read_json(_models_dir() / "validation_report.json")
 
 
+def _load_skin_dryness_candidate_metric() -> dict | None:
+    report = _read_json(
+        _models_dir() / "candidate_v3" / "skin_dryness_validation_report.json"
+    )
+    oof = report.get("candidate_oof")
+    if not isinstance(oof, dict):
+        return None
+    return {
+        **oof,
+        "n_pos": report.get("positive"),
+        "n_neg": report.get("negative"),
+        "n_train": report.get("n"),
+        "validation_scope": "candidate_internal_oof",
+        "promotion_status": report.get("promotion_status"),
+        "promotion_checks": report.get("promotion_checks"),
+        "research_preview": bool(report.get("research_preview")),
+        "scaffold_validation": report.get("candidate_scaffold_grouped"),
+        "external_validation": report.get("external"),
+    }
+
+
 def _load_training_integrity() -> dict:
     return _read_json(_models_dir() / "training_integrity_report.json")
 
@@ -142,9 +157,28 @@ def _load_training_integrity() -> dict:
 @router.get("/metrics")
 async def model_metrics():
     metrics = _load_metrics()
-    endpoints = [{"endpoint": ep, **meta, "metrics": metrics.get(ep)} for ep, meta in ENDPOINT_META.items()]
+    dryness_candidate = _load_skin_dryness_candidate_metric()
+    endpoints = [
+        {
+            "endpoint": ep,
+            **meta,
+            "metrics": dryness_candidate if ep == "skin_dryness" else metrics.get(ep),
+            "status": (
+                (
+                    "research_candidate"
+                    if dryness_candidate.get("promotion_status") == "eligible_for_manual_promotion"
+                    else "research_candidate_blocked"
+                )
+                if ep == "skin_dryness" and dryness_candidate
+                else "not_trained" if ep == "skin_dryness"
+                else "production" if metrics.get(ep)
+                else "not_available"
+            ),
+        }
+        for ep, meta in ENDPOINT_META.items()
+    ]
     return {
-        "available": bool(metrics),
+        "available": bool(metrics or dryness_candidate),
         "endpoints": endpoints,
         "note_th": (
             "ค่าปัจจุบันเป็น 5-fold out-of-fold internal validation: สารแต่ละรายการถูกทำนายใน fold "

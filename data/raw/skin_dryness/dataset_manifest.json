@@ -1,0 +1,16 @@
+{
+  "dataset": "skin_dryness_raw_sources_v1",
+  "created_at": null,
+  "label_policy_version": "1.0",
+  "sources": [],
+  "files": [],
+  "counts": {
+    "experimental_positive": 0,
+    "experimental_negative": 0,
+    "curated_labeled": 0,
+    "regulatory_weak_positive": 0,
+    "unlabeled": 0,
+    "review_required": 0
+  },
+  "notes": "Record source URL, retrieval timestamp, license/terms, raw SHA-256, mapping version, and filtering policy before promoting evidence. Missing hazard evidence is never label 0."
+}

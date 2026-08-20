@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.ingredient_registry import ExperimentalEvidence, IngredientRegistry
+from app.core.endpoints import SUPPORTED_ENDPOINTS
 from app.services.ingredient_registry import (
     PUBCHEM_BASE,
     PUBCHEM_PROPERTIES,
@@ -32,7 +33,7 @@ from app.services.ingredient_registry import (
 
 
 PUBCHEM_VIEW_BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view"
-ENDPOINTS = {"skin", "eye", "sens", "acute"}
+ENDPOINTS = set(SUPPORTED_ENDPOINTS)
 
 # Acute model documentation identifies CATMoS acute *oral* toxicity, so dermal
 # and inhalation statements are intentionally not mapped to that endpoint.
@@ -48,6 +49,11 @@ HAZARD_ENDPOINTS: dict[str, tuple[str, ...]] = {
     "H302": ("acute",),
 }
 HAZARD_CODE_RE = re.compile(r"\b(H\d{3}[A-Za-z]?)\b")
+SUPPLEMENTAL_HAZARD_CODE_RE = re.compile(r"\b((?:EUH|AUH)\s*\d{3}[A-Za-z]?)\b", re.IGNORECASE)
+SUPPLEMENTAL_HAZARD_ENDPOINTS: dict[str, tuple[str, ...]] = {
+    "EUH066": ("skin_dryness",),
+    "AUH066": ("skin_dryness",),
+}
 SKIN_SENSITIZATION_CATEGORY_RE = re.compile(
     r"\bskin\s+sens(?:itisation|itization)?\.?\s*"
     r"(?:-\s*category\s*)?(1A|1B|1)\b",
@@ -58,6 +64,12 @@ QSAR_MIN_MW = 30.0
 QSAR_MAX_MW = 500.0
 QSAR_MIN_HEAVY_ATOMS = 2
 QSAR_MAX_HEAVY_ATOMS = 36
+SKIN_DRYNESS_DISCOVERY_RE = re.compile(
+    r"\b(skin\s+dryness|dry\s+skin|dryness\s+(?:or|and)\s+cracking|"
+    r"defats?\s+the\s+skin|defatting\s+of\s+the\s+skin|skin\s+barrier\s+disruption|"
+    r"transepidermal\s+water\s+loss|TEWL|skin\s+hydration|stratum\s+corneum\s+hydration)\b",
+    re.IGNORECASE,
+)
 
 
 def _walk_sections(sections: list[dict] | None):
@@ -73,6 +85,59 @@ def _source_quality(source_name: str) -> str:
     if any(token in value for token in ("hazardous substances data bank", "hsdb")):
         return "expert_curated"
     return "third_party"
+
+
+def parse_skin_dryness_discovery_candidates(payload: dict) -> list[dict]:
+    """Find review candidates without converting keyword matches to labels."""
+    record = payload.get("Record") or {}
+    cid = int(record.get("RecordNumber") or 0)
+    references = {
+        int(ref["ReferenceNumber"]): ref
+        for ref in record.get("Reference", [])
+        if ref.get("ReferenceNumber") is not None
+    }
+    results: list[dict] = []
+    seen: set[str] = set()
+    for section in _walk_sections(record.get("Section")):
+        for info in section.get("Information", []):
+            reference_number = int(info.get("ReferenceNumber") or 0)
+            reference = references.get(reference_number, {})
+            for value in (info.get("Value") or {}).get("StringWithMarkup", []):
+                statement = str(value.get("String") or "").strip()
+                if not statement or not SKIN_DRYNESS_DISCOVERY_RE.search(statement):
+                    continue
+                fingerprint = hashlib.sha256(
+                    json.dumps(
+                        {"cid": cid, "reference": reference_number, "heading": section.get("TOCHeading"), "statement": statement},
+                        sort_keys=True,
+                    ).encode("utf-8")
+                ).hexdigest()
+                if fingerprint in seen:
+                    continue
+                seen.add(fingerprint)
+                results.append(
+                    {
+                        "pubchem_cid": cid,
+                        "endpoint": "skin_dryness",
+                        "candidate_label": None,
+                        "label_status": "review_required",
+                        "evidence_type": "keyword_discovery",
+                        "evidence_subtype": "candidate_context",
+                        "source_name": str(reference.get("SourceName") or f"PubChem reference {reference_number}"),
+                        "source_id": str(reference.get("SourceID")) if reference.get("SourceID") is not None else None,
+                        "source_url": reference.get("URL"),
+                        "source_quality": _source_quality(str(reference.get("SourceName") or "")),
+                        "evidence_fingerprint": fingerprint,
+                        "raw_evidence": {"heading": section.get("TOCHeading"), "statement": statement},
+                        "review_status": "pending",
+                        "provenance": {
+                            "provider": "PubChem PUG-View",
+                            "mapping": "keyword discovery only; no automatic label",
+                            "negative_inference_allowed": False,
+                        },
+                    }
+                )
+    return results
 
 
 def parse_pubchem_ghs_evidence(payload: dict) -> list[dict]:
@@ -107,9 +172,11 @@ def parse_pubchem_ghs_evidence(payload: dict) -> list[dict]:
             endpoint_codes: dict[str, set[str]] = defaultdict(set)
             endpoint_statements: dict[str, list[str]] = defaultdict(list)
             for statement in statements:
-                for raw_code in HAZARD_CODE_RE.findall(statement):
-                    code = raw_code.upper()
-                    for endpoint in HAZARD_ENDPOINTS.get(code, ()):
+                raw_codes = HAZARD_CODE_RE.findall(statement) + SUPPLEMENTAL_HAZARD_CODE_RE.findall(statement)
+                for raw_code in raw_codes:
+                    code = re.sub(r"\s+", "", raw_code.upper())
+                    endpoints = HAZARD_ENDPOINTS.get(code, ()) + SUPPLEMENTAL_HAZARD_ENDPOINTS.get(code, ())
+                    for endpoint in endpoints:
                         endpoint_codes[endpoint].add(code)
                         endpoint_statements[endpoint].append(statement)
 
@@ -134,7 +201,7 @@ def parse_pubchem_ghs_evidence(payload: dict) -> list[dict]:
                     "pubchem_cid": cid,
                     "endpoint": endpoint,
                     "candidate_label": 1,
-                    "evidence_type": "ghs_classification",
+                "evidence_type": "regulatory_skin_dryness" if endpoint == "skin_dryness" else "ghs_classification",
                     "hazard_codes": sorted(codes),
                     "source_name": source_name,
                     "source_id": str(reference.get("SourceID")) if reference.get("SourceID") is not None else None,
@@ -208,9 +275,11 @@ def parse_global_ghs_annotations(payload: dict) -> list[dict]:
                 continue
             for value in (data.get("Value") or {}).get("StringWithMarkup", []):
                 statement = str(value.get("String") or "").strip()
-                for raw_code in HAZARD_CODE_RE.findall(statement):
-                    code = raw_code.upper()
-                    for endpoint in HAZARD_ENDPOINTS.get(code, ()):
+                raw_codes = HAZARD_CODE_RE.findall(statement) + SUPPLEMENTAL_HAZARD_CODE_RE.findall(statement)
+                for raw_code in raw_codes:
+                    code = re.sub(r"\s+", "", raw_code.upper())
+                    endpoints = HAZARD_ENDPOINTS.get(code, ()) + SUPPLEMENTAL_HAZARD_ENDPOINTS.get(code, ())
+                    for endpoint in endpoints:
                         endpoint_codes[endpoint].add(code)
                         endpoint_statements[endpoint].append(statement)
         source_name = str(annotation.get("SourceName") or "Unknown PubChem source")
@@ -233,7 +302,7 @@ def parse_global_ghs_annotations(payload: dict) -> list[dict]:
                         "pubchem_cid": cid,
                         "endpoint": endpoint,
                         "candidate_label": 1,
-                        "evidence_type": "ghs_classification",
+                        "evidence_type": "regulatory_skin_dryness" if endpoint == "skin_dryness" else "ghs_classification",
                         "hazard_codes": sorted(codes),
                         "source_name": source_name,
                         "source_id": str(annotation.get("SourceID")) if annotation.get("SourceID") is not None else None,

@@ -96,6 +96,11 @@ services:
       context: ./scientific
       dockerfile: Dockerfile
     working_dir: /workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ralphguard}:${POSTGRES_PASSWORD:-ralphguard_dev}@postgres:5432/${POSTGRES_DB:-ralphguard}
     volumes:
       - ./:/workspace
     command: python scripts/train_candidate_v2.py

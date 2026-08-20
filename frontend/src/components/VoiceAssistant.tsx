@@ -12,6 +12,13 @@ import {
   assistantThinkDelay,
   assistantTypingFrames,
 } from "@/lib/assistant-typing";
+import {
+  assistantHistoryKey,
+  clearAssistantHistory,
+  loadAssistantHistory,
+  saveAssistantHistory,
+  type PersistedAssistantMessage,
+} from "@/lib/assistant-history";
 import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
 import { SemanticIcon } from "@/components/SemanticIcon";
 
@@ -33,12 +40,8 @@ const BAND_TH: Record<string, string> = {
 
 type FormulaItem = { name?: string; smiles: string; concentration: number };
 type AssistantAction = { type?: string; [key: string]: unknown };
-type ChatMessage = {
-  role: "user" | "ai";
-  text: string;
-  formula?: FormulaItem[];
+type ChatMessage = PersistedAssistantMessage & {
   actions?: AssistantAction[];
-  acted?: number;
   typing?: boolean;
 };
 
@@ -51,6 +54,7 @@ export default function VoiceAssistant({
   ready,
   formula = [],
   coverage,
+  projectId,
   onImportFormula,
   onAction,
 }: {
@@ -59,6 +63,7 @@ export default function VoiceAssistant({
   ready: boolean;
   formula?: FormulaItem[];
   coverage?: { percentage: number; unresolved: number };
+  projectId: number | null;
   onImportFormula?: (items: FormulaItem[]) => void;
   onAction?: (actions: AssistantAction[]) => void | Promise<void>;
 }) {
@@ -72,14 +77,36 @@ export default function VoiceAssistant({
   const [actionBusy, setActionBusy] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [voiceInputError, setVoiceInputError] = useState<string | null>(null);
+  const [historyHydrated, setHistoryHydrated] = useState(false);
   const recogRef = useRef<any>(null);
   const chatControllerRef = useRef<AbortController | null>(null);
   const ttsControllerRef = useRef<AbortController | null>(null);
   const typingSessionRef = useRef(0);
+  const historyKey = assistantHistoryKey(projectId);
 
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    let restored: ChatMessage[] = [];
+    try {
+      restored = loadAssistantHistory(window.localStorage, historyKey);
+    } catch {
+      restored = [];
+    }
+    setMessages(restored);
+    setHistoryHydrated(true);
+  }, [historyKey]);
+
+  useEffect(() => {
+    if (!historyHydrated || typing) return;
+    try {
+      saveAssistantHistory(window.localStorage, historyKey, messages);
+    } catch {
+      // Chat still works when browser storage is disabled or full.
+    }
+  }, [historyHydrated, historyKey, messages, typing]);
 
   useEffect(
     () => () => {
@@ -277,7 +304,16 @@ export default function VoiceAssistant({
   // Extract an <action>[...]</action> block (agent commands) from the reply.
   const parseActions = (text: string): { clean: string; actions?: AssistantAction[] } => {
     const m = text.match(/<action>([\s\S]*?)<\/action>/i);
-    if (!m) return { clean: text };
+    if (!m) {
+      const openTag = text.search(/<action>/i);
+      if (openTag >= 0) {
+        const prose = text.slice(0, openTag).trim();
+        return {
+          clean: `${prose}${prose ? "\n\n" : ""}ยังไม่ได้เปลี่ยนสูตร เพราะคำสั่งจาก AI มาไม่ครบ กรุณาลองสั่งอีกครั้งค่ะ`,
+        };
+      }
+      return { clean: text };
+    }
     let actions: AssistantAction[] | undefined;
     try {
       const arr = JSON.parse(m[1].trim());
@@ -348,6 +384,20 @@ export default function VoiceAssistant({
   const QUICK = ["สรุปผล", "เสี่ยงสุด", "คำแนะนำ"];
   const canSend = input.trim().length > 0 && !thinking && !typing;
 
+  const clearChatHistory = () => {
+    typingSessionRef.current += 1;
+    chatControllerRef.current?.abort();
+    chatControllerRef.current = null;
+    setThinking(false);
+    setTyping(false);
+    setMessages([]);
+    try {
+      clearAssistantHistory(window.localStorage, historyKey);
+    } catch {
+      // Clearing the visible conversation is still useful without storage.
+    }
+  };
+
   const actionLabel = (action: AssistantAction) => {
     const name = String(action.name || action.to || action.from || "").trim();
     switch (action.type) {
@@ -385,7 +435,18 @@ export default function VoiceAssistant({
     <div className="flex h-full min-h-0 w-full flex-col px-4 pb-4 pt-3">
       {/* status row */}
       <div className="mb-1 flex h-4 items-center justify-end gap-2 text-[10px] text-brand">
-        {thinking ? <span>● กำลังคิด…</span> : typing ? <span>● กำลังพิมพ์…</span> : speaking ? <span>● กำลังพูด</span> : null}
+        {thinking ? <span className="animate-pulse">● กำลังคิดและวิเคราะห์…</span> : typing ? <span>● กำลังพิมพ์…</span> : speaking ? <span>● กำลังพูด</span> : null}
+        {messages.length > 0 ? (
+          <button
+            type="button"
+            onClick={clearChatHistory}
+            className="text-slate-400 transition hover:text-rose-500"
+            title="ล้างประวัติแชทของโปรเจกต์นี้"
+            aria-label="ล้างประวัติแชทของโปรเจกต์นี้"
+          >
+            <SemanticIcon name="trash" className="size-3.5" />
+          </button>
+        ) : null}
         <button
           onClick={() => {
             setVoiceOn((v) => !v);
@@ -492,7 +553,14 @@ export default function VoiceAssistant({
             ))}
             {thinking && (
               <div className="flex justify-start">
-                <div className="rounded-2xl bg-slate-100 px-3 py-1.5 text-[11px] text-slate-400">กำลังคิด…</div>
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-center gap-2 rounded-2xl bg-slate-100 px-3 py-2 text-[11px] text-slate-500"
+                >
+                  <span className="size-1.5 animate-pulse rounded-full bg-brand" aria-hidden="true" />
+                  กำลังคิดและวิเคราะห์คำถาม…
+                </div>
               </div>
             )}
           </div>

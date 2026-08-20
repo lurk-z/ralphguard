@@ -40,7 +40,7 @@ const BAND_LABEL: Record<string, string> = {
   high: "สูง",
   severe: "รุนแรง",
 };
-const ENDPOINT_ORDER = ["skin", "eye", "sens", "acute"] as const;
+const ENDPOINT_ORDER = ["skin", "eye", "sens", "acute", "skin_dryness"] as const;
 
 export default function ResultsPage({ params }: { params: { id: string } }) {
   const router = useRouter();

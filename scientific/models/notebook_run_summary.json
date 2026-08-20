@@ -1,0 +1,369 @@
+{
+  "generated_at": "2026-08-20T15:13:58.817854+00:00",
+  "run_all_completed": true,
+  "production_models_modified": false,
+  "thai_herbs": {
+    "status": "database_unavailable",
+    "catalogue_size_in_seed": 30,
+    "note": "เปิด PostgreSQL/Docker แล้วรันเซลล์นี้ซ้ำ; ขั้น model training ทำต่อได้"
+  },
+  "niceatm_hppt": {
+    "raw_test_rows": 2277,
+    "accepted_unique_structures": 937,
+    "label_1": 78,
+    "label_0": 859
+  },
+  "echa_euh066": {
+    "resolved_structures": 24,
+    "source_sha256": "d2519996627284a4b80cc962ca062ec01d5478fc535ed914d3617331d62ab3e9",
+    "label_role": "regulatory weak positive"
+  },
+  "skin_dryness_literature": null,
+  "icsc_discovery": null,
+  "skin_dryness_manifest": {
+    "dataset": "skin_dryness_evidence_pool_v1",
+    "generated_at": "2026-08-20T12:47:31.729230+00:00",
+    "label_policy_version": "1.0",
+    "target_pool": 10000,
+    "counts": {
+      "total_pool": 10035,
+      "unique_inchikey": 10020,
+      "valid_structures": 10035,
+      "training_eligible": 31,
+      "positive_count": 26,
+      "negative_count": 5,
+      "unlabeled": 10000,
+      "review_queue": 4,
+      "same_tier_conflicts": 0,
+      "external_quarantined": 8,
+      "remaining_pool_gap": 0
+    },
+    "minimum_pool_met": true,
+    "supervised_fit_ready": true,
+    "negative_policy": "explicit negative evidence only; absence of EUH066/AUH066 is not label 0",
+    "production_models_modified": false,
+    "files": {
+      "training": {
+        "path": "data\\curated\\skin_dryness_training.csv",
+        "sha256": "47191e4d75d9b9b09bab73e722b47ee1990d17940912fc5af875873555b135a0"
+      },
+      "review": {
+        "path": "data\\staging\\skin_dryness_review_queue.csv",
+        "sha256": "df560caafa072db8ca10cdf63f4fe8dbb711208dc2555b2b3b4f431a569afa7f"
+      },
+      "unlabeled": {
+        "path": "data\\staging\\skin_dryness_unlabeled_pool.csv",
+        "sha256": "6c990e9651001fae3db365565b1da3e7b7394cff1e50916322222a7e12b5ece4"
+      }
+    }
+  },
+  "candidate_v2_endpoints": [
+    {
+      "endpoint": "skin",
+      "n": 15000,
+      "positive": 14694,
+      "negative": 306,
+      "feature_mode": "maccs_descr",
+      "OOF_AUC": 0.87,
+      "OOF_MCC": 0.223,
+      "Scaffold_AUC": 0.856,
+      "Scaffold_MCC": 0.255,
+      "External_status": "complete"
+    },
+    {
+      "endpoint": "eye",
+      "n": 15000,
+      "positive": 13927,
+      "negative": 1073,
+      "feature_mode": "maccs_descr",
+      "OOF_AUC": 0.936,
+      "OOF_MCC": 0.458,
+      "Scaffold_AUC": 0.925,
+      "Scaffold_MCC": 0.519,
+      "External_status": "not_provided"
+    },
+    {
+      "endpoint": "sens",
+      "n": 9442,
+      "positive": 8468,
+      "negative": 974,
+      "feature_mode": "morgan",
+      "OOF_AUC": 0.947,
+      "OOF_MCC": 0.565,
+      "Scaffold_AUC": 0.913,
+      "Scaffold_MCC": 0.542,
+      "External_status": "complete"
+    },
+    {
+      "endpoint": "acute",
+      "n": 15000,
+      "positive": 11438,
+      "negative": 3562,
+      "feature_mode": "morgan_maccs_descr",
+      "OOF_AUC": 0.879,
+      "OOF_MCC": 0.526,
+      "Scaffold_AUC": 0.85,
+      "Scaffold_MCC": 0.501,
+      "External_status": "complete"
+    }
+  ],
+  "skin_dryness_candidate": {
+    "generated_at": "2026-08-20T15:13:11.764275+00:00",
+    "endpoint": "skin_dryness",
+    "candidate_directory": "scientific\\models\\candidate_v3",
+    "runtime_versions": {
+      "python": "3.11.15",
+      "rdkit": "2025.03.6",
+      "scikit_learn": "1.7.2"
+    },
+    "git_commit": "f3688bb813b020b648462f8aa6055051b444366b",
+    "random_seed": 42,
+    "threshold_selection_method": "Youden's J from 5-fold OOF predictions",
+    "training_profile": "standard",
+    "dataset_sha256": "d8ed38b51c76b041482df019c784f0cea5d5f1b53bfe3f226acde90b9726f7b2",
+    "n": 34,
+    "positive": 26,
+    "negative": 8,
+    "feature_benchmark": {
+      "endpoint": "skin_dryness",
+      "selection_policy": "scaffold status > scaffold MCC > scaffold balanced accuracy > OOF MCC > OOF AUC > lower dimension",
+      "selected_feature_mode": "maccs_descr",
+      "results": {
+        "morgan": {
+          "oof": {
+            "accuracy": 0.765,
+            "balanced_accuracy": 0.673,
+            "sensitivity": 0.846,
+            "specificity": 0.5,
+            "auc": 0.587,
+            "mcc": 0.346,
+            "n_pos": 26,
+            "n_neg": 8,
+            "status": "complete",
+            "protocol": "5-fold stratified out-of-fold",
+            "threshold": 0.65,
+            "threshold_policy": "Youden's J selected from the complete OOF prediction vector"
+          },
+          "scaffold": {
+            "accuracy": 0.676,
+            "balanced_accuracy": 0.659,
+            "sensitivity": 0.692,
+            "specificity": 0.625,
+            "auc": 0.639,
+            "mcc": 0.277,
+            "n_pos": 26,
+            "n_neg": 8,
+            "status": "complete",
+            "protocol": "5-fold StratifiedGroupKFold by Bemis-Murcko scaffold",
+            "threshold_policy": "threshold selected from each outer training fold only",
+            "outer_fold_thresholds": [
+              0.65,
+              0.75,
+              0.6,
+              0.7,
+              0.85
+            ],
+            "group_overlap_per_fold": [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "exact_group_overlap_zero": true,
+            "note": "acyclic structures receive structure-specific groups because their Bemis-Murcko scaffold is empty",
+            "unique_groups": 34,
+            "ring_scaffold_rows": 3,
+            "acyclic_rows_unique_group": 31
+          },
+          "threshold": 0.65,
+          "dimensions": 2048
+        },
+        "maccs_descr": {
+          "oof": {
+            "accuracy": 0.765,
+            "balanced_accuracy": 0.716,
+            "sensitivity": 0.808,
+            "specificity": 0.625,
+            "auc": 0.692,
+            "mcc": 0.403,
+            "n_pos": 26,
+            "n_neg": 8,
+            "status": "complete",
+            "protocol": "5-fold stratified out-of-fold",
+            "threshold": 0.6,
+            "threshold_policy": "Youden's J selected from the complete OOF prediction vector"
+          },
+          "scaffold": {
+            "accuracy": 0.794,
+            "balanced_accuracy": 0.692,
+            "sensitivity": 0.885,
+            "specificity": 0.5,
+            "auc": 0.726,
+            "mcc": 0.403,
+            "n_pos": 26,
+            "n_neg": 8,
+            "status": "complete",
+            "protocol": "5-fold StratifiedGroupKFold by Bemis-Murcko scaffold",
+            "threshold_policy": "threshold selected from each outer training fold only",
+            "outer_fold_thresholds": [
+              0.7,
+              0.55,
+              0.5,
+              0.25,
+              0.65
+            ],
+            "group_overlap_per_fold": [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "exact_group_overlap_zero": true,
+            "note": "acyclic structures receive structure-specific groups because their Bemis-Murcko scaffold is empty",
+            "unique_groups": 34,
+            "ring_scaffold_rows": 3,
+            "acyclic_rows_unique_group": 31
+          },
+          "threshold": 0.6,
+          "dimensions": 177
+        },
+        "morgan_maccs_descr": {
+          "oof": {
+            "accuracy": 0.824,
+            "balanced_accuracy": 0.712,
+            "sensitivity": 0.923,
+            "specificity": 0.5,
+            "auc": 0.668,
+            "mcc": 0.471,
+            "n_pos": 26,
+            "n_neg": 8,
+            "status": "complete",
+            "protocol": "5-fold stratified out-of-fold",
+            "threshold": 0.45,
+            "threshold_policy": "Youden's J selected from the complete OOF prediction vector"
+          },
+          "scaffold": {
+            "accuracy": 0.676,
+            "balanced_accuracy": 0.615,
+            "sensitivity": 0.731,
+            "specificity": 0.5,
+            "auc": 0.697,
+            "mcc": 0.209,
+            "n_pos": 26,
+            "n_neg": 8,
+            "status": "complete",
+            "protocol": "5-fold StratifiedGroupKFold by Bemis-Murcko scaffold",
+            "threshold_policy": "threshold selected from each outer training fold only",
+            "outer_fold_thresholds": [
+              0.85,
+              0.5,
+              0.4,
+              0.4,
+              0.6
+            ],
+            "group_overlap_per_fold": [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "exact_group_overlap_zero": true,
+            "note": "acyclic structures receive structure-specific groups because their Bemis-Murcko scaffold is empty",
+            "unique_groups": 34,
+            "ring_scaffold_rows": 3,
+            "acyclic_rows_unique_group": 31
+          },
+          "threshold": 0.44999999999999996,
+          "dimensions": 2225
+        }
+      }
+    },
+    "candidate_oof": {
+      "accuracy": 0.765,
+      "balanced_accuracy": 0.716,
+      "sensitivity": 0.808,
+      "specificity": 0.625,
+      "auc": 0.692,
+      "mcc": 0.403,
+      "n_pos": 26,
+      "n_neg": 8,
+      "status": "complete",
+      "protocol": "5-fold stratified out-of-fold",
+      "threshold": 0.6,
+      "threshold_policy": "Youden's J selected from the complete OOF prediction vector"
+    },
+    "candidate_scaffold_grouped": {
+      "accuracy": 0.794,
+      "balanced_accuracy": 0.692,
+      "sensitivity": 0.885,
+      "specificity": 0.5,
+      "auc": 0.726,
+      "mcc": 0.403,
+      "n_pos": 26,
+      "n_neg": 8,
+      "status": "complete",
+      "protocol": "5-fold StratifiedGroupKFold by Bemis-Murcko scaffold",
+      "threshold_policy": "threshold selected from each outer training fold only",
+      "outer_fold_thresholds": [
+        0.7,
+        0.55,
+        0.5,
+        0.25,
+        0.65
+      ],
+      "group_overlap_per_fold": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "exact_group_overlap_zero": true,
+      "note": "acyclic structures receive structure-specific groups because their Bemis-Murcko scaffold is empty",
+      "unique_groups": 34,
+      "ring_scaffold_rows": 3,
+      "acyclic_rows_unique_group": 31
+    },
+    "external": {
+      "status": "complete",
+      "path": "data\\external\\skin_dryness.csv",
+      "exact_identity_overlap": 0,
+      "invalid_rows": 0,
+      "external_conflicting_identity_count": 0,
+      "unique_external_structures": 9,
+      "threshold_from_training_oof": 0.6,
+      "metrics": {
+        "accuracy": 0.444,
+        "balanced_accuracy": 0.583,
+        "sensitivity": 0.167,
+        "specificity": 1.0,
+        "auc": 0.222,
+        "mcc": 0.25,
+        "n_pos": 6,
+        "n_neg": 3
+      }
+    },
+    "promotion_status": "research_only_blocked",
+    "promotion_checks": {
+      "training_positive_at_least_25": true,
+      "training_negative_at_least_25": false,
+      "scaffold_validation_complete": true,
+      "scaffold_mcc_at_least_0_40": true,
+      "scaffold_balanced_accuracy_at_least_0_65": true,
+      "external_validation_complete": true,
+      "external_positive_at_least_15": false,
+      "external_negative_at_least_15": false,
+      "external_auc_at_least_0_75": false,
+      "external_mcc_at_least_0_40": false,
+      "external_exact_identity_overlap_zero": true,
+      "external_source_overlap_zero": true
+    },
+    "external_source_overlap": [],
+    "research_preview": true,
+    "production_models_modified": false
+  },
+  "next_runtime_behavior": "Skin Dryness is hot-loaded as a clearly marked research candidate on the next assessment; automatic production promotion is forbidden."
+}

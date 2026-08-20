@@ -1,0 +1,173 @@
+{
+  "status": "complete",
+  "policy": "diagnostic only; external data are not used to tune features, threshold, weights, or hyperparameters",
+  "external_count": 9,
+  "class_counts": {
+    "positive": 6,
+    "negative": 3
+  },
+  "identity_correctness": {
+    "invalid_rows": 0,
+    "conflicting_identities": 0,
+    "exact_training_overlap": 0
+  },
+  "evidence_composition": {
+    "training_label_quality": {
+      "direct_experimental": 14,
+      "formulation_attributed_experimental": 1,
+      "regulatory_weak_positive": 23
+    },
+    "external_label_quality": {
+      "direct_experimental": 9
+    },
+    "training_measurement_type": {
+      "TEWL": 5,
+      "TEWL / skin barrier function": 7,
+      "TEWL; capacitance; visual dryness": 1,
+      "TEWL; skin hydration": 1,
+      "regulatory dryness/cracking statement": 23,
+      "skin hydration": 1
+    },
+    "external_measurement_type": {
+      "TEWL / skin barrier function": 9
+    },
+    "external_test_system": {
+      "ex vivo human skin": 2,
+      "human Finn chamber panel (n=42)": 2,
+      "human volunteer irritation panel (n=8)": 2,
+      "unoccluded dermal exposure in CD hairless rats": 3
+    },
+    "external_species": {
+      "human": 6,
+      "rat": 3
+    },
+    "interpretation": "The development set is regulatory-positive-heavy while the external set is source-held-out direct experimental evidence; this origin and measurement shift is reported as a limitation and is not corrected by tuning on the holdout."
+  },
+  "probability_by_class": {
+    "positive_mean": 0.3382809695898678,
+    "negative_mean": 0.3583035209495488
+  },
+  "applicability_domain": {
+    "threshold": 0.18,
+    "mean_similarity": 0.3243976650321917,
+    "median_similarity": 0.34280071885907126,
+    "in_domain": 6,
+    "out_of_domain": 3,
+    "rows": [
+      {
+        "smiles": "CS(C)=O",
+        "in_domain": false,
+        "domain_similarity": 0.14793650793650795,
+        "label": 1,
+        "probability": 0.7017422556632301,
+        "prediction": 1,
+        "ensemble_disagreement": 0.13574426053146227
+      },
+      {
+        "smiles": "Oc1ccccc1",
+        "in_domain": false,
+        "domain_similarity": 0.06037581699346406,
+        "label": 0,
+        "probability": 0.5856169951493813,
+        "prediction": 1,
+        "ensemble_disagreement": 0.2788631064398158
+      },
+      {
+        "smiles": "CCCCCCCC/C=C\\CCCCCCCC(=O)O",
+        "in_domain": true,
+        "domain_similarity": 0.34280071885907126,
+        "label": 1,
+        "probability": 0.1724614267757668,
+        "prediction": 0,
+        "ensemble_disagreement": 0.19204502274611718
+      },
+      {
+        "smiles": "CCCCCCCC/C=C\\CCCCCCCCO",
+        "in_domain": true,
+        "domain_similarity": 0.3182296650717703,
+        "label": 0,
+        "probability": 0.16826281296604287,
+        "prediction": 0,
+        "ensemble_disagreement": 0.1939850756284101
+      },
+      {
+        "smiles": "CCCCCCCCC(=O)O",
+        "in_domain": true,
+        "domain_similarity": 0.4234889810625105,
+        "label": 1,
+        "probability": 0.2857981516608663,
+        "prediction": 0,
+        "ensemble_disagreement": 0.13732549478050027
+      },
+      {
+        "smiles": "CN(C)CCCN1c2ccccc2CCc2ccccc21",
+        "in_domain": false,
+        "domain_similarity": 0.08305164319248827,
+        "label": 0,
+        "probability": 0.3210307547332223,
+        "prediction": 0,
+        "ensemble_disagreement": 0.11209052170351468
+      },
+      {
+        "smiles": "CCCCCCCCC",
+        "in_domain": true,
+        "domain_similarity": 0.5145652173913043,
+        "label": 1,
+        "probability": 0.4008622978439028,
+        "prediction": 0,
+        "ensemble_disagreement": 0.07351037645538101
+      },
+      {
+        "smiles": "CCCCCCCCCCCC",
+        "in_domain": true,
+        "domain_similarity": 0.5145652173913043,
+        "label": 1,
+        "probability": 0.2574282500689684,
+        "prediction": 0,
+        "ensemble_disagreement": 0.14708496267432836
+      },
+      {
+        "smiles": "CCCCCCCCCCCCCC",
+        "in_domain": true,
+        "domain_similarity": 0.5145652173913043,
+        "label": 1,
+        "probability": 0.21139343552647208,
+        "prediction": 0,
+        "ensemble_disagreement": 0.16724901857231816
+      }
+    ]
+  },
+  "performance_by_applicability_domain": {
+    "in_domain": {
+      "status": "insufficient_sample",
+      "n": 6,
+      "positive": 5,
+      "negative": 1,
+      "reason": "requires both classes with at least two observations per class"
+    },
+    "out_of_domain": {
+      "status": "insufficient_sample",
+      "n": 3,
+      "positive": 1,
+      "negative": 2,
+      "reason": "requires both classes with at least two observations per class"
+    }
+  },
+  "uncertainty": {
+    "definition": "standard deviation of ensemble member probabilities",
+    "mean": 0.15976642661464976,
+    "maximum": 0.2788631064398158
+  },
+  "scaffolds": {
+    "training_unique": 38,
+    "external_unique": 9,
+    "overlap": 0
+  },
+  "source_overlap": [],
+  "likely_blockers": [
+    "external sample is too small for a stable final claim",
+    "external class counts are below the configured minimum",
+    "external set has no shared scaffold groups; structural distribution shift is likely",
+    "training labels are dominated by regulatory weak positives"
+  ]
+}

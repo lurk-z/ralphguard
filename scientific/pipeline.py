@@ -12,13 +12,7 @@ from typing import List, Optional
 from confidence import ConfidenceResult
 from mixture import FormulaItem, compute_formula_risk, expand_timecourse
 from qsar.predictor import Predictor, SubstancePrediction
-
-ENDPOINT_LABELS_TH = {
-    "skin": "การระคายเคืองผิวหนัง",
-    "eye": "การระคายเคืองดวงตา",
-    "sens": "การแพ้ผิวหนัง",
-    "acute": "ความเป็นพิษเฉียบพลัน",
-}
+from endpoints import ENDPOINT_LABELS_TH
 
 DISCLAIMER_TH = (
     "ผลจากแบบจำลองคอมพิวเตอร์ (in-silico screening) เท่านั้น "
@@ -172,10 +166,12 @@ def run_pipeline(
         worst_sim = 1.0
         worst_in_domain = True
         order = {"High": 2, "Medium": 1, "Low": 0}
+        model_versions: set[str] = set()
         for sub in substances:
             if ep not in sub.per_endpoint:
                 continue
             c = sub.per_endpoint[ep].confidence
+            model_versions.add(str(getattr(sub.per_endpoint[ep], "model_version", "unknown")))
             in_domain = "out-of-domain" not in c.reason_th
             sim = _extract_similarity(c.reason_th)
             if worst is None or order[c.level] < order[worst.level]:
@@ -186,9 +182,20 @@ def run_pipeline(
         endpoint_results[ep] = {
             "label_th": ENDPOINT_LABELS_TH.get(ep, ep),
             "peak_score": round(peak[ep], 2),
-            "timecourse": timecourse[ep],
+            "timecourse": timecourse.get(ep),
             "band": _band(peak[ep]),
             "confidence": _confidence_to_dict(worst, worst_in_domain, worst_sim) if worst else None,
+            "model_status": (
+                "research_candidate"
+                if any(version.startswith("candidate") for version in model_versions)
+                else "production"
+            ),
+            "model_versions": sorted(model_versions),
+            "evidence_note_th": (
+                "โมเดลทดลองสำหรับคัดกรอง ยังไม่ผ่านเกณฑ์เลื่อนเป็น production"
+                if any(version.startswith("candidate") for version in model_versions)
+                else None
+            ),
         }
 
     return {
@@ -213,6 +220,11 @@ def run_pipeline(
                         "domain_similarity": getattr(p, "domain_similarity", 0.0),
                         "threshold": getattr(p, "threshold", 0.5),
                         "flagged": getattr(p, "flagged", p.probability >= 0.5),
+                        "training_exposure": {
+                            "seen": getattr(p, "training_seen", False),
+                            "role": getattr(p, "training_exposure_role", "none"),
+                            "model_version": getattr(p, "model_version", "unknown"),
+                        },
                         "confidence": {
                             "level": p.confidence.level,
                             "reason_th": p.confidence.reason_th,

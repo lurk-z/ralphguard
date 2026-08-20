@@ -79,13 +79,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-const ENDPOINTS = ["skin", "eye", "sens", "acute"] as const;
+const ENDPOINTS = ["skin", "eye", "sens", "acute", "skin_dryness"] as const;
 const RESULT_DAY_LABELS = [1, 3, 7] as const;
 const ENDPOINT_LABEL_TH: Record<string, string> = {
   skin: "ระคายเคืองผิว",
   eye: "ระคายเคืองตา",
   sens: "แพ้ผิวหนัง",
   acute: "พิษเฉียบพลัน",
+  skin_dryness: "ศักยภาพทำให้ผิวแห้ง",
 };
 const REGIONS = [
   { value: "face", label: "ใบหน้า", icon: "scan" },
@@ -638,6 +639,7 @@ function ResultNode({
             </div>
             {ENDPOINTS.map((ep) => {
               const endpoint = data.endpoints?.[ep];
+              if (!endpoint) return null;
               const sc = endpoint?.timecourse?.[selectedDayIndex] ?? endpoint?.peak_score ?? 0;
               const scorePercent = Math.round(Math.max(0, Math.min(100, sc)));
               const band = bandOf(scorePercent);
@@ -1009,31 +1011,74 @@ function GraphInner({
   const [pickerSearch, setPickerSearch] = useState("");
   const [showMiniMap, setShowMiniMap] = useState(true);
   const [registryItems, setRegistryItems] = useState<IngredientRegistryItem[]>([]);
+  const [registrySearchItems, setRegistrySearchItems] = useState<IngredientRegistryItem[]>([]);
+  const [readyRegistryCount, setReadyRegistryCount] = useState<number | null>(null);
+  const [registryLoading, setRegistryLoading] = useState(false);
+  const [registryError, setRegistryError] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     let alive = true;
     const load = async () => {
-      const collected: IngredientRegistryItem[] = [];
-      const pageSize = 500;
-      for (let offset = 0; ; offset += pageSize) {
-        const page = await api.listIngredientRegistry("verified", pageSize, offset, controller.signal);
-        collected.push(...page);
-        if (page.length < pageSize) break;
-      }
-      if (alive) setRegistryItems(collected);
+      setRegistryLoading(true);
+      setRegistryError(false);
+      const [items, count] = await Promise.all([
+        api.searchReadyIngredientRegistry("", 250, controller.signal),
+        api.countReadyIngredientRegistry(controller.signal),
+      ]);
+      if (!alive) return;
+      setRegistryItems(items);
+      setReadyRegistryCount(count.count);
     };
     load().catch(() => {
       // The curated offline catalog remains usable when the API is unavailable.
+      if (alive) setRegistryError(true);
+    }).finally(() => {
+      if (alive) setRegistryLoading(false);
     });
     return () => {
       alive = false;
       controller.abort();
     };
   }, []);
+  useEffect(() => {
+    const query = pickerSearch.trim();
+    if (!pickerOpen || pickerKind === "result" || query.length < 2) {
+      setRegistrySearchItems([]);
+      return;
+    }
+    const controller = new AbortController();
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setRegistryLoading(true);
+      setRegistryError(false);
+      api.searchReadyIngredientRegistry(query, 250, controller.signal)
+        .then((items) => {
+          if (active) setRegistrySearchItems(items);
+        })
+        .catch((cause: unknown) => {
+          if (!active || (cause instanceof DOMException && cause.name === "AbortError")) return;
+          setRegistrySearchItems([]);
+          setRegistryError(true);
+        })
+        .finally(() => {
+          if (active) setRegistryLoading(false);
+        });
+    }, 250);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [pickerKind, pickerOpen, pickerSearch]);
+  const activeRegistryItems = pickerSearch.trim().length >= 2
+    ? registrySearchItems
+    : registryItems;
   const substanceLibrary = useMemo(
-    () => catalogWithVerifiedRegistry(registryItems),
-    [registryItems],
+    () => catalogWithVerifiedRegistry(activeRegistryItems),
+    [activeRegistryItems],
   );
+  const availableSubstanceCount = readyRegistryCount
+    ?? substanceLibrary.reduce((total, group) => total + group.items.length, 0);
   const filteredSubstanceLibrary = useMemo(() => {
     const query = pickerSearch.trim().toLocaleLowerCase();
     if (!query) return substanceLibrary;
@@ -1190,6 +1235,11 @@ function GraphInner({
               >
                 <SemanticIcon name="flask" className="size-3.5" />
                 <span className="formula-graph-node-label">สารในสูตร</span>
+                <span className={`rounded-full px-1.5 py-0.5 font-mono text-[9px] ${
+                  pickerOpen && pickerKind === "substance" ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
+                }`}>
+                  {readyRegistryCount == null ? "…" : readyRegistryCount.toLocaleString("th-TH")}
+                </span>
               </button>
               <button
                 type="button"
@@ -1204,6 +1254,11 @@ function GraphInner({
               >
                 <SemanticIcon name="puzzle" className="size-3.5" />
                 <span className="formula-graph-node-label">สารเสริมสูตร</span>
+                <span className={`rounded-full px-1.5 py-0.5 font-mono text-[9px] ${
+                  pickerOpen && pickerKind === "modifier" ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
+                }`}>
+                  {readyRegistryCount == null ? "…" : readyRegistryCount.toLocaleString("th-TH")}
+                </span>
               </button>
               <button
                 type="button"
@@ -1340,7 +1395,27 @@ function GraphInner({
                       {pickerKind === "modifier" ? "เลือกสารเสริมสูตรจากคลัง" : "เลือกสารในสูตรจากคลัง"}
                     </span>
                     <span className="h-px flex-1 bg-slate-100" />
+                    <span className="whitespace-nowrap font-mono text-[9px] text-slate-400">
+                      {availableSubstanceCount.toLocaleString("th-TH")} สารพร้อมใช้
+                    </span>
                   </div>
+
+                  {registryLoading && (
+                    <div className="mb-2 flex items-center gap-2 rounded-lg bg-teal-50 px-2.5 py-2 text-[10px] text-brand">
+                      <span className="size-1.5 animate-pulse rounded-full bg-brand" />
+                      กำลังค้นหาจากคลังสาร…
+                    </div>
+                  )}
+                  {!registryLoading && registryError && (
+                    <div className="mb-2 rounded-lg bg-amber-50 px-2.5 py-2 text-[10px] text-amber-700">
+                      เชื่อมต่อคลังสารไม่ได้ชั่วคราว — ยังใช้รายการพื้นฐานในเครื่องได้
+                    </div>
+                  )}
+                  {!registryLoading && !registryError && pickerSearch.trim().length < 2 && readyRegistryCount != null && (
+                    <div className="mb-2 rounded-lg bg-slate-50 px-2.5 py-2 text-[10px] text-slate-500">
+                      แสดงรายการแนะนำ · พิมพ์อย่างน้อย 2 ตัวอักษรเพื่อค้นหาจากคลังทั้งหมด {readyRegistryCount.toLocaleString("th-TH")} สาร
+                    </div>
+                  )}
 
                   {filteredSubstanceLibrary.map((group) => {
                     const open = pickerSearch.trim() ? true : !collapsed[group.category];

@@ -21,6 +21,7 @@ from rdkit import RDLogger
 RDLogger.DisableLog("rdApp.*")
 
 from app.db.session import SessionLocal
+from app.core.endpoints import ENDPOINT_META
 from app.services.pubchem_evidence import (
     fetch_global_hazard_class_page,
     fetch_global_ghs_page,
@@ -34,7 +35,7 @@ from app.services.pubchem_evidence import (
 )
 
 
-TARGET_ENDPOINTS = ("skin", "eye", "sens", "acute")
+TARGET_ENDPOINTS = tuple(ENDPOINT_META)
 RUN_HISTORY_FIELDS = (
     "generated_at",
     "annotation_heading",
@@ -99,7 +100,7 @@ def main() -> None:
         default=0,
         help=(
             "minimum screened unique structures carrying evidence for each of "
-            "skin, eye, sens, and acute; 0 disables this additional gate"
+            "skin, eye, sens, acute, and skin_dryness; 0 disables this additional gate"
         ),
     )
     parser.add_argument("--start-page", type=int, default=1)
