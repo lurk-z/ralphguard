@@ -44,6 +44,8 @@ import {
   api,
   apiErrorMessage,
   substanceDepictionUrl,
+  REGISTRY_BROWSE_LIMIT,
+  REGISTRY_SEARCH_MIN_CHARS,
   type HerbalPlantSummary,
   type IngredientRegistryItem,
   type SubstanceProfile,
@@ -132,6 +134,7 @@ export default function SubstanceLibraryPage({
   const [categorySheetOpen, setCategorySheetOpen] = useState(false);
   const [toolbarHost, setToolbarHost] = useState<HTMLElement | null>(null);
   const [registryItems, setRegistryItems] = useState<IngredientRegistryItem[]>([]);
+  const [registrySearchItems, setRegistrySearchItems] = useState<IngredientRegistryItem[]>([]);
   const [herbItems, setHerbItems] = useState<HerbalPlantSummary[]>([]);
   const [registryLoading, setRegistryLoading] = useState(false);
   const [registryError, setRegistryError] = useState<string | null>(null);
@@ -174,14 +177,18 @@ export default function SubstanceLibraryPage({
     setRegistryError(null);
 
     const loadRegistry = async () => {
-      const collected: IngredientRegistryItem[] = [];
-      const pageSize = 500;
-      for (let offset = 0; ; offset += pageSize) {
-        const page = await api.listIngredientRegistry("verified", pageSize, offset, controller.signal);
-        collected.push(...page);
-        if (page.length < pageSize) break;
-      }
-      if (alive) setRegistryItems(collected);
+      // Load one browsable page instead of the whole registry. Paging through
+      // every verified substance meant ~0.5 MB per 500 rows over a hundred
+      // requests once the catalogue passed fifty thousand entries, which
+      // saturated the single backend instance and stalled unrelated pages.
+      // Anything beyond this page is reached through server-side search below.
+      const page = await api.listIngredientRegistry(
+        "verified",
+        REGISTRY_BROWSE_LIMIT,
+        0,
+        controller.signal,
+      );
+      if (alive) setRegistryItems(page);
     };
 
     loadRegistry()
@@ -212,8 +219,33 @@ export default function SubstanceLibraryPage({
     return () => controller.abort();
   }, [active, herbItems.length, reloadRequest]);
 
+  // Typing searches the whole registry on the server; an empty or very short
+  // query falls back to the browse page already in memory.
+  const searching = debouncedQuery.length >= REGISTRY_SEARCH_MIN_CHARS;
+  useEffect(() => {
+    if (!active || !searching) return;
+    const controller = new AbortController();
+    let alive = true;
+    api
+      .listIngredientRegistry("verified", REGISTRY_BROWSE_LIMIT, 0, controller.signal, debouncedQuery)
+      .then((page) => {
+        if (alive) setRegistrySearchItems(page);
+      })
+      .catch((cause: unknown) => {
+        if (!isAbortError(cause) && alive) {
+          toast.error(apiErrorMessage(cause, "ค้นหาสารในคลังไม่สำเร็จ"));
+        }
+      });
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [active, searching, debouncedQuery]);
+
+  const activeRegistryItems = searching ? registrySearchItems : registryItems;
+
   const libraryItems = useMemo(() => {
-    const substances = mergeSubstanceLibrary(SUBSTANCE_LIBRARY, registryItems, localItems);
+    const substances = mergeSubstanceLibrary(SUBSTANCE_LIBRARY, activeRegistryItems, localItems);
     const herbs: LibrarySubstance[] = herbItems.map((herb) => ({
       key: `herb:${herb.id}`,
       source: "herb",
@@ -227,7 +259,7 @@ export default function SubstanceLibraryPage({
       botanicalName: herb.accepted_scientific_name,
     }));
     return [...substances, ...herbs];
-  }, [herbItems, localItems, registryItems]);
+  }, [herbItems, localItems, activeRegistryItems]);
   const selectedConcentrationBySmiles = useMemo(
     () => new Map(selectedItems.map((item) => [normalizedSmiles(item.smiles), item.concentration])),
     [selectedItems],

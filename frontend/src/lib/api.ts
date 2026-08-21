@@ -43,6 +43,14 @@ export function apiErrorMessage(cause: unknown, fallback: string): string {
   return `${fallback}: ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้`;
 }
 
+// How many verified substances a browsing view loads up front. The registry
+// holds tens of thousands of entries, so views reach the rest through
+// server-side search rather than downloading the whole table.
+export const REGISTRY_BROWSE_LIMIT = 500;
+// Below this many characters a search would match most of the registry, so the
+// browse page is shown instead of issuing a query.
+export const REGISTRY_SEARCH_MIN_CHARS = 2;
+
 export type Region = "forearm" | "hand" | "face" | "eye";
 export type ConfidenceLevel = "High" | "Medium" | "Low";
 export type EndpointCode = "skin" | "eye" | "sens" | "acute" | "skin_dryness";
@@ -324,12 +332,16 @@ export const api = {
     limit = 500,
     offset = 0,
     signal?: AbortSignal,
+    query = "",
   ) => {
     const params = new URLSearchParams({
       verification_status: verificationStatus,
       limit: String(limit),
       offset: String(offset),
     });
+    // Searching on the server keeps the browser from having to hold the whole
+    // registry in memory just to filter it.
+    if (query.trim()) params.set("q", query.trim());
     return http<IngredientRegistryItem[]>(`/api/substances/registry?${params.toString()}`, { signal }, 20000);
   },
 

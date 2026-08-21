@@ -35,7 +35,7 @@ class IngredientRegistry(Base):
     synonyms: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     cas_number: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
     pubchem_cid: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
-    canonical_smiles: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    canonical_smiles: Mapped[str | None] = mapped_column(String(2000), nullable=True, index=True)
     inchi: Mapped[str | None] = mapped_column(Text, nullable=True)
     inchikey: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     molecular_formula: Mapped[str | None] = mapped_column(String(200), nullable=True)

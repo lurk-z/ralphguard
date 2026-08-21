@@ -29,6 +29,7 @@ import {
   ProjectOut,
   Region,
   api,
+  REGISTRY_BROWSE_LIMIT,
   substanceDepictionUrl,
 } from "@/lib/api";
 import {
@@ -382,42 +383,49 @@ export default function StudioPage() {
     };
   }, []);
   useEffect(() => {
-    if (!manualSubstanceTargetFormulaId || manualRegistryItems.length > 0) return;
+    if (!manualSubstanceTargetFormulaId) return;
     const controller = new AbortController();
     let alive = true;
     setManualRegistryLoading(true);
+    // Re-query as the user types, debounced, rather than loading the registry
+    // once and filtering a huge in-memory list.
+    const timer = window.setTimeout(() => {
+      void run();
+    }, 200);
 
     const loadRegistry = async () => {
-      const collected: IngredientRegistryItem[] = [];
-      const pageSize = 500;
-      for (let offset = 0; ; offset += pageSize) {
-        const page = await api.listIngredientRegistry(
-          "verified",
-          pageSize,
-          offset,
-          controller.signal,
-        );
-        collected.push(...page);
-        if (page.length < pageSize) break;
-      }
-      if (alive) setManualRegistryItems(collected);
+      // Suggestions come from a bounded page plus a server-side search on what
+      // the user types; downloading every verified substance to filter it in
+      // the browser stalled the whole app once the registry grew past a few
+      // thousand entries.
+      const page = await api.listIngredientRegistry(
+        "verified",
+        REGISTRY_BROWSE_LIMIT,
+        0,
+        controller.signal,
+        manualSubstanceName.trim(),
+      );
+      if (alive) setManualRegistryItems(page);
     };
 
-    void loadRegistry()
-      .catch((cause: unknown) => {
-        if (!isAbortError(cause) && alive) {
-          logRequestFailure("load manual substance suggestions", cause);
-        }
-      })
-      .finally(() => {
-        if (alive) setManualRegistryLoading(false);
-      });
+    function run() {
+      return loadRegistry()
+        .catch((cause: unknown) => {
+          if (!isAbortError(cause) && alive) {
+            logRequestFailure("load manual substance suggestions", cause);
+          }
+        })
+        .finally(() => {
+          if (alive) setManualRegistryLoading(false);
+        });
+    }
 
     return () => {
       alive = false;
+      window.clearTimeout(timer);
       controller.abort();
     };
-  }, [manualSubstanceTargetFormulaId, manualRegistryItems.length]);
+  }, [manualSubstanceTargetFormulaId, manualSubstanceName]);
 
   useEffect(() => {
     if (!recentlyCreatedFormulaId) return;
@@ -4100,40 +4108,43 @@ function SubstanceLibraryDrawer({
   }, [open]);
 
   useEffect(() => {
-    if (!open || registryItems.length) return;
+    if (!open) return;
     const controller = new AbortController();
     let alive = true;
     setRegistryLoading(true);
+    const timer = window.setTimeout(() => {
+      void run();
+    }, 200);
 
     const loadVerifiedRegistry = async () => {
-      const collected: IngredientRegistryItem[] = [];
-      const pageSize = 500;
-      for (let offset = 0; ; offset += pageSize) {
-        const page = await api.listIngredientRegistry(
-          "verified",
-          pageSize,
-          offset,
-          controller.signal,
-        );
-        collected.push(...page);
-        if (page.length < pageSize) break;
-      }
-      if (alive) setRegistryItems(collected);
+      // One browsable page only. The modal's own search box now queries the
+      // server, so the browser never holds the whole registry.
+      const page = await api.listIngredientRegistry(
+        "verified",
+        REGISTRY_BROWSE_LIMIT,
+        0,
+        controller.signal,
+        query.trim(),
+      );
+      if (alive) setRegistryItems(page);
     };
 
-    loadVerifiedRegistry()
-      .catch((cause) => {
-        if (!alive || isAbortError(cause)) return;
-      })
-      .finally(() => {
-        if (alive) setRegistryLoading(false);
-      });
+    function run() {
+      return loadVerifiedRegistry()
+        .catch((cause) => {
+          if (!alive || isAbortError(cause)) return;
+        })
+        .finally(() => {
+          if (alive) setRegistryLoading(false);
+        });
+    }
 
     return () => {
       alive = false;
+      window.clearTimeout(timer);
       controller.abort();
     };
-  }, [open, registryItems.length]);
+  }, [open, query]);
 
   const localFavoriteKeyBySmiles = useMemo(
     () => new Map(
