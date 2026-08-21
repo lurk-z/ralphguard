@@ -52,9 +52,12 @@ import data_prep as training  # noqa: E402
 from scripts.training_visualization import (  # noqa: E402
     export_predictions,
     plot_algorithm_pipeline,
+    plot_cleaning_funnel,
+    plot_data_ingestion,
     plot_data_profile,
     plot_evidence_origin_performance,
     plot_model_comparison,
+    plot_pipeline_summary,
     plot_training_preflight,
     plot_validation,
     write_training_report,
@@ -248,6 +251,10 @@ def load_candidate_endpoint(
     invalid_label_rows = int(frame["normalized_label"].isna().sum())
     frame = frame.dropna(subset=["identity_key", "canonical", "normalized_label"]).copy()
     frame["normalized_label"] = frame["normalized_label"].astype(int)
+    # Surviving-row counts after each cleaning stage. Recording them here is
+    # what lets the funnel chart be audited: every bar is a real intermediate
+    # count rather than a subtraction reconstructed after the fact.
+    rows_after_identity_and_label = len(frame)
 
     holdout_keys = external_holdout_identity_keys(endpoint)
     holdout_overlap = frame["identity_key"].isin(holdout_keys)
@@ -256,6 +263,7 @@ def load_candidate_endpoint(
         frame.loc[holdout_overlap, "identity_key"].nunique()
     )
     frame = frame[~holdout_overlap].copy()
+    rows_after_holdout_quarantine = len(frame)
 
     frame["origin_priority"] = frame["training_origin"].map(
         {"base": 0, "external_experimental": 0, "nice_reviewed": 1, "pubchem_reviewed": 2}
@@ -264,6 +272,7 @@ def load_candidate_endpoint(
     any_conflict_keys = set(overall_label_counts[overall_label_counts > 1].index)
     best_priority = frame.groupby("identity_key")["origin_priority"].transform("min")
     best_tier = frame[frame["origin_priority"] == best_priority].copy()
+    rows_after_tier_selection = len(best_tier)
     best_label_counts = best_tier.groupby("identity_key")["normalized_label"].nunique()
     conflict_keys = set(best_label_counts[best_label_counts > 1].index)
     lower_tier_conflict_keys = any_conflict_keys.difference(conflict_keys)
@@ -366,6 +375,18 @@ def load_candidate_endpoint(
         "conflicting_identity_count": int(len(conflict_keys)),
         "lower_tier_conflicts_resolved_by_evidence_priority": int(len(lower_tier_conflict_keys)),
         "duplicate_rows_beyond_first": duplicate_rows_beyond_first,
+        # Ordered survivor counts, one per cleaning stage. Each entry is the
+        # number of rows still present *after* that stage, so a reader can
+        # check every drop instead of trusting a single before/after pair.
+        "cleaning_funnel": [
+            {"stage": "raw_rows_loaded", "rows": int(raw_rows)},
+            {"stage": "valid_structure_and_label", "rows": int(rows_after_identity_and_label)},
+            {"stage": "external_holdout_quarantined", "rows": int(rows_after_holdout_quarantine)},
+            {"stage": "best_evidence_tier_only", "rows": int(rows_after_tier_selection)},
+            {"stage": "same_tier_conflicts_removed", "rows": int(rows_after_conflict)},
+            {"stage": "deduplicated_to_identities", "rows": int(eligible_rows_before_cap)},
+            {"stage": "class_balanced_training_set", "rows": int(len(labels))},
+        ],
         "eligible_unique_identities_before_training_cap": int(eligible_rows_before_cap),
         "training_row_cap": int(max_training_rows),
         "rows_excluded_by_training_cap": int(eligible_rows_before_cap - len(clean)),
@@ -773,6 +794,7 @@ def main() -> int:
     plots_root = OUT / "plots"
     plot_algorithm_pipeline(plots_root)
     plot_training_preflight(selected_datasets, plots_root)
+    plot_data_ingestion(BASE, plots_root)
     missing = [
         path.name for endpoint, path in selected_datasets.items()
         if (args.endpoint is None or endpoint == args.endpoint) and not path.exists()
@@ -901,6 +923,7 @@ def main() -> int:
                 payload["training_origin"] = training_origins
 
         endpoint_plots = plots_root / endpoint
+        plot_cleaning_funnel(endpoint, data_stats, endpoint_plots)
         plot_data_profile(endpoint, y, data_stats, endpoint_plots)
         validation_outputs = [
             ("OOF validation", oof_metrics, oof_payload, "02_oof_validation", "oof_predictions.csv"),
@@ -1013,6 +1036,7 @@ def main() -> int:
         )
 
     (OUT / "validation_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    plot_pipeline_summary(report, plots_root)
     write_training_report(report, OUT)
     # A successful run supersedes blocker markers written by an earlier
     # preflight failure.  Leaving them beside the completed report makes the

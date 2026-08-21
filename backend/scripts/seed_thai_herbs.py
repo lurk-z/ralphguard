@@ -5,6 +5,7 @@ script intentionally does not assign surrogate SMILES or QSAR eligibility.
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import sys
@@ -214,13 +215,18 @@ def main() -> None:
             db, HERBS_PENDING_REVIEW, seed_version=2, verification_status="pending"
         )
         db.commit()
+    # JSON rather than a repr so callers (the training notebook) can parse the
+    # result without eval.
     print(
-        {
-            "created_plants": created_curated + created_pending,
-            "created_curated": created_curated,
-            "created_pending_review": created_pending,
-            "catalogue_size": len(HERBS) + len(HERBS_PENDING_REVIEW),
-        }
+        json.dumps(
+            {
+                "created_plants": created_curated + created_pending,
+                "created_curated": created_curated,
+                "created_pending_review": created_pending,
+                "catalogue_size": len(HERBS) + len(HERBS_PENDING_REVIEW),
+            },
+            ensure_ascii=False,
+        )
     )
 
 

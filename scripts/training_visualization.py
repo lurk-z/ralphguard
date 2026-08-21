@@ -172,6 +172,159 @@ def plot_training_preflight(dataset_paths: Mapping[str, Path], output_dir: Path)
     _save(fig, output_dir / "00_data_preflight")
 
 
+def _read_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def plot_data_ingestion(repo_root: Path, output_dir: Path) -> None:
+    """Show where every training row came from, before any cleaning happens.
+
+    The previous preflight figure only reported that four CSV files existed,
+    which tells a reviewer nothing about provenance. This reads the import
+    manifests each collector already writes and plots the real numbers: how
+    many raw evidence rows each public source held, why most of them could not
+    become training rows, and which file hash the run consumed.
+    """
+    ice = _read_json(repo_root / "data" / "staging" / "ice_bulk_preparation_summary.json")
+    negatives = _read_json(repo_root / "data" / "curated" / "experimental_negative_manifest.json")
+    hppt = _read_json(repo_root / "data" / "curated" / "sens_hppt_import_report.json")
+    pubchem = _read_json(repo_root / "data" / "curated" / "pubchem_global_import_report.json")
+    ice_endpoints: Mapping[str, Any] = ice.get("endpoint_summaries", {}) or {}
+    if not ice_endpoints:
+        _status_figure(
+            "Stage 1 — data ingestion",
+            {"reason": "ICE bulk preparation summary was not found"},
+            output_dir / "00_data_ingestion",
+        )
+        return
+
+    endpoints = list(ice_endpoints)
+    fig = plt.figure(figsize=(18, 9))
+    grid = fig.add_gridspec(2, 2, height_ratios=[1.15, 1.0], hspace=0.42, wspace=0.22)
+
+    # Panel A — how many usable identities each public source contributed.
+    axis = fig.add_subplot(grid[0, 0])
+    negative_endpoints = negatives.get("endpoints", {}) or {}
+    pubchem_by_endpoint = pubchem.get("screened_unique_structures_by_endpoint", {}) or {}
+    contributions = {
+        "NICEATM ICE (experimental)": [
+            int(ice_endpoints[name].get("training_identity_groups", 0)) for name in endpoints
+        ],
+        "STopTox (curated negatives)": [
+            int((negative_endpoints.get(name) or {}).get("accepted_new_negative", 0))
+            for name in endpoints
+        ],
+        "NICEATM HPPT (human patch)": [
+            int(hppt.get("accepted_unique_structures", 0)) if name == "sens" else 0
+            for name in endpoints
+        ],
+        "PubChem GHS (regulatory weak)": [
+            int(pubchem_by_endpoint.get(name, 0)) for name in endpoints
+        ],
+    }
+    offsets = np.arange(len(endpoints))
+    bottom = np.zeros(len(endpoints))
+    palette = ["#0F766E", "#16A34A", "#2563EB", "#F59E0B"]
+    for (label, values), colour in zip(contributions.items(), palette):
+        array = np.asarray(values, dtype=float)
+        axis.bar(offsets, array, 0.6, bottom=bottom, label=label, color=colour)
+        bottom += array
+    axis.set_xticks(offsets)
+    axis.set_xticklabels([name.upper() for name in endpoints])
+    axis.set_yscale("symlog")
+    axis.set_ylabel("Unique structures contributed (symlog)")
+    axis.set_title("A. Public sources feeding each endpoint", fontsize=12, weight="bold")
+    # Symlog bars reach the top of the axis, so the legend needs its own room
+    # rather than sitting on top of the shortest endpoint's bar.
+    axis.set_ylim(0, max(bottom.max(), 1) * 60)
+    axis.legend(fontsize=8, loc="upper left")
+
+    # Panel B — the ICE download is mostly unusable for a single-molecule QSAR.
+    # Showing why is the honest answer to "why is the experimental set small?".
+    axis = fig.add_subplot(grid[0, 1])
+    reasons = {
+        "Mixture / formulation": "mixture_or_formulation",
+        "No defined structure": "missing_defined_structure",
+        "Not in vivo": "not_in_vivo",
+        "Sent to manual review": "group_conflict_review_required",
+    }
+    bottom = np.zeros(len(endpoints))
+    reason_palette = ["#DC2626", "#EA580C", "#F59E0B", "#7C3AED"]
+    for (label, key), colour in zip(reasons.items(), reason_palette):
+        array = np.asarray(
+            [float(ice_endpoints[name].get(key, 0) or 0) for name in endpoints]
+        )
+        axis.bar(offsets, array, 0.6, bottom=bottom, label=label, color=colour)
+        bottom += array
+    kept = np.asarray(
+        [float(ice_endpoints[name].get("training_identity_groups", 0)) for name in endpoints]
+    )
+    axis.bar(offsets, kept, 0.6, bottom=bottom, label="Kept for training", color="#0F766E")
+    axis.set_xticks(offsets)
+    axis.set_xticklabels([name.upper() for name in endpoints])
+    axis.set_ylabel("Raw evidence rows")
+    axis.set_title(
+        "B. Why most ICE rows cannot enter a single-molecule QSAR",
+        fontsize=12,
+        weight="bold",
+    )
+    axis.legend(fontsize=8)
+
+    # Panel C — raw rows in versus training identities out, per endpoint.
+    axis = fig.add_subplot(grid[1, 0])
+    raw_rows = [float(ice_endpoints[name].get("raw_evidence_rows", 0)) for name in endpoints]
+    axis.bar(offsets - 0.18, raw_rows, 0.36, label="Raw evidence rows", color="#94A3B8")
+    axis.bar(offsets + 0.18, kept, 0.36, label="Training identities", color="#0F766E")
+    axis.set_xticks(offsets)
+    axis.set_xticklabels([name.upper() for name in endpoints])
+    axis.set_yscale("symlog")
+    axis.set_ylabel("Rows (symlog)")
+    axis.set_title("C. ICE raw rows in vs training identities out", fontsize=12, weight="bold")
+    axis.set_ylim(0, max(max(raw_rows), 1) * 60)
+    axis.legend(fontsize=8, loc="upper left")
+    for offset, raw_value, kept_value in zip(offsets, raw_rows, kept):
+        axis.text(offset - 0.18, raw_value, f"{int(raw_value):,}", ha="center", va="bottom", fontsize=7.5)
+        axis.text(offset + 0.18, kept_value, f"{int(kept_value):,}", ha="center", va="bottom", fontsize=7.5)
+
+    # Panel D — the provenance a reviewer needs to re-download and re-check.
+    axis = fig.add_subplot(grid[1, 1])
+    axis.axis("off")
+    lines = ["Source provenance consumed by this run", ""]
+    for name in endpoints:
+        summary = ice_endpoints[name]
+        digest = str(summary.get("source_sha256", ""))[:16]
+        lines.append(f"ICE {name.upper():<6} {Path(str(summary.get('source_file',''))).name}   sha256:{digest}…")
+    if negatives.get("paper"):
+        lines.append("")
+        lines.append(f"STopTox negatives  {negatives.get('paper')}")
+    if hppt.get("source_url"):
+        lines.append(f"NICEATM HPPT       {hppt.get('source_url')}")
+    lines.append("")
+    lines.append("Label policy: experimental/reference evidence only;")
+    lines.append("absence of a hazard statement is never a negative label.")
+    axis.text(
+        0.0,
+        1.0,
+        "\n".join(lines),
+        va="top",
+        ha="left",
+        fontsize=8.5,
+        family="monospace",
+        linespacing=1.6,
+    )
+    axis.set_title("D. Provenance", fontsize=12, weight="bold", loc="left")
+
+    fig.suptitle(
+        "Stage 1 — data ingestion: what was downloaded and what survived source filtering",
+        fontsize=15,
+        weight="bold",
+    )
+    _save(fig, output_dir / "00_data_ingestion")
+
+
 def plot_data_profile(endpoint: str, y: np.ndarray, stats: Mapping[str, Any], output_dir: Path) -> None:
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.5))
     negative = int((y == 0).sum())
@@ -209,6 +362,147 @@ def plot_data_profile(endpoint: str, y: np.ndarray, stats: Mapping[str, Any], ou
     fig.suptitle(f"{endpoint.upper()} — Stage 1: training-data profile", fontsize=15, weight="bold")
     fig.tight_layout()
     _save(fig, output_dir / "01_data_profile")
+
+
+FUNNEL_LABELS = {
+    "raw_rows_loaded": "1. Rows loaded from all sources",
+    "valid_structure_and_label": "2. RDKit-parsable structure + binary label",
+    "external_holdout_quarantined": "3. External holdout molecules removed",
+    "best_evidence_tier_only": "4. Highest evidence tier per molecule",
+    "same_tier_conflicts_removed": "5. Same-tier label conflicts removed",
+    "deduplicated_to_identities": "6. Deduplicated to unique molecules",
+    "class_balanced_training_set": "7. Class-balanced training set",
+}
+
+
+def plot_cleaning_funnel(endpoint: str, stats: Mapping[str, Any], output_dir: Path) -> None:
+    """Show what data cleaning actually removed, stage by stage.
+
+    Reviewers ask what the raw evidence looked like before curation and what
+    survived it. A single before/after pair cannot answer that, so the left
+    panel plots the surviving row count after every stage on a log axis —
+    without it a 306-row class is invisible beside a 160,000-row one — and
+    annotates how many rows each stage dropped.
+    """
+    funnel = list(stats.get("cleaning_funnel") or [])
+    if not funnel:
+        _status_figure(
+            f"{endpoint.upper()} — data cleaning funnel",
+            {"reason": "cleaning_funnel was not recorded for this run"},
+            output_dir / "00_cleaning_funnel",
+        )
+        return
+
+    fig, axes = plt.subplots(1, 4, figsize=(22, 5.6))
+
+    labels = [FUNNEL_LABELS.get(item["stage"], item["stage"]) for item in funnel]
+    values = [max(0, int(item["rows"])) for item in funnel]
+    removed = [0] + [max(0, values[i - 1] - values[i]) for i in range(1, len(values))]
+    positions = np.arange(len(values))
+    shades = plt.cm.YlGnBu(np.linspace(0.35, 0.85, len(values)))
+
+    # Rows remaining stays on a linear axis: the point of this panel is how
+    # much of the pool the final stage removes, which a log axis would flatten.
+    axes[0].barh(positions, values, color=shades)
+    axes[0].set_yticks(positions)
+    axes[0].set_yticklabels(labels, fontsize=8.5)
+    axes[0].invert_yaxis()
+    axes[0].set_xlabel("Rows remaining")
+    axes[0].set_title("Data cleaning funnel", fontsize=12, weight="bold")
+    start = values[0]
+    for index, value in enumerate(values):
+        axes[0].text(value, index, f" {value:,}", va="center", fontsize=8)
+    axes[0].margins(x=0.18)
+    axes[0].text(
+        0.98,
+        0.04,
+        f"kept {values[-1]:,} of {start:,}  ({100.0 * values[-1] / max(1, start):.1f}%)",
+        transform=axes[0].transAxes,
+        ha="right",
+        fontsize=9,
+        style="italic",
+    )
+
+    # Removals need their own log axis, otherwise a 2-row conflict removal is
+    # invisible beside a 157,000-row rebalance and the audit stages look
+    # like they did nothing at all.
+    # A log axis cannot draw zero, so a stage that removed nothing still needs
+    # a stub. Colour it grey rather than red so "removed nothing" never reads
+    # as a small removal.
+    axes[1].barh(
+        positions[1:],
+        [max(value, 0.6) for value in removed[1:]],
+        color=["#DC2626" if value else "#CBD5E1" for value in removed[1:]],
+    )
+    axes[1].set_yticks(positions[1:])
+    axes[1].set_yticklabels([label.split(". ", 1)[-1] for label in labels[1:]], fontsize=8.5)
+    axes[1].invert_yaxis()
+    axes[1].set_xscale("log")
+    axes[1].set_xlabel("Rows removed at this stage (log scale)")
+    axes[1].set_title("What each stage removed", fontsize=12, weight="bold")
+    for index, value in zip(positions[1:], removed[1:]):
+        axes[1].text(max(value, 0.6), index, f" {value:,}", va="center", fontsize=8)
+    axes[1].margins(x=0.3)
+
+    before_pos = int(stats.get("eligible_positive_identities_before_cap", 0))
+    before_neg = int(stats.get("eligible_negative_identities_before_cap", 0))
+    after_pos = int(stats.get("retained_positive_identities", 0))
+    after_neg = int(stats.get("retained_negative_identities", 0))
+    width = 0.35
+    axis = axes[2]
+    axis.bar([0 - width / 2, 1 - width / 2], [before_pos, after_pos], width, label="Positive (1)", color="#DC2626")
+    axis.bar([0 + width / 2, 1 + width / 2], [before_neg, after_neg], width, label="Negative (0)", color="#16A34A")
+    axis.set_xticks([0, 1])
+    axis.set_xticklabels(["Before balancing", "After balancing"])
+    axis.set_yscale("log")
+    axis.set_ylabel("Unique molecules (log scale)")
+    axis.legend(fontsize=8)
+    for x, value in zip(
+        [0 - width / 2, 1 - width / 2, 0 + width / 2, 1 + width / 2],
+        [before_pos, after_pos, before_neg, after_neg],
+    ):
+        if value > 0:
+            axis.text(x, value, f"{value:,}", ha="center", va="bottom", fontsize=8, weight="bold")
+    ratio_before = before_pos / before_neg if before_neg else 0
+    ratio_after = after_pos / after_neg if after_neg else 0
+    axis.set_title(
+        f"Class balance before vs after\npositive:negative  {ratio_before:.0f}:1  →  {ratio_after:.0f}:1",
+        fontsize=12,
+        weight="bold",
+    )
+    axis.margins(y=0.25)
+
+    inputs = {
+        "base ICE": int(stats.get("base_input_rows", 0)),
+        "curated experimental": int(stats.get("external_experimental_input_rows", 0)),
+        "NICE reviewed": int(stats.get("nice_reviewed_input_rows", 0)),
+        "PubChem weak": int(stats.get("pubchem_reviewed_input_rows", 0)),
+    }
+    retained = stats.get("training_sources", {}) or {}
+    retained_by_label = {
+        "base ICE": int(retained.get("base", 0)),
+        "curated experimental": int(retained.get("external_experimental", 0)),
+        "NICE reviewed": int(retained.get("nice_reviewed", 0)),
+        "PubChem weak": int(retained.get("pubchem_reviewed", 0)),
+    }
+    names = list(inputs)
+    offsets = np.arange(len(names))
+    axes[3].bar(offsets - width / 2, [inputs[name] for name in names], width, label="Loaded", color="#94A3B8")
+    axes[3].bar(offsets + width / 2, [retained_by_label[name] for name in names], width, label="Retained", color="#0F766E")
+    axes[3].set_xticks(offsets)
+    axes[3].set_xticklabels(names, rotation=18, fontsize=8.5)
+    axes[3].set_yscale("symlog")
+    axes[3].set_ylabel("Rows (symlog scale)")
+    axes[3].set_title("Evidence source: loaded vs retained", fontsize=12, weight="bold")
+    axes[3].legend(fontsize=8)
+
+    fig.suptitle(
+        f"{endpoint.upper()} — Stage 0: what data cleaning removed",
+        fontsize=15,
+        weight="bold",
+    )
+    fig.tight_layout()
+    _save(fig, output_dir / "00_cleaning_funnel")
 
 
 def plot_validation(
@@ -337,6 +631,90 @@ def plot_evidence_origin_performance(
     ax.legend()
     fig.tight_layout()
     _save(fig, output_dir / "07_evidence_origin_validation")
+
+
+def plot_pipeline_summary(report: Mapping[str, Any], output_dir: Path) -> None:
+    """One figure linking raw rows, the trained set, and the resulting scores.
+
+    The per-stage figures each answer one question; a reviewer also needs the
+    single view that connects them, so this puts the data journey and the
+    validation outcome for all endpoints side by side.
+    """
+    endpoints_report: Mapping[str, Any] = report.get("endpoints", {}) or {}
+    if not endpoints_report:
+        _status_figure(
+            "Pipeline summary",
+            {"reason": "no endpoint results in this run"},
+            output_dir / "08_pipeline_summary",
+        )
+        return
+
+    endpoints = list(endpoints_report)
+    offsets = np.arange(len(endpoints))
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5.4))
+
+    raw_rows: list[float] = []
+    trained_rows: list[float] = []
+    for name in endpoints:
+        stats = endpoints_report[name].get("dataset", {}) or {}
+        funnel = {row["stage"]: row["rows"] for row in stats.get("cleaning_funnel", [])}
+        raw_rows.append(float(funnel.get("raw_rows_loaded", 0)))
+        trained_rows.append(float(funnel.get("class_balanced_training_set", stats.get("n", 0))))
+
+    axes[0].bar(offsets - 0.18, raw_rows, 0.36, label="Rows loaded", color="#94A3B8")
+    axes[0].bar(offsets + 0.18, trained_rows, 0.36, label="Rows trained on", color="#0F766E")
+    axes[0].set_xticks(offsets)
+    axes[0].set_xticklabels([name.upper() for name in endpoints])
+    axes[0].set_yscale("symlog")
+    axes[0].set_ylabel("Rows (symlog)")
+    axes[0].set_title("Data journey", fontsize=12, weight="bold")
+    axes[0].legend(fontsize=8)
+    for offset, loaded, trained in zip(offsets, raw_rows, trained_rows):
+        axes[0].text(offset - 0.18, loaded, f"{int(loaded):,}", ha="center", va="bottom", fontsize=7.5)
+        axes[0].text(offset + 0.18, trained, f"{int(trained):,}", ha="center", va="bottom", fontsize=7.5)
+
+    # Internal cross-validation is optimistic relative to structurally novel
+    # molecules, so OOF and scaffold-grouped scores are always shown together.
+    for index, (metric, title) in enumerate((("auc", "ROC-AUC"), ("mcc", "MCC")), start=1):
+        oof = [endpoints_report[name].get("candidate_oof", {}).get(metric) for name in endpoints]
+        scaffold = [
+            endpoints_report[name].get("candidate_scaffold_grouped", {}).get(metric)
+            for name in endpoints
+        ]
+        axes[index].bar(
+            offsets - 0.18,
+            [value if value is not None else 0 for value in oof],
+            0.36,
+            label="Random OOF CV",
+            color="#0F766E",
+        )
+        axes[index].bar(
+            offsets + 0.18,
+            [value if value is not None else 0 for value in scaffold],
+            0.36,
+            label="Scaffold-grouped CV",
+            color="#7C3AED",
+        )
+        axes[index].set_xticks(offsets)
+        axes[index].set_xticklabels([name.upper() for name in endpoints])
+        axes[index].set_ylim(0, 1.05)
+        axes[index].set_title(f"Validation — {title}", fontsize=12, weight="bold")
+        axes[index].legend(fontsize=8)
+        axes[index].grid(axis="y", alpha=0.2)
+        for offset, value in zip(offsets - 0.18, oof):
+            if value is not None:
+                axes[index].text(offset, value, f"{value:.3f}", ha="center", va="bottom", fontsize=7.5)
+        for offset, value in zip(offsets + 0.18, scaffold):
+            if value is not None:
+                axes[index].text(offset, value, f"{value:.3f}", ha="center", va="bottom", fontsize=7.5)
+
+    fig.suptitle(
+        "Pipeline summary — raw evidence to validated candidate (in-silico screening, not clinical accuracy)",
+        fontsize=15,
+        weight="bold",
+    )
+    fig.tight_layout()
+    _save(fig, output_dir / "08_pipeline_summary")
 
 
 def write_training_report(report: Mapping[str, Any], output_dir: Path) -> None:
