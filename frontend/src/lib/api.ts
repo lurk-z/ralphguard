@@ -28,7 +28,10 @@ export class ApiError extends Error {
 
 export function apiErrorMessage(cause: unknown, fallback: string): string {
   if (cause instanceof ApiTimeoutError) {
-    return `${fallback}: หมดเวลาการเชื่อมต่อเซิร์ฟเวอร์`;
+    // After the retry above has already waited out a cold start, a second
+    // timeout means the server is genuinely unreachable — say what to do next
+    // instead of repeating that time ran out.
+    return `${fallback}: เซิร์ฟเวอร์ไม่ตอบสนอง กรุณาลองใหม่อีกครั้ง`;
   }
   if (cause instanceof ApiError) {
     if (cause.status === 401) return `${fallback}: เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่`;
@@ -266,7 +269,36 @@ export type AssessmentRecord = {
   completed_at: string | null;
 };
 
+// The API is deployed on an instance that suspends itself after a period with
+// no traffic, and the first request afterwards waits for the container to boot.
+// That wait routinely exceeds the normal budget, so a read that times out is
+// retried once with enough time to cover a cold start before it is reported as
+// a failure. Only reads are retried: replaying a write that may already have
+// been applied is not safe.
+const COLD_START_TIMEOUT_MS = 60000;
+
+function isRetriableRead(init?: RequestInit): boolean {
+  const method = (init?.method ?? "GET").toUpperCase();
+  return method === "GET" || method === "HEAD";
+}
+
 async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Promise<T> {
+  try {
+    return await httpOnce<T>(path, init, timeoutMs);
+  } catch (cause) {
+    if (
+      cause instanceof ApiTimeoutError &&
+      isRetriableRead(init) &&
+      !init?.signal?.aborted &&
+      timeoutMs < COLD_START_TIMEOUT_MS
+    ) {
+      return httpOnce<T>(path, init, COLD_START_TIMEOUT_MS);
+    }
+    throw cause;
+  }
+}
+
+async function httpOnce<T>(path: string, init?: RequestInit, timeoutMs = 12000): Promise<T> {
   const ctrl = new AbortController();
   const externalSignal = init?.signal;
   let timedOut = false;
