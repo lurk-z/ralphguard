@@ -1,0 +1,28 @@
+{
+  "generated_at": "2026-08-21T00:54:39.505967+00:00",
+  "requested_substances": 50000,
+  "registry_rows": 50000,
+  "evidence_rows": 114577,
+  "endpoint_coverage": {
+    "acute": 24692,
+    "eye": 38814,
+    "sens": 8362,
+    "skin": 33706
+  },
+  "files": {
+    "registry": {
+      "path": "ingredient_registry_seed_v2.csv.gz",
+      "bytes": 4991923,
+      "sha256": "2120ed02e4a1639b695ee5fe8070f04d51d55aa6711d49556ab8f7582430a6e3"
+    },
+    "evidence": {
+      "path": "experimental_evidence_seed_v2.csv.gz",
+      "bytes": 7337896,
+      "sha256": "208a2179f29467be4bf9609ee6b3af9a832ebfe21b77b93b91ffcbdd5d258a47"
+    }
+  },
+  "excluded_columns": {
+    "experimental_evidence.raw_evidence": "raw provider payload kept only in the development database; the citation chain (source name/id/url/quality and fingerprint) and the import provenance are both retained here"
+  },
+  "selection_policy": "verified substances with a canonical structure, chosen round-robin across endpoints starting from the scarcest"
+}
