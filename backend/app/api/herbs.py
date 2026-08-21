@@ -64,9 +64,19 @@ def herb_detail(herb_id: int, db: Session = Depends(get_db)):
     evidence = db.scalars(
         select(HerbEvidence).where(HerbEvidence.herb_id == herb_id)
     ).all()
-    resolved = sum(1 for _link, compound in constituents if compound and compound.canonical_smiles)
-    qsar = sum(1 for _link, compound in constituents if compound and compound.qsar_eligible)
+    # Knowing a molecule's structure and being cleared to score it with QSAR
+    # are different facts. A referenced constituent can carry an InChIKey and
+    # PubChem CID from the literature without yet having a verified registry
+    # entry; counting those as "structure not found" understated what the
+    # catalogue actually knows.
     total = len(constituents)
+    resolved = sum(
+        1
+        for link, compound in constituents
+        if link.inchikey or (compound and compound.canonical_smiles)
+    )
+    registry_verified = sum(1 for _link, compound in constituents if compound is not None)
+    qsar = sum(1 for _link, compound in constituents if compound and compound.qsar_eligible)
     return {
         "plant": {
             "id": plant.id,
@@ -100,7 +110,10 @@ def herb_detail(herb_id: int, db: Session = Depends(get_db)):
                 "inchikey": link.inchikey,
                 "relationship_type": link.relationship_type,
                 "evidence_source": link.evidence_source,
-                "structure_resolved": bool(compound and compound.canonical_smiles),
+                "structure_resolved": bool(
+                    link.inchikey or (compound and compound.canonical_smiles)
+                ),
+                "registry_verified": compound is not None,
                 "qsar_eligible": bool(compound and compound.qsar_eligible),
             }
             for link, compound in constituents
@@ -119,9 +132,14 @@ def herb_detail(herb_id: int, db: Session = Depends(get_db)):
         "coverage": {
             "known_constituents": total,
             "structure_resolved": resolved,
+            "registry_verified": registry_verified,
             "qsar_assessed": qsar,
+            # Structure known from the literature, but not yet verified in the
+            # ingredient registry, so QSAR must not score it yet.
+            "awaiting_verification": resolved - registry_verified,
             "literature_only": total - resolved,
             "unresolved": total - resolved,
+            "structure_percentage": round(100.0 * resolved / max(1, total), 1),
             "percentage": round(100.0 * qsar / max(1, total), 1),
         },
     }

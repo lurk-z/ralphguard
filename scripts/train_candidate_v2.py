@@ -65,6 +65,9 @@ EXTERNAL_DIR = BASE / "data" / "external"
 CURATED_DIR = BASE / "data" / "curated"
 PRODUCTION_REPORT = BASE / "scientific" / "models" / "validation_report.json"
 BLOCKER_FILENAMES = ("training_blocked.json", "TRAINING_BLOCKED.md")
+# How many weight-ordered candidates to perceive before scaffold round-robin.
+# Bounds RDKit work while still offering many scaffolds per retained positive.
+SCAFFOLD_SHORTLIST_FACTOR = 5
 
 
 def clear_stale_blocker_markers(output_dir: Path) -> None:
@@ -146,10 +149,60 @@ def external_holdout_identity_keys(endpoint: str) -> set[str]:
     return {item[0] for item in identities if item is not None}
 
 
+def _scaffold_key(smiles: str) -> str:
+    """Bemis-Murcko scaffold used as a chemical-diversity bucket."""
+    molecule = Chem.MolFromSmiles(smiles)
+    if molecule is None:
+        return ""
+    try:
+        return MurckoScaffold.MurckoScaffoldSmiles(mol=molecule, includeChirality=False)
+    except Exception:
+        return ""
+
+
+def _diverse_positive_sample(weak_positives: pd.DataFrame, budget: int) -> pd.DataFrame:
+    """Pick ``budget`` weak positives spread across Bemis-Murcko scaffolds.
+
+    A plain weight/hash ordering is uniform over *rows*, so a downsampled pool
+    inherits whichever congeneric series happens to be most numerous in
+    PubChem. Round-robin over scaffolds keeps the retained positives spanning
+    chemical space, which is what the negative-starved endpoints need most.
+
+    Scaffolds are computed only for a bounded shortlist, because perceiving
+    160,000 molecules would dominate the run time of the whole pipeline.
+    """
+    if budget <= 0 or weak_positives.empty:
+        return weak_positives.head(0)
+    if len(weak_positives) <= budget:
+        return weak_positives
+
+    shortlist = weak_positives.head(min(len(weak_positives), budget * SCAFFOLD_SHORTLIST_FACTOR)).copy()
+    shortlist["scaffold"] = shortlist["canonical"].map(_scaffold_key)
+
+    buckets: dict[str, list[int]] = {}
+    for position, scaffold in zip(shortlist.index, shortlist["scaffold"]):
+        buckets.setdefault(scaffold, []).append(position)
+
+    selected: list[int] = []
+    while len(selected) < budget:
+        progressed = False
+        for members in buckets.values():
+            if not members:
+                continue
+            selected.append(members.pop(0))
+            progressed = True
+            if len(selected) >= budget:
+                break
+        if not progressed:
+            break
+    return shortlist.loc[selected].drop(columns=["scaffold"])
+
+
 def load_candidate_endpoint(
     endpoint: str,
     feature_mode: str,
     max_training_rows: int = 0,
+    max_positive_negative_ratio: float = 0.0,
 ):
     """Load one endpoint with exact-identity dedup/conflict handling.
 
@@ -227,6 +280,9 @@ def load_candidate_endpoint(
     duplicate_rows_beyond_first = int(rows_after_conflict - frame["identity_key"].nunique())
     clean_eligible = frame.drop_duplicates("identity_key", keep="first").reset_index(drop=True)
     eligible_rows_before_cap = len(clean_eligible)
+    eligible_positive_rows = int((clean_eligible["normalized_label"] == 1).sum())
+    eligible_negative_rows = int((clean_eligible["normalized_label"] == 0).sum())
+    positive_budget_applied = 0
     if max_training_rows > 0 and len(clean_eligible) > max_training_rows:
         strong = clean_eligible[clean_eligible["training_origin"] != "pubchem_reviewed"].copy()
         weak = clean_eligible[clean_eligible["training_origin"] == "pubchem_reviewed"].copy()
@@ -242,7 +298,34 @@ def load_candidate_endpoint(
             kind="stable",
         )
         weak_budget = max(0, max_training_rows - len(strong))
-        clean = pd.concat([strong, weak.head(weak_budget)], ignore_index=True, sort=False)
+
+        # The PubChem tier is almost entirely positive: a hazard statement is
+        # recorded because the substance *has* the hazard, while a negative
+        # needs explicit contrary evidence. Filling the budget without looking
+        # at the label therefore produced roughly 500 positives per negative for
+        # skin, and no amount of loss re-weighting recovers information that is
+        # not in the sample — it only makes the handful of negatives dominate a
+        # few trees. Cap the positive class relative to the negatives actually
+        # available so the retained set can separate the two classes.
+        weak_negative = weak[weak["normalized_label"] == 0]
+        weak_positive = weak[weak["normalized_label"] == 1]
+        negatives_kept = int((strong["normalized_label"] == 0).sum()) + len(weak_negative)
+        positive_budget = max(0, weak_budget - len(weak_negative))
+        if max_positive_negative_ratio > 0 and negatives_kept > 0:
+            strong_positive_rows = int((strong["normalized_label"] == 1).sum())
+            allowed_positives = int(round(max_positive_negative_ratio * negatives_kept))
+            positive_budget = max(0, min(positive_budget, allowed_positives - strong_positive_rows))
+            positive_budget_applied = positive_budget
+
+        clean = pd.concat(
+            [
+                strong,
+                weak_negative,
+                _diverse_positive_sample(weak_positive, positive_budget),
+            ],
+            ignore_index=True,
+            sort=False,
+        )
     else:
         clean = clean_eligible.copy()
 
@@ -286,6 +369,23 @@ def load_candidate_endpoint(
         "eligible_unique_identities_before_training_cap": int(eligible_rows_before_cap),
         "training_row_cap": int(max_training_rows),
         "rows_excluded_by_training_cap": int(eligible_rows_before_cap - len(clean)),
+        "eligible_positive_identities_before_cap": eligible_positive_rows,
+        "eligible_negative_identities_before_cap": eligible_negative_rows,
+        "eligible_positive_negative_ratio_before_cap": (
+            round(eligible_positive_rows / eligible_negative_rows, 1)
+            if eligible_negative_rows
+            else None
+        ),
+        "max_positive_negative_ratio_requested": float(max_positive_negative_ratio),
+        "weak_positive_budget_after_ratio_cap": int(positive_budget_applied),
+        "retained_positive_identities": int(sum(1 for label in labels if label == 1)),
+        "retained_negative_identities": int(sum(1 for label in labels if label == 0)),
+        "positive_selection_policy": (
+            "every negative identity is retained; weak PubChem positives are capped "
+            "relative to the available negatives and spread across Bemis-Murcko "
+            "scaffolds, because the regulatory tier records hazards and therefore "
+            "supplies almost no negatives"
+        ),
         "unique_exact_identities_retained": int(len(labels)),
         "external_experimental_unique_identities_retained": int(
             origin_counts.get("external_experimental", 0)
@@ -650,9 +750,21 @@ def main() -> int:
             "All experimental/reviewed rows are retained before weak PubChem rows."
         ),
     )
+    parser.add_argument(
+        "--max-positive-negative-ratio",
+        type=float,
+        default=10.0,
+        help=(
+            "cap retained positives at this multiple of the negatives actually "
+            "available for the endpoint; 0 disables the cap and reproduces the "
+            "previous label-blind sampling. Every negative identity is always kept."
+        ),
+    )
     args = parser.parse_args()
     if args.max_training_rows_per_endpoint < 0:
         parser.error("--max-training-rows-per-endpoint cannot be negative")
+    if args.max_positive_negative_ratio < 0:
+        parser.error("--max-positive-negative-ratio cannot be negative")
     selected_datasets = {
         endpoint: path for endpoint, path in training.DATASETS.items()
         if args.endpoint is None or endpoint == args.endpoint
@@ -732,6 +844,7 @@ def main() -> int:
             endpoint,
             feature_mode,
             args.max_training_rows_per_endpoint,
+            args.max_positive_negative_ratio,
         )
         if len(np.unique(y)) < 2:
             raise ValueError(f"{endpoint} training data must contain both positive and negative labels")

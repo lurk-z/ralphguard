@@ -1,0 +1,970 @@
+{
+  "generated_at": "2026-08-21T00:27:36.086679+00:00",
+  "source_name": "LOTUS referenced structure-organism pairs via Wikidata",
+  "source_url": "https://lotus.naturalproducts.net/",
+  "licence": "CC0 1.0 Universal",
+  "endpoints": {
+    "occurrences": "https://query.wikidata.org/sparql",
+    "citations": "https://query-scholarly.wikidata.org/sparql",
+    "note": "Wikidata serves scholarly article items from a separate subgraph; citation metadata is unavailable from the main endpoint even though the reference URI resolves there."
+  },
+  "occurrence_query_sha256": "901e7b6d160ed1aec41cd1137c1dcce5e680a115b720ebdb6d9bcd562a42eec2",
+  "reference_query_sha256": "9bcba45c539599f3f278e8511cedd6a0e81b14c368c939ab7ee7341fc42819bc",
+  "label_policy": "occurrence evidence only; a reported constituent is never an endpoint label, a hazard score, or a training row, and no ingredient registry entry or QSAR eligibility is created here",
+  "dry_run": false,
+  "totals": {
+    "species_queried": 107,
+    "species_with_no_wikidata_taxon": 8,
+    "pairs_returned": 20335,
+    "distinct_structures": 9837,
+    "pairs_without_parsable_structure": 0,
+    "constituents_created": 0,
+    "constituents_already_present": 9837,
+    "registry_links_made": 0,
+    "references_resolved": 20335,
+    "references_unresolved": 0
+  },
+  "species_without_wikidata_match": [
+    "Wurfbainia testacea (Ridl.) Škorničk. & A.D.Poulsen",
+    "Mentha cordifolia Opiz ex Fresen.",
+    "Murdannia loriformis (Hassk.) R.S.Rao & Kammathy",
+    "Derris scandens (Roxb.) Benth.",
+    "Pueraria candollei var. mirifica (Airy Shaw & Suvat.) Niyomdham",
+    "Schefflera leucantha R.Vig.",
+    "Aquilaria crassna Pierre ex Lecomte",
+    "Citrus aurantiifolia (Christm.) Swingle"
+  ],
+  "per_species": [
+    {
+      "plant": "Boesenbergia rotunda (L.) Mansf.",
+      "binomial": "Boesenbergia rotunda",
+      "pairs": 177,
+      "distinct_structures": 64,
+      "created": 0,
+      "already_present": 64,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Ocimum tenuiflorum L.",
+      "binomial": "Ocimum tenuiflorum",
+      "pairs": 144,
+      "distinct_structures": 100,
+      "created": 0,
+      "already_present": 100,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Curcuma longa L.",
+      "binomial": "Curcuma longa",
+      "pairs": 514,
+      "distinct_structures": 170,
+      "created": 0,
+      "already_present": 170,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Zingiber officinale Roscoe",
+      "binomial": "Zingiber officinale",
+      "pairs": 1335,
+      "distinct_structures": 524,
+      "created": 0,
+      "already_present": 524,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Glycyrrhiza glabra L.",
+      "binomial": "Glycyrrhiza glabra",
+      "pairs": 762,
+      "distinct_structures": 390,
+      "created": 0,
+      "already_present": 390,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Cymbopogon citratus (DC.) Stapf",
+      "binomial": "Cymbopogon citratus",
+      "pairs": 164,
+      "distinct_structures": 100,
+      "created": 0,
+      "already_present": 100,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Centella asiatica (L.) Urb.",
+      "binomial": "Centella asiatica",
+      "pairs": 272,
+      "distinct_structures": 113,
+      "created": 0,
+      "already_present": 113,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Andrographis paniculata (Burm.f.) Nees",
+      "binomial": "Andrographis paniculata",
+      "pairs": 311,
+      "distinct_structures": 99,
+      "created": 0,
+      "already_present": 99,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Citrus hystrix DC.",
+      "binomial": "Citrus hystrix",
+      "pairs": 149,
+      "distinct_structures": 107,
+      "created": 0,
+      "already_present": 107,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Phyllanthus emblica L.",
+      "binomial": "Phyllanthus emblica",
+      "pairs": 280,
+      "distinct_structures": 130,
+      "created": 0,
+      "already_present": 130,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Garcinia mangostana L.",
+      "binomial": "Garcinia mangostana",
+      "pairs": 449,
+      "distinct_structures": 168,
+      "created": 0,
+      "already_present": 168,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Aloe vera (L.) Burm.f.",
+      "binomial": "Aloe vera",
+      "pairs": 214,
+      "distinct_structures": 127,
+      "created": 0,
+      "already_present": 127,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Zingiber montanum (J.Koenig) Link ex A.Dietr.",
+      "binomial": "Zingiber montanum",
+      "pairs": 233,
+      "distinct_structures": 85,
+      "created": 0,
+      "already_present": 85,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Tinospora crispa (L.) Hook.f. & Thomson",
+      "binomial": "Tinospora crispa",
+      "pairs": 110,
+      "distinct_structures": 69,
+      "created": 0,
+      "already_present": 69,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Nelumbo nucifera Gaertn.",
+      "binomial": "Nelumbo nucifera",
+      "pairs": 190,
+      "distinct_structures": 103,
+      "created": 0,
+      "already_present": 103,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Piper sarmentosum Roxb.",
+      "binomial": "Piper sarmentosum",
+      "pairs": 170,
+      "distinct_structures": 87,
+      "created": 0,
+      "already_present": 87,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Pterocarpus santalinus L.f.",
+      "binomial": "Pterocarpus santalinus",
+      "pairs": 77,
+      "distinct_structures": 52,
+      "created": 0,
+      "already_present": 52,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Santalum album L.",
+      "binomial": "Santalum album",
+      "pairs": 262,
+      "distinct_structures": 141,
+      "created": 0,
+      "already_present": 141,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Senna tora (L.) Roxb.",
+      "binomial": "Senna tora",
+      "pairs": 137,
+      "distinct_structures": 72,
+      "created": 0,
+      "already_present": 72,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Senna alata (L.) Roxb.",
+      "binomial": "Senna alata",
+      "pairs": 83,
+      "distinct_structures": 21,
+      "created": 0,
+      "already_present": 21,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Kaempferia parviflora Wall. ex Baker",
+      "binomial": "Kaempferia parviflora",
+      "pairs": 68,
+      "distinct_structures": 35,
+      "created": 0,
+      "already_present": 35,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Hibiscus sabdariffa L.",
+      "binomial": "Hibiscus sabdariffa",
+      "pairs": 49,
+      "distinct_structures": 34,
+      "created": 0,
+      "already_present": 34,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Allium sativum L.",
+      "binomial": "Allium sativum",
+      "pairs": 504,
+      "distinct_structures": 201,
+      "created": 0,
+      "already_present": 201,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Zingiber zerumbet (L.) Sm.",
+      "binomial": "Zingiber zerumbet",
+      "pairs": 162,
+      "distinct_structures": 65,
+      "created": 0,
+      "already_present": 65,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Wurfbainia testacea (Ridl.) Škorničk. & A.D.Poulsen",
+      "binomial": "Wurfbainia testacea",
+      "pairs": 0
+    },
+    {
+      "plant": "Cassia fistula L.",
+      "binomial": "Cassia fistula",
+      "pairs": 230,
+      "distinct_structures": 128,
+      "created": 0,
+      "already_present": 128,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Momordica charantia L.",
+      "binomial": "Momordica charantia",
+      "pairs": 392,
+      "distinct_structures": 210,
+      "created": 0,
+      "already_present": 210,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Ficus racemosa L.",
+      "binomial": "Ficus racemosa",
+      "pairs": 6,
+      "distinct_structures": 3,
+      "created": 0,
+      "already_present": 3,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Myristica fragrans Houtt.",
+      "binomial": "Myristica fragrans",
+      "pairs": 215,
+      "distinct_structures": 110,
+      "created": 0,
+      "already_present": 110,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Curcuma aeruginosa Roxb.",
+      "binomial": "Curcuma aeruginosa",
+      "pairs": 86,
+      "distinct_structures": 46,
+      "created": 0,
+      "already_present": 46,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Alpinia galanga (L.) Willd.",
+      "binomial": "Alpinia galanga",
+      "pairs": 257,
+      "distinct_structures": 104,
+      "created": 0,
+      "already_present": 104,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Curcuma zedoaria (Christm.) Roscoe",
+      "binomial": "Curcuma zedoaria",
+      "pairs": 319,
+      "distinct_structures": 110,
+      "created": 0,
+      "already_present": 110,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Curcuma comosa Roxb.",
+      "binomial": "Curcuma comosa",
+      "pairs": 67,
+      "distinct_structures": 44,
+      "created": 0,
+      "already_present": 44,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Wurfbainia villosa (Lour.) Škorničk. & A.D.Poulsen",
+      "binomial": "Wurfbainia villosa",
+      "pairs": 59,
+      "distinct_structures": 45,
+      "created": 0,
+      "already_present": 45,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Elettaria cardamomum (L.) Maton",
+      "binomial": "Elettaria cardamomum",
+      "pairs": 32,
+      "distinct_structures": 24,
+      "created": 0,
+      "already_present": 24,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Piper retrofractum Vahl",
+      "binomial": "Piper retrofractum",
+      "pairs": 278,
+      "distinct_structures": 91,
+      "created": 0,
+      "already_present": 91,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Piper nigrum L.",
+      "binomial": "Piper nigrum",
+      "pairs": 1012,
+      "distinct_structures": 277,
+      "created": 0,
+      "already_present": 277,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Piper betle L.",
+      "binomial": "Piper betle",
+      "pairs": 59,
+      "distinct_structures": 34,
+      "created": 0,
+      "already_present": 34,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Houttuynia cordata Thunb.",
+      "binomial": "Houttuynia cordata",
+      "pairs": 335,
+      "distinct_structures": 208,
+      "created": 0,
+      "already_present": 208,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Thunbergia laurifolia Lindl.",
+      "binomial": "Thunbergia laurifolia",
+      "pairs": 10,
+      "distinct_structures": 9,
+      "created": 0,
+      "already_present": 9,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Rhinacanthus nasutus (L.) Kurz",
+      "binomial": "Rhinacanthus nasutus",
+      "pairs": 131,
+      "distinct_structures": 57,
+      "created": 0,
+      "already_present": 57,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Clinacanthus nutans (Burm.f.) Lindau",
+      "binomial": "Clinacanthus nutans",
+      "pairs": 28,
+      "distinct_structures": 16,
+      "created": 0,
+      "already_present": 16,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Barleria lupulina Lindl.",
+      "binomial": "Barleria lupulina",
+      "pairs": 67,
+      "distinct_structures": 24,
+      "created": 0,
+      "already_present": 24,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Acanthus ebracteatus Vahl",
+      "binomial": "Acanthus ebracteatus",
+      "pairs": 50,
+      "distinct_structures": 32,
+      "created": 0,
+      "already_present": 32,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Orthosiphon aristatus (Blume) Miq.",
+      "binomial": "Orthosiphon aristatus",
+      "pairs": 229,
+      "distinct_structures": 111,
+      "created": 0,
+      "already_present": 111,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Ocimum basilicum L.",
+      "binomial": "Ocimum basilicum",
+      "pairs": 520,
+      "distinct_structures": 214,
+      "created": 0,
+      "already_present": 214,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Ocimum americanum L.",
+      "binomial": "Ocimum americanum",
+      "pairs": 87,
+      "distinct_structures": 57,
+      "created": 0,
+      "already_present": 57,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Mentha cordifolia Opiz ex Fresen.",
+      "binomial": "Mentha cordifolia",
+      "pairs": 0
+    },
+    {
+      "plant": "Vitex trifolia L.",
+      "binomial": "Vitex trifolia",
+      "pairs": 99,
+      "distinct_structures": 65,
+      "created": 0,
+      "already_present": 65,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Murdannia loriformis (Hassk.) R.S.Rao & Kammathy",
+      "binomial": "Murdannia loriformis",
+      "pairs": 0
+    },
+    {
+      "plant": "Plumbago indica L.",
+      "binomial": "Plumbago indica",
+      "pairs": 22,
+      "distinct_structures": 13,
+      "created": 0,
+      "already_present": 13,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Cissus quadrangularis L.",
+      "binomial": "Cissus quadrangularis",
+      "pairs": 45,
+      "distinct_structures": 27,
+      "created": 0,
+      "already_present": 27,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Derris scandens (Roxb.) Benth.",
+      "binomial": "Derris scandens",
+      "pairs": 0
+    },
+    {
+      "plant": "Pueraria candollei var. mirifica (Airy Shaw & Suvat.) Niyomdham",
+      "binomial": "Pueraria candollei",
+      "pairs": 0
+    },
+    {
+      "plant": "Senna siamea (Lam.) H.S.Irwin & Barneby",
+      "binomial": "Senna siamea",
+      "pairs": 124,
+      "distinct_structures": 73,
+      "created": 0,
+      "already_present": 73,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Tamarindus indica L.",
+      "binomial": "Tamarindus indica",
+      "pairs": 58,
+      "distinct_structures": 50,
+      "created": 0,
+      "already_present": 50,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Biancaea sappan (L.) Tod.",
+      "binomial": "Biancaea sappan",
+      "pairs": 172,
+      "distinct_structures": 75,
+      "created": 0,
+      "already_present": 75,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Albizia myriophylla Benth.",
+      "binomial": "Albizia myriophylla",
+      "pairs": 20,
+      "distinct_structures": 16,
+      "created": 0,
+      "already_present": 16,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Clitoria ternatea L.",
+      "binomial": "Clitoria ternatea",
+      "pairs": 102,
+      "distinct_structures": 49,
+      "created": 0,
+      "already_present": 49,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Moringa oleifera Lam.",
+      "binomial": "Moringa oleifera",
+      "pairs": 98,
+      "distinct_structures": 64,
+      "created": 0,
+      "already_present": 64,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Azadirachta indica A.Juss.",
+      "binomial": "Azadirachta indica",
+      "pairs": 696,
+      "distinct_structures": 336,
+      "created": 0,
+      "already_present": 336,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Annona squamosa L.",
+      "binomial": "Annona squamosa",
+      "pairs": 490,
+      "distinct_structures": 238,
+      "created": 0,
+      "already_present": 238,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Punica granatum L.",
+      "binomial": "Punica granatum",
+      "pairs": 780,
+      "distinct_structures": 420,
+      "created": 0,
+      "already_present": 420,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Psidium guajava L.",
+      "binomial": "Psidium guajava",
+      "pairs": 508,
+      "distinct_structures": 312,
+      "created": 0,
+      "already_present": 312,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Syzygium aromaticum (L.) Merr. & L.M.Perry",
+      "binomial": "Syzygium aromaticum",
+      "pairs": 243,
+      "distinct_structures": 159,
+      "created": 0,
+      "already_present": 159,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Syzygium cumini (L.) Skeels",
+      "binomial": "Syzygium cumini",
+      "pairs": 120,
+      "distinct_structures": 89,
+      "created": 0,
+      "already_present": 89,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Cinnamomum verum J.Presl",
+      "binomial": "Cinnamomum verum",
+      "pairs": 267,
+      "distinct_structures": 145,
+      "created": 0,
+      "already_present": 145,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Cinnamomum camphora (L.) J.Presl",
+      "binomial": "Cinnamomum camphora",
+      "pairs": 228,
+      "distinct_structures": 119,
+      "created": 0,
+      "already_present": 119,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Terminalia chebula Retz.",
+      "binomial": "Terminalia chebula",
+      "pairs": 177,
+      "distinct_structures": 99,
+      "created": 0,
+      "already_present": 99,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Terminalia bellirica (Gaertn.) Roxb.",
+      "binomial": "Terminalia bellirica",
+      "pairs": 7,
+      "distinct_structures": 7,
+      "created": 0,
+      "already_present": 7,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Oroxylum indicum (L.) Kurz",
+      "binomial": "Oroxylum indicum",
+      "pairs": 28,
+      "distinct_structures": 21,
+      "created": 0,
+      "already_present": 21,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Carthamus tinctorius L.",
+      "binomial": "Carthamus tinctorius",
+      "pairs": 294,
+      "distinct_structures": 141,
+      "created": 0,
+      "already_present": 141,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Artemisia annua L.",
+      "binomial": "Artemisia annua",
+      "pairs": 1018,
+      "distinct_structures": 438,
+      "created": 0,
+      "already_present": 438,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Atractylodes lancea (Thunb.) DC.",
+      "binomial": "Atractylodes lancea",
+      "pairs": 280,
+      "distinct_structures": 99,
+      "created": 0,
+      "already_present": 99,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Pluchea indica (L.) Less.",
+      "binomial": "Pluchea indica",
+      "pairs": 54,
+      "distinct_structures": 48,
+      "created": 0,
+      "already_present": 48,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Cyanthillium cinereum (L.) H.Rob.",
+      "binomial": "Cyanthillium cinereum",
+      "pairs": 47,
+      "distinct_structures": 38,
+      "created": 0,
+      "already_present": 38,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Chrysanthemum indicum L.",
+      "binomial": "Chrysanthemum indicum",
+      "pairs": 174,
+      "distinct_structures": 120,
+      "created": 0,
+      "already_present": 120,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Tagetes erecta L.",
+      "binomial": "Tagetes erecta",
+      "pairs": 109,
+      "distinct_structures": 69,
+      "created": 0,
+      "already_present": 69,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Angelica dahurica (Hoffm.) Benth. & Hook.f. ex Franch. & Sav.",
+      "binomial": "Angelica dahurica",
+      "pairs": 166,
+      "distinct_structures": 59,
+      "created": 0,
+      "already_present": 59,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Schefflera leucantha R.Vig.",
+      "binomial": "Schefflera leucantha",
+      "pairs": 0
+    },
+    {
+      "plant": "Acorus calamus L.",
+      "binomial": "Acorus calamus",
+      "pairs": 315,
+      "distinct_structures": 192,
+      "created": 0,
+      "already_present": 192,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Amorphophallus konjac K.Koch",
+      "binomial": "Amorphophallus konjac",
+      "pairs": 23,
+      "distinct_structures": 14,
+      "created": 0,
+      "already_present": 14,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Pandanus amaryllifolius Roxb.",
+      "binomial": "Pandanus amaryllifolius",
+      "pairs": 53,
+      "distinct_structures": 15,
+      "created": 0,
+      "already_present": 15,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Cymbopogon nardus (L.) Rendle",
+      "binomial": "Cymbopogon nardus",
+      "pairs": 23,
+      "distinct_structures": 19,
+      "created": 0,
+      "already_present": 19,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Chrysopogon zizanioides (L.) Roberty",
+      "binomial": "Chrysopogon zizanioides",
+      "pairs": 58,
+      "distinct_structures": 44,
+      "created": 0,
+      "already_present": 44,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Aquilaria crassna Pierre ex Lecomte",
+      "binomial": "Aquilaria crassna",
+      "pairs": 0
+    },
+    {
+      "plant": "Tiliacora triandra (Colebr.) Diels",
+      "binomial": "Tiliacora triandra",
+      "pairs": 25,
+      "distinct_structures": 9,
+      "created": 0,
+      "already_present": 9,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Tinospora baenzigeri Forman",
+      "binomial": "Tinospora baenzigeri",
+      "pairs": 15,
+      "distinct_structures": 11,
+      "created": 0,
+      "already_present": 11,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Phyllanthus amarus Schumach. & Thonn.",
+      "binomial": "Phyllanthus amarus",
+      "pairs": 43,
+      "distinct_structures": 26,
+      "created": 0,
+      "already_present": 26,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Solanum violaceum Ortega",
+      "binomial": "Solanum violaceum",
+      "pairs": 60,
+      "distinct_structures": 36,
+      "created": 0,
+      "already_present": 36,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Solanum trilobatum L.",
+      "binomial": "Solanum trilobatum",
+      "pairs": 5,
+      "distinct_structures": 3,
+      "created": 0,
+      "already_present": 3,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Coccinia grandis (L.) Voigt",
+      "binomial": "Coccinia grandis",
+      "pairs": 5,
+      "distinct_structures": 5,
+      "created": 0,
+      "already_present": 5,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Gynostemma pentaphyllum (Thunb.) Makino",
+      "binomial": "Gynostemma pentaphyllum",
+      "pairs": 247,
+      "distinct_structures": 166,
+      "created": 0,
+      "already_present": 166,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Garcinia atroviridis Griff. ex T.Anderson",
+      "binomial": "Garcinia atroviridis",
+      "pairs": 27,
+      "distinct_structures": 21,
+      "created": 0,
+      "already_present": 21,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Garcinia cowa Roxb. ex Choisy",
+      "binomial": "Garcinia cowa",
+      "pairs": 219,
+      "distinct_structures": 94,
+      "created": 0,
+      "already_present": 94,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Morinda citrifolia L.",
+      "binomial": "Morinda citrifolia",
+      "pairs": 419,
+      "distinct_structures": 164,
+      "created": 0,
+      "already_present": 164,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Mitragyna speciosa (Korth.) Havil.",
+      "binomial": "Mitragyna speciosa",
+      "pairs": 119,
+      "distinct_structures": 26,
+      "created": 0,
+      "already_present": 26,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Aegle marmelos (L.) Corrêa",
+      "binomial": "Aegle marmelos",
+      "pairs": 168,
+      "distinct_structures": 110,
+      "created": 0,
+      "already_present": 110,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Citrus aurantiifolia (Christm.) Swingle",
+      "binomial": "Citrus aurantiifolia",
+      "pairs": 0
+    },
+    {
+      "plant": "Artocarpus lacucha Buch.-Ham.",
+      "binomial": "Artocarpus lacucha",
+      "pairs": 69,
+      "distinct_structures": 34,
+      "created": 0,
+      "already_present": 34,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Croton stellatopilosus H.Ohba",
+      "binomial": "Croton stellatopilosus",
+      "pairs": 4,
+      "distinct_structures": 1,
+      "created": 0,
+      "already_present": 1,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Suregada multiflora (A.Juss.) Baill.",
+      "binomial": "Suregada multiflora",
+      "pairs": 69,
+      "distinct_structures": 38,
+      "created": 0,
+      "already_present": 38,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Alstonia scholaris (L.) R.Br.",
+      "binomial": "Alstonia scholaris",
+      "pairs": 173,
+      "distinct_structures": 90,
+      "created": 0,
+      "already_present": 90,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Impatiens balsamina L.",
+      "binomial": "Impatiens balsamina",
+      "pairs": 92,
+      "distinct_structures": 46,
+      "created": 0,
+      "already_present": 46,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Nigella sativa L.",
+      "binomial": "Nigella sativa",
+      "pairs": 294,
+      "distinct_structures": 206,
+      "created": 0,
+      "already_present": 206,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Allium ascalonicum L.",
+      "binomial": "Allium ascalonicum",
+      "pairs": 54,
+      "distinct_structures": 36,
+      "created": 0,
+      "already_present": 36,
+      "registry_linked": 0
+    },
+    {
+      "plant": "Abelmoschus esculentus (L.) Moench",
+      "binomial": "Abelmoschus esculentus",
+      "pairs": 45,
+      "distinct_structures": 31,
+      "created": 0,
+      "already_present": 31,
+      "registry_linked": 0
+    }
+  ]
+}

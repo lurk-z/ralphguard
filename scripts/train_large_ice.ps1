@@ -15,6 +15,9 @@ param(
     [ValidateRange(0, 1000000)]
     [int]$MaxTrainingRowsPerEndpoint = 0,
 
+    [ValidateRange(0, 1000)]
+    [double]$MaxPositiveNegativeRatio = 10,
+
     [ValidateSet("auto", "full", "large", "quick")]
     [string]$ValidationProfile = "auto",
 
@@ -146,6 +149,10 @@ $trainArguments = @(
 if ($MaxTrainingRowsPerEndpoint -gt 0) {
     $trainArguments += @("--max-training-rows-per-endpoint", $MaxTrainingRowsPerEndpoint.ToString())
 }
+$trainArguments += @(
+    "--max-positive-negative-ratio",
+    $MaxPositiveNegativeRatio.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+)
 Invoke-DockerStep -Name "Train candidate-v2 and generate validation plots" -Arguments $trainArguments
 
 Write-Host "`nTraining complete." -ForegroundColor Green

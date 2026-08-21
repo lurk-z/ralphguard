@@ -20,6 +20,7 @@ from starlette.concurrency import run_in_threadpool
 from app.db.session import get_db
 from app.services.ingredient_registry import (
     learn_ocr_ingredients,
+    non_qsar_family,
     non_qsar_profile,
     normalize_ingredient_name,
     resolve_verified_registry,
@@ -66,6 +67,14 @@ INCI_SMILES: dict[str, str] = {
     "methylparaben": "O=C(OC)c1ccc(O)cc1",
     "ethylparaben": "CCOC(=O)c1ccc(O)cc1",
     "propylparaben": "CCCOC(=O)c1ccc(O)cc1",
+    "butylparaben": "CCCCOC(=O)c1ccc(O)cc1",
+    "isobutylparaben": "CC(C)COC(=O)c1ccc(O)cc1",
+    "isopropylparaben": "CC(C)OC(=O)c1ccc(O)cc1",
+    "benzylparaben": "O=C(OCc1ccccc1)c1ccc(O)cc1",
+    "sodium methylparaben": "COC(=O)c1ccc([O-])cc1.[Na+]",
+    "chlorphenesin": "OCC(O)COc1ccc(Cl)cc1",
+    "benzyl benzoate": "O=C(OCc1ccccc1)c1ccccc1",
+    "dehydroacetic acid": "CC(=O)C1=C(O)OC(C)=CC1=O",
     "benzoic acid": "O=C(O)c1ccccc1",
     "sodium benzoate": "O=C([O-])c1ccccc1.[Na+]",
     "sorbic acid": "CC=CC=CC(=O)O",
@@ -98,6 +107,18 @@ INCI_SMILES: dict[str, str] = {
     "butyl methoxydibenzoylmethane": "COc1ccc(C(=O)CC(=O)c2ccc(C(C)(C)C)cc2)cc1", "avobenzone": "COc1ccc(C(=O)CC(=O)c2ccc(C(C)(C)C)cc2)cc1",
     # salts / misc
     "sodium chloride": "[Na+].[Cl-]",
+    "sodium lauroyl sarcosinate": "CCCCCCCCCCCC(=O)N(C)CC(=O)[O-].[Na+]",
+    "sodium cocoyl isethionate": "CCCCCCCCCCCC(=O)OCCS(=O)(=O)[O-].[Na+]",
+    "disodium edta": "OC(=O)CN(CCN(CC(=O)[O-])CC(=O)O)CC(=O)[O-].[Na+].[Na+]",
+    "disodium ethylenediaminetetraacetate": "OC(=O)CN(CCN(CC(=O)[O-])CC(=O)O)CC(=O)[O-].[Na+].[Na+]",
+    "tetrasodium edta": "[O-]C(=O)CN(CCN(CC(=O)[O-])CC(=O)[O-])CC(=O)[O-].[Na+].[Na+].[Na+].[Na+]",
+    "sodium citrate": "OC(CC(=O)[O-])(CC(=O)[O-])C(=O)[O-].[Na+].[Na+].[Na+]",
+    "trisodium citrate": "OC(CC(=O)[O-])(CC(=O)[O-])C(=O)[O-].[Na+].[Na+].[Na+]",
+    "sodium metabisulfite": "[O-]S(=O)S(=O)(=O)[O-].[Na+].[Na+]",
+    "triethanolamine": "OCCN(CCO)CCO",
+    "sodium sulfate": "[O-]S(=O)(=O)[O-].[Na+].[Na+]",
+    "potassium chloride": "[K+].[Cl-]",
+    "magnesium sulfate": "[O-]S(=O)(=O)[O-].[Mg+2]",
 }
 
 # Names that carry no single SMILES (mixtures/polymers) — recognised but skipped.
@@ -363,6 +384,10 @@ def _dict_match_detail(tok: str):
         return ("sub", tok, INCI_SMILES[tok], 100, True)
     if tok in KNOWN_NO_STRUCTURE:
         return ("no", _NO_STRUCTURE_ALIASES.get(tok, tok), None, 100, True)
+    # Family recognition runs before fuzzy matching: "peg-150 distearate" is a
+    # known polymer, not a damaged reading of the curated "peg-100 stearate".
+    if _plausible(tok) and non_qsar_family(tok):
+        return ("no", tok, None, 100, True)
     try:
         from rapidfuzz import process, fuzz
 
@@ -415,6 +440,24 @@ def resolve(text: str, online: bool = False):
             unmatched.append(tok)
 
     return matched, no_struct, unmatched[:25]
+
+
+def _merge_unmatched(
+    primary: list[str],
+    secondary: list[str],
+    recognized_no_structure: list[str],
+    limit: int = 25,
+) -> list[str]:
+    """Union two leftover lists while keeping the first list's order."""
+    already = {normalize_ingredient_name(name) for name in recognized_no_structure}
+    merged: list[str] = []
+    for name in [*primary, *secondary]:
+        key = normalize_ingredient_name(name)
+        if key in already:
+            continue
+        already.add(key)
+        merged.append(name)
+    return merged[:limit]
 
 
 def _sort_matches_by_label_order(
@@ -808,12 +851,19 @@ def _consensus_text(passes: list[OcrPass]) -> str:
                 row["votes"].add(pass_index)
                 seen_in_pass.add(key)
 
+    # Cross-pass agreement is only available when more than one pass ran. The
+    # production plan runs a single pass on Render's free CPU, so demanding two
+    # votes there silently discarded every fuzzy hit *and* every unrecognised
+    # ingredient name — a correctly-read label then looked mis-read because the
+    # registry/PubChem resolver never received the leftovers to work on.
+    required_votes = 2 if len(passes) >= 2 else 1
+
     accepted = []
     for row in evidence.values():
         votes = len(row["votes"])
         # One exact curated hit is useful evidence; fuzzy and PubChem-bound raw
-        # names require agreement from at least two independent OCR passes.
-        if row["exact_after_marker"] or votes >= 2:
+        # names require agreement from every pass that was actually run.
+        if row["exact_after_marker"] or votes >= required_votes:
             average_position = sum(row["positions"]) / len(row["positions"])
             accepted.append((average_position, row["display"]))
     accepted.sort(key=lambda item: item[0])
@@ -931,6 +981,11 @@ async def read_label(
     # PubChem discoveries remain pending registry candidates and are never sent
     # directly into QSAR merely because a name lookup returned a molecule.
     matched_ranked, no_struct, unmatched = resolve(consensus_text, online=False)
+    # The consensus string only carries entities that survived voting. Anything
+    # the raw winning pass read but could not resolve must still reach the
+    # registry resolver and the operator, otherwise a real ingredient printed on
+    # the label disappears from the report with no trace that it was ever seen.
+    unmatched = _merge_unmatched(unmatched, resolve(text, online=False)[2], no_struct)
     registry_observed_by_smiles: dict[str, str] = {}
     registry_candidates: list[dict] = []
     registry_non_qsar_profiles: dict[str, dict] = {}

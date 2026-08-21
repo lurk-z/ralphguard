@@ -111,6 +111,94 @@ KNOWN_NON_QSAR: dict[str, dict] = {
 }
 
 
+# ── Structural families that can never carry one representative SMILES ──────
+# A curated name-by-name table can never cover a real INCI label: polymers,
+# ethoxylates and botanical extracts are open-ended naming families whose
+# members are invented by formulators faster than any list can track. Matching
+# the *family* lets the label reader recognise those ingredients — and state
+# why QSAR cannot score them — instead of dropping them silently, which made a
+# correctly-read label look mis-read.
+#
+# Consulted only after an exact curated hit fails, so an ingredient that does
+# have a verified single structure keeps that structure.
+NON_QSAR_FAMILY_PATTERNS: tuple[tuple[str, str, str, str, str], ...] = (
+    # (regex, substance_type, structure_status, reason_code, reason_th)
+    (
+        r"\bpolyquaternium(?:-|\s)?\d+\b|\b(?:co|cross)?polymer\b|\bcarbomer\b"
+        r"|\bpolyacrylate\b|\bacrylates\b|\bcellulose\b|\bstarch\b|\bdextrin\b"
+        r"|\bhydroly[sz]ed\b|\bdimethicone\b|\bsiloxane\b|\bsilsesquioxane\b"
+        r"|\bsilicone\b|\bhyaluronate\b",
+        "polymer",
+        "polymeric",
+        "polymer",
+        "เป็นพอลิเมอร์ที่มีการกระจายน้ำหนักโมเลกุล จึงไม่มีโครงสร้างโมเลกุลเดี่ยวตายตัวสำหรับ QSAR",
+    ),
+    (
+        r"\bpeg(?:-|\s)?\d+\b|\bppg(?:-|\s)?\d+\b|\bpolysorbate\b|\bpoloxamer\b"
+        r"|\w*(?:laureth|steareth|ceteareth|oleth|pareth|deceth|trideceth)(?:-|\s)?\d*\b"
+        r"|\bglucoside\b|\bpolyglucose\b"
+        # alkyl / alkyl-ether phosphate surfactants are chain-length mixtures
+        r"|\b(?:lauryl|myristyl|cetyl|cetearyl|stearyl|oleyl|coco|decyl)\s+phosphate\b",
+        "UVCB",
+        "variable_composition",
+        "variable_chain_mixture",
+        "เป็นสารลดแรงตึงผิวแบบ ethoxylate/alkyl ที่มีความยาวสายและจำนวนหน่วยแปรผัน จึงไม่มี SMILES เดี่ยวแทนองค์ประกอบทั้งหมด",
+    ),
+    (
+        r"\bcocamide\b|\blauramide\b|\bcocoate\b|\btallowate\b|\bcoco-\w+",
+        "UVCB",
+        "variable_composition",
+        "variable_chain_mixture",
+        "เป็นอนุพันธ์จากน้ำมันธรรมชาติที่มีสายไขมันหลายความยาวปนกัน จึงต้องประเมินแบบ UVCB ไม่ใช่โมเลกุลเดี่ยว",
+    ),
+    (
+        r"\bextract\b|\bleaf juice\b|\bessential oil\b|\bflower water\b"
+        r"|\bseed oil\b|\bfruit water\b|\bkernel oil\b|\bhoney\b",
+        "botanical_extract",
+        "variable_composition",
+        "botanical_mixture",
+        "เป็นสารสกัดที่มีองค์ประกอบแปรผันตามแหล่งปลูกและวิธีสกัด จึงห้ามใช้โมเลกุลตัวแทนเพียงตัวเดียว",
+    ),
+    (
+        r"\bci\s?\d{5}\b",
+        "colorant",
+        "unknown_composition",
+        "colour_index_pigment",
+        "เป็นเม็ดสีตามรหัส Colour Index ที่อาจเป็นเกลือหรือสารอนินทรีย์ จึงอยู่นอก applicability domain ของ QSAR ชุดนี้",
+    ),
+    (
+        r"\bparfum\b|\bfragrance\b|\baroma\b|\bflavou?r\b",
+        "fragrance",
+        "unknown_composition",
+        "unknown_mixture",
+        "เป็นน้ำหอมหรือสารแต่งกลิ่นที่ไม่เปิดเผยองค์ประกอบรายโมเลกุล จึงห้ามสร้าง SMILES ตัวแทน",
+    ),
+)
+
+
+def non_qsar_family(name: str) -> dict | None:
+    """Classify an ingredient name into a structurally-undefined family.
+
+    Returns the classification fields shared by :func:`classify_substance` and
+    :func:`non_qsar_profile`, or ``None`` when the name is not recognised as a
+    member of any such family.
+    """
+    normalized = re.sub(r"\s+", " ", str(name).strip().lower())
+    for pattern, substance_type, structure_status, reason_code, reason_th in (
+        NON_QSAR_FAMILY_PATTERNS
+    ):
+        if re.search(pattern, normalized):
+            return {
+                "substance_type": substance_type,
+                "structure_status": structure_status,
+                "proposed_qsar_eligible": False,
+                "assessment_method": "knowledge_base",
+                "reason_code": reason_code,
+                "reason_th": reason_th,
+            }
+    return None
+
+
 def normalize_ingredient_name(name: str) -> str:
     normalized = re.sub(r"\s*/\s*", "/", str(name).strip().lower())
     normalized = re.sub(r"\s+", " ", normalized)
@@ -159,34 +247,9 @@ def classify_substance(name: str, properties: dict) -> dict:
             "reason_th": known["reason_th"],
         }
 
-    lower = normalized.lower()
-    if re.search(r"\b(parfum|fragrance|aroma)\b", lower):
-        return {
-            "substance_type": "fragrance",
-            "structure_status": "unknown_composition",
-            "proposed_qsar_eligible": False,
-            "assessment_method": "knowledge_base",
-            "reason_code": "unknown_mixture",
-            "reason_th": "เป็นน้ำหอมหรือสารผสมที่องค์ประกอบไม่ตายตัว",
-        }
-    if re.search(r"\b(polyquaternium|polymer|copolymer|crosspolymer|hyaluronate)\b", lower):
-        return {
-            "substance_type": "polymer",
-            "structure_status": "polymeric",
-            "proposed_qsar_eligible": False,
-            "assessment_method": "knowledge_base",
-            "reason_code": "polymer",
-            "reason_th": "เป็นพอลิเมอร์ที่ไม่มีโครงสร้างโมเลกุลเดี่ยวตายตัว",
-        }
-    if re.search(r"\b(extract|leaf juice|essential oil)\b", lower):
-        return {
-            "substance_type": "botanical_extract",
-            "structure_status": "variable_composition",
-            "proposed_qsar_eligible": False,
-            "assessment_method": "knowledge_base",
-            "reason_code": "botanical_mixture",
-            "reason_th": "เป็นสารสกัดที่มีองค์ประกอบแปรผัน จึงห้ามใช้โมเลกุลตัวแทนเพียงตัวเดียว",
-        }
+    family = non_qsar_family(normalized)
+    if family:
+        return family
 
     smiles = str(properties.get("SMILES") or "")
     formula = str(properties.get("MolecularFormula") or "")
@@ -417,6 +480,21 @@ def get_cached_pubchem_description(
 def non_qsar_profile(name: str) -> dict:
     key = normalize_ingredient_name(name)
     profile = dict(KNOWN_NON_QSAR.get(key) or {})
+    if not profile:
+        # Fall back to family classification before the generic message, so a
+        # polymer, extract or fragrance blend states *why* QSAR cannot score it
+        # instead of the uninformative "no verified single structure".
+        classified = non_qsar_family(key)
+        if classified:
+            profile = {
+                "canonical_name": name.title(),
+                "synonyms": [name],
+                "substance_type": classified["substance_type"],
+                "structure_status": classified["structure_status"],
+                "assessment_method": classified["assessment_method"],
+                "reason_code": classified["reason_code"],
+                "reason_th": classified["reason_th"],
+            }
     if not profile:
         profile = {
             "canonical_name": name.title(),

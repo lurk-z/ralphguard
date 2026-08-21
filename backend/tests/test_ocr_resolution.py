@@ -16,6 +16,7 @@ from app.api.ocr import (
     read_label,
     resolve,
 )
+from app.services.ingredient_registry import non_qsar_family, non_qsar_profile
 
 
 def test_production_ocr_uses_bounded_pass_plan_without_online_lookup_by_default():
@@ -180,3 +181,90 @@ def test_real_curved_thai_label_recognizes_more_than_eighty_percent():
     assert found_without_qsar == expected_without_qsar
     assert unmatched == []
 
+
+
+# The shampoo label below was read perfectly by Tesseract, yet the reader
+# reported only 13 of its 23 printed ingredients: ten names had no curated
+# entry, and the single-pass consensus gate discarded them before the registry
+# resolver ever saw them. Nothing printed on a label may vanish silently.
+SHAMPOO_LABEL = (
+    "Ingredients : AQUA, POTASSIUM LAURETH PHOSPHATE, SODIUM LAURETH "
+    "SULFATE, COCAMIDE MEA, SODIUM LAUROYL SARCOSINATE, GARCINIA "
+    "MANGOSTANA PEEL EXTRACT, POTASSIUM LAURYL PHOSPHATE, "
+    "COCAMIDOPROPYL BETAINE, ACRYLATES/STEARETH-20 METHACRYLATE "
+    "COPOLYMER, PEG-150 DISTEARATE, DIPROPYLENE GLYCOL, PHENOXYETHANOL, "
+    "FRAGRANCE, POLYQUATERNIUM-39, ETHYLHEXYLGLYCERIN, SODIUM "
+    "CHLORIDE, GLYCERIN, METHYLPARABEN, DISODIUM EDTA, SODIUM "
+    "HYDROXIDE, BUTYLPARABEN, ETHYLPARABEN, PROPYLPARABEN"
+)
+
+
+def test_every_printed_ingredient_is_accounted_for():
+    matched, no_structure, unmatched = resolve(SHAMPOO_LABEL, online=False)
+
+    assert {item[0] for item in matched} == {
+        "Sodium Laureth Sulfate",
+        "Sodium Lauroyl Sarcosinate",
+        "Cocamidopropyl Betaine",
+        "Dipropylene Glycol",
+        "Phenoxyethanol",
+        "Ethylhexylglycerin",
+        "Sodium Chloride",
+        "Glycerin",
+        "Methylparaben",
+        "Disodium Edta",
+        "Butylparaben",
+        "Ethylparaben",
+        "Propylparaben",
+    }
+    assert set(no_structure) == {
+        "aqua",
+        "potassium laureth phosphate",
+        "cocamide mea",
+        "garcinia mangostana peel extract",
+        "potassium lauryl phosphate",
+        "acrylates/steareth-20 methacrylate copolymer",
+        "peg-150 distearate",
+        "parfum",
+        "polyquaternium-39",
+        "sodium hydroxide",
+    }
+    assert unmatched == []
+    # 23 printed names in, 23 accounted for — no silent loss.
+    assert len(matched) + len(no_structure) == 23
+
+
+def test_family_recognition_explains_why_qsar_cannot_score_an_ingredient():
+    assert non_qsar_profile("peg-150 distearate")["reason_code"] == "variable_chain_mixture"
+    assert non_qsar_profile("polyquaternium-39")["substance_type"] == "polymer"
+    assert (
+        non_qsar_profile("garcinia mangostana peel extract")["substance_type"]
+        == "botanical_extract"
+    )
+    # A curated single molecule must never be demoted by a family pattern.
+    assert non_qsar_family("glycerin") is None
+    assert non_qsar_family("salicylic acid") is None
+
+
+def test_single_pass_consensus_keeps_unrecognized_names_for_the_registry():
+    """With one OCR pass, cross-pass agreement is impossible to reach.
+
+    Requiring two votes there dropped every name the curated table did not
+    already know, which is exactly the evidence the registry resolver needs.
+    """
+    single = [
+        OcrPass(
+            text="Ingredients: Glycerin, Tranexamic Acid, Phenoxyethanol",
+            confidence=88,
+            variant="sharpened",
+            psm=6,
+            quality=12,
+        )
+    ]
+
+    consensus = _consensus_text(single)
+    assert "tranexamic acid" in consensus
+
+    matched, _no_structure, unmatched = resolve(consensus, online=False)
+    assert {item[0] for item in matched} == {"Glycerin", "Phenoxyethanol"}
+    assert unmatched == ["tranexamic acid"]

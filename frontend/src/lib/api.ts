@@ -78,6 +78,7 @@ export type HerbalPlantDetail = {
     relationship_type: string;
     evidence_source: string;
     structure_resolved: boolean;
+    registry_verified: boolean;
     qsar_eligible: boolean;
   }>;
   evidence: Array<{
@@ -91,9 +92,12 @@ export type HerbalPlantDetail = {
   coverage: {
     known_constituents: number;
     structure_resolved: number;
+    registry_verified: number;
     qsar_assessed: number;
+    awaiting_verification: number;
     literature_only: number;
     unresolved: number;
+    structure_percentage: number;
     percentage: number;
   };
 };

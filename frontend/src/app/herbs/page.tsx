@@ -75,7 +75,17 @@ export default function HerbsPage() {
             <div className="mt-3 space-y-2">
               {rows.map((row) => (
                 <button key={row.id} onClick={() => selectHerb(row.id)} className="w-full rounded-xl border border-slate-200 p-3 text-left hover:border-teal-400 hover:bg-teal-50">
-                  <div className="font-semibold">{row.thai_name}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold">{row.thai_name}</span>
+                    {row.verification_status !== "curated" && (
+                      <span
+                        className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800"
+                        title="ชื่อวิทยาศาสตร์ที่ยอมรับยังไม่ได้ตรวจสอบทีละรายการกับ Thai Herbal Pharmacopoeia"
+                      >
+                        รอตรวจชื่อ
+                      </span>
+                    )}
+                  </div>
                   <div className="mt-1 text-xs italic text-slate-500">{row.accepted_scientific_name}</div>
                 </button>
               ))}
@@ -90,19 +100,39 @@ export default function HerbsPage() {
               <>
                 <h2 className="text-2xl font-bold">{detail.plant.thai_name}</h2>
                 <p className="mt-1 italic text-slate-600">{detail.plant.accepted_scientific_name}</p>
+                {/* Three distinct facts, deliberately not collapsed: how many
+                    molecules are reported, how many of those have a known
+                    structure, and how many are cleared for QSAR scoring. */}
                 <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
                   {[
-                    ["สารองค์ประกอบ", detail.coverage.known_constituents],
-                    ["พบโครงสร้าง", detail.coverage.structure_resolved],
-                    ["ประเมิน QSAR ได้", detail.coverage.qsar_assessed],
-                    ["Coverage", `${detail.coverage.percentage}%`],
-                  ].map(([label, value]) => (
+                    ["สารองค์ประกอบที่มีอ้างอิง", detail.coverage.known_constituents, null],
+                    [
+                      "รู้โครงสร้าง",
+                      detail.coverage.structure_resolved,
+                      `${detail.coverage.structure_percentage}%`,
+                    ],
+                    [
+                      "รอยืนยันตัวตน",
+                      detail.coverage.awaiting_verification,
+                      "ยังไม่ประเมิน",
+                    ],
+                    [
+                      "ประเมิน QSAR ได้",
+                      detail.coverage.qsar_assessed,
+                      `${detail.coverage.percentage}%`,
+                    ],
+                  ].map(([label, value, hint]) => (
                     <div key={String(label)} className="rounded-xl bg-slate-100 p-3">
                       <div className="text-xl font-bold">{value}</div>
                       <div className="text-xs text-slate-500">{label}</div>
+                      {hint && <div className="mt-0.5 text-[10px] text-slate-400">{hint}</div>}
                     </div>
                   ))}
                 </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  รู้โครงสร้างจากวรรณกรรม ไม่เท่ากับผ่านการยืนยันให้ใช้กับ QSAR — เฉพาะสารที่ยืนยันตัวตนแล้วเท่านั้นที่ระบบนำไปคำนวณ
+                  ส่วนวัตถุดิบทั้งชนิดยังคงประเมินด้วยหลักฐานพฤกษศาสตร์เสมอ
+                </p>
 
                 <h3 className="mt-7 font-semibold">วัตถุดิบและสารสกัด</h3>
                 <div className="mt-2 space-y-2">
