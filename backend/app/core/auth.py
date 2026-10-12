@@ -4,12 +4,18 @@ import binascii
 import hashlib
 import hmac
 import json
+import os
 import time
 from dataclasses import dataclass
 
 from fastapi import Header, HTTPException, status
 
 from app.core.config import settings
+
+# DEV_MODE: bypass auth when AUTH_SECRET is the dev placeholder and no token provided
+_DEV_SECRETS = {"dev-secret-change-me", "dev-auth-secret-change-before-deploy"}
+_DEV_USER_ID = "dev-user-local"
+_DEV_EMAIL = "dev@localhost"
 
 
 @dataclass(frozen=True)
@@ -26,6 +32,11 @@ def _decode_part(value: str) -> dict:
 async def get_current_user(authorization: str | None = Header(default=None)) -> CurrentUser:
     if not settings.AUTH_SECRET:
         raise HTTPException(status_code=503, detail="AUTH_SECRET not configured")
+
+    # DEV MODE: no token + using dev secret → return a mock user
+    if settings.AUTH_SECRET in _DEV_SECRETS and not authorization:
+        return CurrentUser(id=_DEV_USER_ID, email=_DEV_EMAIL)
+
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="authentication required")
     token = authorization[7:].strip()
@@ -52,3 +63,4 @@ async def get_current_user(authorization: str | None = Header(default=None)) -> 
     if not valid:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid or expired authentication")
     return CurrentUser(id=payload["sub"], email=payload.get("email"))
+
