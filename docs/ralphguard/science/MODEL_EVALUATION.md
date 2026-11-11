@@ -151,4 +151,4 @@ scientific/models/candidate_v2/validation_report.json
 
 ยังไม่มีหลักฐานใน production report ปัจจุบันที่ควรเรียกว่า **independent external validation**
 
-ชุดทดสอบ 24 สารในเอกสารรุ่นเก่าเป็น historical sanity check และมี training overlap จึงถูกจัดสถานะใหม่ใน `docs/EXTERNAL_VALIDATION.md`
+ชุดทดสอบ 24 สารในเอกสารรุ่นเก่าเป็น historical sanity check และมี training overlap จึงถูกจัดสถานะใหม่ใน [External Validation](EXTERNAL_VALIDATION.md)

@@ -18,7 +18,7 @@ This downloads the four official ICE workbooks and prepares:
 
 The command fails if fewer than 10,000 unique endpoint rows remain after the
 documented mapping, structure join, conflict removal, and evidence filtering.
-See `docs/ICE_BULK_TRAINING.md`.
+See [NICE/ICE Bulk Training](../../docs/ralphguard/science/ICE_BULK_TRAINING.md).
 
 โฟลเดอร์นี้เก็บชุดข้อมูลสำหรับฝึก QSAR models
 

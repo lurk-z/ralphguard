@@ -58,7 +58,7 @@ docker compose --profile training run --rm ice-data-prep
 
 ตัวเตรียมข้อมูลจะบังคับขั้นต่ำ 10,000 unique endpoint rows หลังตัด mixture,
 prediction, invalid structure, duplicate และ label conflict รายละเอียดอยู่ใน
-`docs/ICE_BULK_TRAINING.md` ส่วน API collector ด้านล่างยังใช้สำหรับค้น evidence
+[NICE/ICE Bulk Training](ICE_BULK_TRAINING.md) ส่วน API collector ด้านล่างยังใช้สำหรับค้น evidence
 เฉพาะสารใน local registry และ human review เพิ่มเติม
 
 ### 4.1 Collect — ยังไม่สร้าง label
@@ -253,7 +253,7 @@ scientific/models/candidate_v2/plots/
     └── *_predictions.csv
 ```
 
-รายละเอียด Algorithm, Features, Validation และแนวทางอ่านผลอยู่ใน `docs/ALGORITHM_AND_ML_WORKFLOW.md`
+รายละเอียด Algorithm, Features, Validation และแนวทางอ่านผลอยู่ใน [Algorithm และ ML Workflow](ALGORITHM_AND_ML_WORKFLOW.md)
 
 Production files ต่อไปนี้ **ไม่ถูกแตะ**:
 

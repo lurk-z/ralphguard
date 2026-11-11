@@ -184,4 +184,4 @@ Train InChIKey ∩ External InChIKey = 0
 - supplemental PubChem evidence ส่วนหนึ่งเป็น weak regulatory consensus ไม่ใช่ direct experiment
 - independent external validation ที่ผ่าน exact-overlap audit ยังต้องดำเนินการ
 
-ดู workflow รุ่นใหม่ที่ `docs/MODEL_V2_WORKFLOW.md`
+ดู workflow รุ่นใหม่ใน [Model v2 Workflow](MODEL_V2_WORKFLOW.md)

@@ -144,4 +144,4 @@ rejected_exact_overlap
 - รายงาน Applicability Domain coverage ของ external set
 - เก็บ source/provenance รายสารให้ reproduce ได้
 
-ดูขั้นตอนรวมใน `docs/MODEL_V2_WORKFLOW.md`
+ดูขั้นตอนรวมใน [Model v2 Workflow](MODEL_V2_WORKFLOW.md)

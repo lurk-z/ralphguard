@@ -195,4 +195,4 @@ Chemical-space diversity
 
 > “รอบก่อนเราเน้นค่า cross-validation ของโมเดลครับ รอบนี้เราเพิ่ม data-integrity layer ให้ตรวจ molecular identity ด้วย InChIKey, แยก weak regulatory evidence ออกจาก direct evidence, train candidate model แยกจาก production และเพิ่ม nested กับ scaffold validation เพื่อดูว่าโมเดลยัง generalize เมื่อเจอโครงสร้างที่ต่างจากชุดฝึกหรือไม่”
 
-ดูรายละเอียด `docs/MODEL_V2_WORKFLOW.md`
+ดูรายละเอียดใน [Model v2 Workflow](ralphguard/science/MODEL_V2_WORKFLOW.md)
