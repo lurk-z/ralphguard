@@ -126,8 +126,9 @@ ralphguard/
 │   ├── raw/               # Downloaded datasets
 │   └── processed/         # Cleaned & split datasets
 ├── docs/
-│   ├── report/            # Final thesis report
-│   └── manual/            # User & install manuals
+│   ├── README.md          # Documentation index
+│   ├── ralph-lab/         # Project concept, existing system and hackathon
+│   └── ralphguard/        # Features, science, operations and history
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
@@ -137,7 +138,9 @@ ralphguard/
 
 ## 🧪 Scientific Methodology
 
-ดูรายละเอียดในไฟล์ `docs/report/` และ `scientific/README.md`
+อ่าน [สารบัญเอกสาร](docs/README.md) สำหรับคู่มือและบันทึกโครงการ หรือเริ่มที่ [เอกสารส่งต่อ Ralph Lab](docs/ralph-lab/README.md) สำหรับบริบทการแข่งขัน
+
+รายละเอียดวิธีประเมินอยู่ใน [Algorithm และ ML Workflow](docs/ralphguard/science/ALGORITHM_AND_ML_WORKFLOW.md) และ [Scientific Runtime](scientific/README.md)
 
 **Pipeline:**
 1. Input → SMILES validation (RDKit canonicalize)
