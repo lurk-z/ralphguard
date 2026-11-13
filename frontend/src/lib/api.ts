@@ -424,7 +424,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ formula, region, project_id: projectId ?? null }),
       signal,
-    }),
+    }, API === "/backend" ? 120_000 : 12_000),
 
   getAssessment: (jobId: string, signal?: AbortSignal) =>
     http<AssessmentRecord>(`/api/assessments/${jobId}`, { signal }),

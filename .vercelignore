@@ -1,0 +1,11 @@
+.env
+.env.*
+**/.env
+**/.env.*
+.neon
+.venv/
+**/.venv/
+.claude/
+**/node_modules/
+**/.next/
+**/.next-dev/

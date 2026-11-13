@@ -1,4 +1,5 @@
 """Application configuration loaded from environment variables."""
+import os
 from pathlib import Path
 from typing import List, Literal
 
@@ -28,7 +29,9 @@ class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
     API_SECRET_KEY: str = "change-me"
-    AUTH_SECRET: str = ""
+    # In a combined Vercel project NextAuth and FastAPI share the same
+    # environment. Explicit AUTH_SECRET still takes precedence elsewhere.
+    AUTH_SECRET: str = os.environ.get("NEXTAUTH_SECRET", "") if os.environ.get("VERCEL") == "1" else ""
     # Comma-separated list of allowed origins, or "*" to allow every origin.
     CORS_ORIGINS: str = "*"
 
@@ -43,6 +46,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://redis:6379/0"
     QUEUE_STREAM_NAME: str = "ralphguard:jobs"
     ASSESSMENT_EXECUTION_MODE: Literal["queue", "inline"] = "queue"
+    ASSESSMENT_WAIT_FOR_RESULT: bool = False
 
     # Models (read-only mount of scientific/models — used for the model card)
     MODELS_DIR: str = "/models"

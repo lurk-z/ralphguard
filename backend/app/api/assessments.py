@@ -2,6 +2,7 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -39,9 +40,16 @@ async def create_assessment(
         if project is None or project.owner_id != user.id or project.deleted_at is not None:
             raise HTTPException(status_code=404, detail=f"project {payload.project_id} not found")
     row = assessment_service.create_assessment(db, payload, owner_id=user.id, enqueue=not inline)
+    job_id = row.id
+    job_status = row.status.value
     if inline:
-        background_tasks.add_task(assessment_service.process_assessment_inline, row.id)
-    return CreateAssessmentResponse(job_id=row.id, status=AssessmentStatus(row.status.value))
+        if settings.ASSESSMENT_WAIT_FOR_RESULT:
+            # Keep the serverless invocation alive until its result is stored.
+            db.close()
+            await run_in_threadpool(assessment_service.process_assessment_inline, job_id)
+        else:
+            background_tasks.add_task(assessment_service.process_assessment_inline, job_id)
+    return CreateAssessmentResponse(job_id=job_id, status=AssessmentStatus(job_status))
 
 
 @router.get("/", response_model=List[AssessmentSummary])

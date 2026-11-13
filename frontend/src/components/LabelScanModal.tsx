@@ -547,10 +547,13 @@ export default function LabelScanModal({
 
   const scan = async (file: File) => {
     abortActiveScan();
-    if (file.size > 10 * 1024 * 1024) {
+    const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    // Leave room for multipart metadata under Vercel's 4.5 MB request limit.
+    const maxUploadMB = API.startsWith("/backend") ? 4 : 10;
+    if (file.size > maxUploadMB * 1024 * 1024) {
       setResult(null);
       setDrafts([]);
-      setError("ไฟล์ภาพต้องมีขนาดไม่เกิน 10 MB");
+      setError(`ไฟล์ภาพต้องมีขนาดไม่เกิน ${maxUploadMB} MB กรุณาครอปให้เหลือเฉพาะฉลากหรือบันทึกเป็น JPEG แล้วลองใหม่`);
       setPhase("done");
       return;
     }
@@ -572,7 +575,6 @@ export default function LabelScanModal({
     setScanProgress(4);
     setPhase("scanning");
     try {
-      const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       const form = new FormData();
       form.append("file", file);
       const [response] = await Promise.all([
@@ -585,7 +587,7 @@ export default function LabelScanModal({
         if (response.status === 422) {
           const backendDetail = String(detail?.detail || "").toLowerCase();
           if (backendDetail.includes("timed out") || backendDetail.includes("timeout")) {
-            throw new Error("เซิร์ฟเวอร์อ่านฉลากไม่ทันเวลา กรุณาลองอีกครั้งหลัง Render ประมวลผลเสร็จ");
+            throw new Error("เซิร์ฟเวอร์อ่านฉลากไม่ทันเวลา กรุณาลองใหม่ด้วยภาพที่ครอปเฉพาะฉลาก");
           }
           throw new Error("ไม่พบข้อความส่วนผสมที่อ่านได้ กรุณาถ่ายภาพให้คมชัด ตรง และไม่มีแสงสะท้อน");
         }
@@ -726,7 +728,9 @@ export default function LabelScanModal({
                   <SemanticIcon name="image" className="size-6" />
                 </span>
                 <span className="mt-1 text-sm font-semibold text-slate-700">เลือกภาพฉลากส่วนผสม</span>
-                <span className="text-[11px] text-slate-400">JPG, PNG, WebP หรือ TIFF · ขนาดไม่เกิน 10 MB</span>
+                <span className="text-[11px] text-slate-400">
+                  JPG, PNG, WebP หรือ TIFF · ขนาดไม่เกิน {(process.env.NEXT_PUBLIC_API_URL ?? "").startsWith("/backend") ? 4 : 10} MB
+                </span>
               </button>
             </div>
           )}

@@ -1,6 +1,10 @@
 *
 !backend/
 !backend/**
+backend/**/.env
+backend/**/.env.*
+backend/**/.venv/
+backend/**/venv/
 backend/tests/
 backend/**/__pycache__/
 backend/**/*.py[cod]
@@ -15,3 +19,4 @@ scientific/*
 scientific/models/candidate_v2/
 scientific/models/training_manifests/
 !Dockerfile.backend.prod
+!Dockerfile.vercel
