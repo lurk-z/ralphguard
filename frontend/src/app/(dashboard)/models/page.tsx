@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-import { EndpointMetric, ModelInfoPayload, ModelMetricsPayload, api, apiErrorMessage } from "../../lib/api";
-import { isAbortError, logRequestFailure } from "../../lib/request-reliability";
+import { EndpointMetric, ModelInfoPayload, ModelMetricsPayload, api, apiErrorMessage } from "@/lib/api";
+import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
 
 function pct(x: number | null | undefined) {
   return x == null ? "—" : `${(x * 100).toFixed(1)}%`;
