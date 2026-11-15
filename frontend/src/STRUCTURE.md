@@ -18,10 +18,10 @@
 | โฟลเดอร์ | เก็บอะไร |
 | --- | --- |
 | `ui/` | shadcn ล้วน (ปุ่ม ช่องกรอก dialog ฯลฯ) **ห้ามมี logic หรือข้อมูลของแอป** |
+| `kit/` | ชิ้น UI ของแอปที่ประกอบจาก `ui/` ใช้ซ้ำได้หลายหน้า (`AppHeader`, `BrandLogo`, `PageHeader`, `ProjectList`) · ต้นแบบอยู่ในคลัง Obsidian `RalphGuard UI` |
 | `shared/` | ของใช้ร่วมหลายฟีเจอร์ (`SemanticIcon`, `BrandedProgressLoader`) |
 | `layout/` | โครงหน้าและเมนู (`Navbar`) |
-| `auth/` | ปุ่มล็อกอิน เมนูผู้ใช้ session |
-| `projects/` | หน้ารายการโปรเจกต์ |
+| `auth/` | ปุ่มล็อกอิน · session provider (เมนูผู้ใช้อยู่ใน `kit/app-header`) |
 | `face/` | ใบหน้า 3D ใน /assess: `SymptomFaceCanvas` → `PaintSymptomModel` · skeleton ระหว่างโหลด |
 | `formula/` | กราฟสูตร (Nodes) นำเข้า CSV สแกนฉลาก |
 | `substances/` | คลังสาร เพิ่มสารเอง การ์ดสาร |

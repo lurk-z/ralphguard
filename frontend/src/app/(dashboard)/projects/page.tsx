@@ -1,47 +1,15 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import gsap from "gsap";
-import { Flip } from "gsap/Flip";
 import { toast } from "sonner";
-import {
-  CalendarDays,
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
-  FolderOpen,
-  LayoutGrid,
-  List,
-  LoaderCircle,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Search,
-  Trash2,
-} from "lucide-react";
+import { AlertCircle, FolderOpen, Plus, RefreshCw, SearchX, Trash2 } from "lucide-react";
 
 import BrandedProgressLoader from "@/components/shared/BrandedProgressLoader";
-import ProjectCreateView from "@/components/projects/ProjectCreateView";
-import ProjectFormDialog, {
-  type ProjectFormValues,
-} from "@/components/projects/ProjectFormDialog";
-import ProjectsShell from "@/components/projects/ProjectsShell";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
+import { AppHeader } from "@/components/kit/app-header";
+import { PageHeader } from "@/components/kit/page-header";
+import { ProjectList, type ProjectListItem } from "@/components/kit/project-list";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,26 +21,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-} from "@/components/ui/pagination";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api, apiErrorMessage, type ProjectOut } from "@/lib/api";
 import { projectColor, projectIcon } from "@/lib/project-appearance";
 import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
 import { cn } from "@/lib/utils";
-
-gsap.registerPlugin(Flip);
 
 const PROJECT_ROUTE_ERRORS: Record<string, string> = {
   "invalid-project": "รหัสโปรเจกต์ไม่ถูกต้อง",
@@ -80,108 +36,40 @@ const PROJECT_ROUTE_ERRORS: Record<string, string> = {
   "project-load-failed": "เปิดโปรเจกต์ไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อเซิร์ฟเวอร์",
 };
 
-const PROJECT_COUNT_STORAGE_KEY = "ralphguard:projects:last-known-count";
 const LAST_OPENED_PROJECT_STORAGE_KEY = "ralphguard:projects:last-opened-id";
-const PROJECTS_PER_PAGE = 9;
-
-const PROJECT_TOAST_CLASSNAMES = {
-  toast: "!pr-11",
-  closeButton:
-    "!left-auto !right-3 !top-1/2 !-translate-y-1/2 !border-0 !bg-transparent !text-foreground/60 !shadow-none",
-};
-
-type ProjectFormMode = "edit" | null;
-type ProjectPageMode = "list" | "create";
-type ProjectLayoutMode = "grid" | "list";
-type PaginationEntry = number | "ellipsis";
-
-function paginationEntries(currentPage: number, totalPages: number): PaginationEntry[] {
-  if (totalPages <= 5) {
-    return Array.from({ length: totalPages }, (_, index) => index + 1);
-  }
-
-  const visiblePages = Array.from(
-    new Set([1, totalPages, currentPage - 1, currentPage, currentPage + 1]),
-  )
-    .filter((page) => page >= 1 && page <= totalPages)
-    .sort((left, right) => left - right);
-
-  const entries: PaginationEntry[] = [];
-  visiblePages.forEach((page, index) => {
-    const previousPage = visiblePages[index - 1];
-    if (previousPage && page - previousPage > 1) {
-      entries.push("ellipsis");
-    }
-    entries.push(page);
-  });
-  return entries;
-}
 
 function formatDate(iso: string) {
   try {
-    return new Date(iso).toLocaleDateString("th-TH", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
+    return new Date(iso).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" });
   } catch {
     return iso;
   }
 }
 
-function reduceMotionEnabled() {
-  return (
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-export default function ProjectListPage() {
+export default function ProjectsPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [pageMode, setPageMode] = useState<ProjectPageMode>("list");
-  const [formMode, setFormMode] = useState<ProjectFormMode>(null);
-  const [formProject, setFormProject] = useState<ProjectOut | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [openingProject, setOpeningProject] = useState(false);
+
+  // Create / rename dialog (name only)
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<ProjectOut | null>(null);
+  const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
-  const [deletingProject, setDeletingProject] = useState<ProjectOut | null>(null);
+
+  // Delete (one project or the ticked rows)
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectionKey, setSelectionKey] = useState(0);
+  const [pendingDelete, setPendingDelete] = useState<ProjectOut[] | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [openingProject, setOpeningProject] = useState<ProjectOut | null>(null);
-  const [query, setQuery] = useState("");
-  const [layoutMode, setLayoutMode] = useState<ProjectLayoutMode>("grid");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [knownProjectCount, setKnownProjectCount] = useState(0);
-  const [lastOpenedProjectId, setLastOpenedProjectId] = useState<number | null>(
-    null,
-  );
 
   const loadControllerRef = useRef<AbortController | null>(null);
   const formControllerRef = useRef<AbortController | null>(null);
-  const deleteControllerRef = useRef<AbortController | null>(null);
-  const restoreControllersRef = useRef(new Set<AbortController>());
-  const gridRef = useRef<HTMLDivElement | null>(null);
-  const flipStateRef = useRef<ReturnType<typeof Flip.getState> | null>(null);
-  const newCardIdRef = useRef<number | null>(null);
-  const initialGridAnimatedRef = useRef(false);
-
-  useLayoutEffect(() => {
-    const storedCount = Number(
-      window.localStorage.getItem(PROJECT_COUNT_STORAGE_KEY),
-    );
-    if (Number.isSafeInteger(storedCount) && storedCount > 0) {
-      setKnownProjectCount(storedCount);
-    }
-
-    const storedProjectId = Number(
-      window.localStorage.getItem(LAST_OPENED_PROJECT_STORAGE_KEY),
-    );
-    if (Number.isSafeInteger(storedProjectId) && storedProjectId > 0) {
-      setLastOpenedProjectId(storedProjectId);
-    }
-  }, []);
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadProjects = useCallback(async () => {
     loadControllerRef.current?.abort();
@@ -196,9 +84,7 @@ export default function ProjectListPage() {
     } catch (cause) {
       if (isAbortError(cause) || loadControllerRef.current !== controller) return;
       logRequestFailure("list projects", cause);
-      const message = apiErrorMessage(cause, "โหลดรายการโปรเจกต์ไม่สำเร็จ");
-      setLoadError(message);
-      toast.error(message);
+      setLoadError(apiErrorMessage(cause, "โหลดรายการโปรเจกต์ไม่สำเร็จ"));
     } finally {
       if (loadControllerRef.current === controller) {
         loadControllerRef.current = null;
@@ -208,900 +94,330 @@ export default function ProjectListPage() {
   }, []);
 
   useEffect(() => {
-    const currentUrl = new URL(window.location.href);
-    const routeError = currentUrl.searchParams.get("projectError");
+    const url = new URL(window.location.href);
+    const routeError = url.searchParams.get("projectError");
     if (routeError && PROJECT_ROUTE_ERRORS[routeError]) {
       toast.error(PROJECT_ROUTE_ERRORS[routeError]);
-      currentUrl.searchParams.delete("projectError");
-      window.history.replaceState(
-        window.history.state,
-        "",
-        `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`,
-      );
+      url.searchParams.delete("projectError");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
     }
     void loadProjects();
-  }, [loadProjects]);
-
-  useEffect(
-    () => () => {
+    // Coming back with the browser Back button restores the page from cache: the loader must not still be on.
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setOpeningProject(false);
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      window.removeEventListener("pageshow", onPageShow);
+      if (openTimerRef.current) clearTimeout(openTimerRef.current);
       loadControllerRef.current?.abort();
       formControllerRef.current?.abort();
-      deleteControllerRef.current?.abort();
-      restoreControllersRef.current.forEach((controller) => controller.abort());
-      restoreControllersRef.current.clear();
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (loading || loadError) return;
-    setKnownProjectCount(projects.length);
-    window.localStorage.setItem(
-      PROJECT_COUNT_STORAGE_KEY,
-      String(projects.length),
-    );
-  }, [loadError, loading, projects.length]);
-
-  const visibleProjects = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase("th-TH");
-    const filtered = normalizedQuery
-      ? projects.filter((project) =>
-          `${project.name} ${project.description ?? ""}`
-            .toLocaleLowerCase("th-TH")
-            .includes(normalizedQuery),
-        )
-      : [...projects];
-
-    return filtered.sort((left, right) => {
-      if (left.id === lastOpenedProjectId) return -1;
-      if (right.id === lastOpenedProjectId) return 1;
-
-      const leftTime = new Date(left.updated_at || left.created_at).getTime();
-      const rightTime = new Date(right.updated_at || right.created_at).getTime();
-      return rightTime - leftTime;
-    });
-  }, [lastOpenedProjectId, projects, query]);
-
-  const totalPages = Math.max(
-    1,
-    Math.ceil(visibleProjects.length / PROJECTS_PER_PAGE),
-  );
-  const paginatedProjects = useMemo(() => {
-    const startIndex = (currentPage - 1) * PROJECTS_PER_PAGE;
-    return visibleProjects.slice(startIndex, startIndex + PROJECTS_PER_PAGE);
-  }, [currentPage, visibleProjects]);
-  const visiblePaginationEntries = useMemo(
-    () => paginationEntries(currentPage, totalPages),
-    [currentPage, totalPages],
-  );
-
-  useEffect(() => {
-    setCurrentPage((page) => Math.min(page, totalPages));
-  }, [totalPages]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [query]);
-
-  const captureGridState = useCallback(() => {
-    if (!gridRef.current || reduceMotionEnabled()) return;
-    const cards = Array.from(
-      gridRef.current.querySelectorAll<HTMLElement>("[data-project-card]"),
-    );
-    if (cards.length > 0) {
-      flipStateRef.current = Flip.getState(cards);
-    }
-  }, []);
-
-  useLayoutEffect(() => {
-    if (loading || !gridRef.current || initialGridAnimatedRef.current) return;
-    initialGridAnimatedRef.current = true;
-    if (reduceMotionEnabled()) return;
-
-    const context = gsap.context(() => {
-      const cards = gsap.utils.toArray<HTMLElement>("[data-project-card]");
-      gsap.from(cards.slice(0, 10), {
-        autoAlpha: 0,
-        y: 10,
-        duration: 0.24,
-        stagger: 0.035,
-        ease: "power2.out",
-        clearProps: "all",
-      });
-    }, gridRef);
-    return () => context.revert();
-  }, [loading]);
-
-  useLayoutEffect(() => {
-    const state = flipStateRef.current;
-    flipStateRef.current = null;
-    if (!state || reduceMotionEnabled()) return;
-    const animation = Flip.from(state, {
-      duration: 0.24,
-      ease: "power2.out",
-      absolute: true,
-      scale: false,
-      simple: true,
-    });
-    return () => {
-      animation.kill();
     };
-  }, [projects, layoutMode]);
+  }, [loadProjects]);
 
-  useLayoutEffect(() => {
-    const projectId = newCardIdRef.current;
-    newCardIdRef.current = null;
-    if (projectId == null || !gridRef.current || reduceMotionEnabled()) return;
-    const card = gridRef.current.querySelector<HTMLElement>(
-      `[data-project-card="${projectId}"]`,
-    );
-    if (!card) return;
+  const filtered = useMemo(() => {
+    const q = query.trim().toLocaleLowerCase("th-TH");
+    if (!q) return projects;
+    return projects.filter((p) => `${p.name} ${p.description ?? ""}`.toLocaleLowerCase("th-TH").includes(q));
+  }, [projects, query]);
 
-    const context = gsap.context(() => {
-      gsap.fromTo(
-        card,
-        { autoAlpha: 0, y: 12, scale: 0.98 },
-        {
-          autoAlpha: 1,
-          y: 0,
-          scale: 1,
-          duration: 0.26,
-          ease: "power2.out",
-          clearProps: "all",
-        },
-      );
-    }, gridRef);
-    return () => context.revert();
-  }, [projects]);
+  const listItems: ProjectListItem[] = useMemo(
+    () =>
+      filtered.map((p) => {
+        const color = projectColor(p.color_key);
+        return {
+          id: String(p.id),
+          name: p.name,
+          description: p.description ?? undefined,
+          createdAt: formatDate(p.created_at),
+          updatedAt: formatDate(p.updated_at || p.created_at),
+          createdAtISO: p.created_at,
+          updatedAtISO: p.updated_at || p.created_at,
+          icon: projectIcon(p.icon_key).icon,
+          iconClassName: cn(color.soft, color.text),
+        };
+      }),
+    [filtered],
+  );
 
-  const openCreateView = () => {
-    setFormProject(null);
-    setFormError(null);
-    setPageMode("create");
+  const byId = (id: string) => projects.find((p) => String(p.id) === id);
+
+  /* ---------------- open ---------------- */
+  const openProject = (id: string) => {
+    if (openingProject) return;
+    window.localStorage.setItem(LAST_OPENED_PROJECT_STORAGE_KEY, id);
+    setOpeningProject(true);
+    // Go straight to the workspace (no /projects/[id]/assess redirect hop).
+    router.push(`/assess?projectId=${id}`);
+    // If the page never changes (server down, blocked navigation) drop the full-screen loader.
+    openTimerRef.current = setTimeout(() => {
+      setOpeningProject(false);
+      toast.error("เปิดโปรเจกต์ไม่สำเร็จ กรุณาลองอีกครั้ง");
+    }, 20000);
   };
 
-  const openEditDialog = (project: ProjectOut) => {
-    setFormProject(project);
-    setFormError(null);
-    setFormMode("edit");
+  /* ---------------- create / edit ---------------- */
+  const openDialog = (project: ProjectOut | null) => {
+    setEditing(project);
+    setName(project?.name ?? "");
+    setDialogOpen(true);
   };
 
-  const closeForm = () => {
-    if (saving) return;
-    setFormMode(null);
-    setFormProject(null);
-    setFormError(null);
-  };
-
-  const closeCreateView = () => {
-    if (saving) return;
-    setPageMode("list");
-    setFormError(null);
-  };
-
-  const saveProject = async (
-    values: ProjectFormValues,
-    requestedMode?: "create" | "edit",
-  ) => {
-    const activeMode = requestedMode ?? formMode;
-    if (!activeMode || saving) return;
+  const saveProject = async () => {
+    const trimmed = name.trim();
+    if (!trimmed || saving) return;
     setSaving(true);
-    setFormError(null);
     formControllerRef.current?.abort();
     const controller = new AbortController();
     formControllerRef.current = controller;
-
     try {
-      if (activeMode === "create") {
-        const created = await api.createProject(
-          values.name,
-          values.description || undefined,
-          values.colorKey,
-          values.iconKey,
-          controller.signal,
-        );
-        if (formControllerRef.current !== controller) return;
-        captureGridState();
-        newCardIdRef.current = created.id;
+      if (editing) {
+        // Rename only: keep the existing description, colour and icon.
+        const updated = await api.updateProject(editing.id, trimmed, editing.description ?? "", editing.color_key, editing.icon_key, controller.signal);
+        setProjects((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
+        toast.success(`เปลี่ยนชื่อเป็น “${updated.name}” แล้ว`);
+      } else {
+        const created = await api.createProject(trimmed, undefined, "teal", "flask", controller.signal);
         setProjects((rows) => [created, ...rows]);
-        setCurrentPage(1);
-        setPageMode("list");
-        toast.success(`สร้างโปรเจกต์ “${created.name}” สำเร็จ`, {
-          icon: null,
-          closeButton: true,
-          classNames: PROJECT_TOAST_CLASSNAMES,
-        });
-      } else if (formProject) {
-        const updated = await api.updateProject(
-          formProject.id,
-          values.name,
-          values.description,
-          values.colorKey,
-          values.iconKey,
-          controller.signal,
-        );
-        if (formControllerRef.current !== controller) return;
-        setProjects((rows) =>
-          rows.map((row) => (row.id === updated.id ? updated : row)),
-        );
-        setFormMode(null);
-        setFormProject(null);
-        toast.success(`แก้ไขโปรเจกต์ “${updated.name}” สำเร็จ`, {
-          icon: null,
-          closeButton: true,
-          classNames: PROJECT_TOAST_CLASSNAMES,
-        });
+        toast.success(`สร้างโปรเจกต์ “${created.name}” แล้ว`);
       }
+      setDialogOpen(false);
     } catch (cause) {
-      if (!isAbortError(cause) && formControllerRef.current === controller) {
-        logRequestFailure(
-          activeMode === "create" ? "create project" : "update project",
-          cause,
-        );
-        setFormError(
-          apiErrorMessage(
-            cause,
-            activeMode === "create"
-              ? "สร้างโปรเจกต์ไม่สำเร็จ กรุณาลองอีกครั้ง"
-              : "แก้ไขโปรเจกต์ไม่สำเร็จ กรุณาลองอีกครั้ง",
-          ),
-        );
-      }
+      if (isAbortError(cause)) return;
+      logRequestFailure(editing ? "update project" : "create project", cause);
+      toast.error(apiErrorMessage(cause, editing ? "เปลี่ยนชื่อไม่สำเร็จ กรุณาลองอีกครั้ง" : "สร้างโปรเจกต์ไม่สำเร็จ กรุณาลองอีกครั้ง"));
     } finally {
-      if (formControllerRef.current === controller) {
-        formControllerRef.current = null;
-        setSaving(false);
-      }
+      if (formControllerRef.current === controller) formControllerRef.current = null;
+      setSaving(false);
     }
   };
 
-  const removeCard = async (project: ProjectOut) => {
-    const card = gridRef.current?.querySelector<HTMLElement>(
-      `[data-project-card="${project.id}"]`,
-    );
-    if (card && !reduceMotionEnabled()) {
-      await new Promise<void>((resolve) => {
-        gsap.to(card, {
-          autoAlpha: 0,
-          x: 12,
-          scale: 0.98,
-          duration: 0.16,
-          ease: "power1.in",
-          onComplete: resolve,
-        });
-      });
+  /* ---------------- delete + undo ---------------- */
+  const restore = async (removed: ProjectOut[]) => {
+    const results = await Promise.allSettled(removed.map((p) => api.restoreProject(p.id)));
+    const restored = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+    if (restored.length > 0) {
+      setProjects((rows) => [...restored.filter((r) => !rows.some((row) => row.id === r.id)), ...rows]);
+      toast.success(restored.length === 1 ? `กู้คืน “${restored[0].name}” แล้ว` : `กู้คืน ${restored.length} โปรเจกต์แล้ว`);
     }
-    captureGridState();
-    setProjects((rows) => rows.filter((row) => row.id !== project.id));
+    if (restored.length < removed.length) toast.error("กู้คืนบางโปรเจกต์ไม่สำเร็จ");
   };
 
-  const restoreProject = async (project: ProjectOut, originalIndex: number) => {
-    const controller = new AbortController();
-    restoreControllersRef.current.add(controller);
-    try {
-      const restored = await api.restoreProject(project.id, controller.signal);
-      captureGridState();
-      newCardIdRef.current = restored.id;
-      setProjects((rows) => {
-        if (rows.some((row) => row.id === restored.id)) return rows;
-        const next = [...rows];
-        next.splice(Math.min(Math.max(originalIndex, 0), next.length), 0, restored);
-        return next;
-      });
-      toast.success(`กู้คืนโปรเจกต์ “${restored.name}” สำเร็จ`, {
-        icon: null,
-        closeButton: true,
-        classNames: PROJECT_TOAST_CLASSNAMES,
-      });
-    } catch (cause) {
-      if (!isAbortError(cause)) {
-        logRequestFailure("restore project", cause);
-        toast.error(
-          apiErrorMessage(cause, "กู้คืนโปรเจกต์ไม่สำเร็จ กรุณาลองอีกครั้ง"),
-        );
-      }
-    } finally {
-      restoreControllersRef.current.delete(controller);
-    }
-  };
-
-  const deleteProject = async () => {
-    if (!deletingProject || deleting) return;
-    const project = deletingProject;
-    const originalIndex = projects.findIndex((item) => item.id === project.id);
+  const confirmDelete = async () => {
+    if (!pendingDelete || deleting) return;
     setDeleting(true);
     setDeleteError(null);
-    deleteControllerRef.current?.abort();
-    const controller = new AbortController();
-    deleteControllerRef.current = controller;
-    try {
-      await api.deleteProject(project.id, controller.signal);
-      if (deleteControllerRef.current !== controller) return;
-      setDeletingProject(null);
-      await removeCard(project);
-      toast(`ลบโปรเจกต์ “${project.name}” แล้ว`, {
-        icon: null,
-        closeButton: true,
-        classNames: PROJECT_TOAST_CLASSNAMES,
+    const results = await Promise.allSettled(pendingDelete.map((p) => api.deleteProject(p.id)));
+    const removed = pendingDelete.filter((_, i) => results[i].status === "fulfilled");
+    setDeleting(false);
+    if (removed.length > 0) {
+      setProjects((rows) => rows.filter((row) => !removed.some((r) => r.id === row.id)));
+      setSelectionKey((k) => k + 1);
+      toast(removed.length === 1 ? `ลบโปรเจกต์ “${removed[0].name}” แล้ว` : `ลบ ${removed.length} โปรเจกต์แล้ว`, {
         duration: 8000,
-        action: {
-          label: "Undo",
-          onClick: () => void restoreProject(project, originalIndex),
-        },
+        action: { label: "เลิกทำ", onClick: () => void restore(removed) },
       });
-    } catch (cause) {
-      if (!isAbortError(cause) && deleteControllerRef.current === controller) {
-        logRequestFailure("delete project", cause);
-        setDeleteError(
-          apiErrorMessage(cause, "ลบโปรเจกต์ไม่สำเร็จ กรุณาลองอีกครั้ง"),
-        );
-      }
-    } finally {
-      if (deleteControllerRef.current === controller) {
-        deleteControllerRef.current = null;
-        setDeleting(false);
-      }
     }
+    if (removed.length < pendingDelete.length) {
+      setDeleteError("ลบบางโปรเจกต์ไม่สำเร็จ กรุณาลองอีกครั้ง");
+      setPendingDelete(pendingDelete.filter((p) => !removed.includes(p)));
+      return;
+    }
+    setPendingDelete(null);
   };
 
-  const openProject = (project: ProjectOut) => {
-    if (openingProject) return;
-    setLastOpenedProjectId(project.id);
-    window.localStorage.setItem(
-      LAST_OPENED_PROJECT_STORAGE_KEY,
-      String(project.id),
-    );
-    setOpeningProject(project);
-    router.push(`/projects/${project.id}/assess`);
+  const askDelete = (rows: ProjectOut[]) => {
+    if (rows.length === 0) return;
+    setDeleteError(null);
+    setPendingDelete(rows);
   };
 
+  /* ---------------- render ---------------- */
   const hasProjects = projects.length > 0;
-  const noSearchResults = hasProjects && visibleProjects.length === 0;
 
   return (
-    <TooltipProvider delayDuration={400}>
-      <ProjectsShell
-        onBrandClick={closeCreateView}
-        mobileTitle={
-          pageMode === "create" ? (
-            <nav
-              aria-label="เส้นทางหน้าบนมือถือ"
-              className="flex min-w-0 items-center gap-1.5"
-            >
-              <button
-                type="button"
-                className="shrink-0 text-muted-foreground transition-colors hover:text-primary"
-                onClick={closeCreateView}
-              >
-                โปรเจกต์ทั้งหมด
-              </button>
-              <ChevronRight
-                aria-hidden="true"
-                className="size-3.5 shrink-0 text-muted-foreground"
-              />
-              <span aria-current="page" className="truncate text-foreground">
-                สร้างโปรเจกต์ใหม่
-              </span>
-            </nav>
-          ) : (
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-foreground sm:font-display sm:text-base sm:font-bold">
-                โปรเจกต์ทั้งหมด
-              </p>
-              <p className="mt-0.5 hidden truncate text-[10px] font-normal text-muted-foreground sm:block">
-                เลือกโปรเจกต์เพื่อจัดการสูตรและดูผลประเมิน
-              </p>
-            </div>
-          )
-        }
-        header={
-          pageMode === "list" ? (
-            <div className="px-4 py-3 sm:px-6 xl:px-8">
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                <div className="hidden min-w-0 xl:block">
-                  <h1 className="font-display text-base font-bold tracking-tight text-foreground sm:text-lg">
-                    โปรเจกต์ทั้งหมด
-                  </h1>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    เลือกโปรเจกต์เพื่อจัดการสูตรและดูผลประเมิน
-                  </p>
-                </div>
+    <div className="min-h-dvh bg-muted/30">
+      {openingProject && <BrandedProgressLoader fullScreen label="กำลังเปิดโปรเจกต์" />}
+      <AppHeader />
 
-                <div className="flex w-full items-center justify-start gap-2 sm:w-auto sm:justify-end">
-                  <div
-                    role="search"
-                    aria-label="ค้นหาโปรเจกต์"
-                    className="min-w-0 flex-1 sm:w-72 sm:flex-none"
-                  >
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        type="search"
-                        value={query}
-                        placeholder="ค้นหาโปรเจกต์"
-                        aria-label="ค้นหาโปรเจกต์"
-                        className="h-10 bg-background pl-10 shadow-none"
-                        onChange={(event) => setQuery(event.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div
-                    role="group"
-                    aria-label="รูปแบบการแสดงโปรเจกต์"
-                    className="hidden shrink-0 rounded-xl border bg-background p-1 sm:flex"
-                  >
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          aria-label="แสดงแบบตาราง"
-                          aria-pressed={layoutMode === "grid"}
-                          className={cn(
-                            "size-8",
-                            layoutMode === "grid" && "bg-accent text-primary-strong",
-                          )}
-                          onClick={() => {
-                            captureGridState();
-                            setLayoutMode("grid");
-                          }}
-                        >
-                          <LayoutGrid className="size-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>แบบตาราง</TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          aria-label="แสดงแบบรายการ"
-                          aria-pressed={layoutMode === "list"}
-                          className={cn(
-                            "size-8",
-                            layoutMode === "list" && "bg-accent text-primary-strong",
-                          )}
-                          onClick={() => {
-                            captureGridState();
-                            setLayoutMode("list");
-                          }}
-                        >
-                          <List className="size-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>แบบรายการ</TooltipContent>
-                    </Tooltip>
-                  </div>
-
-                  {(loading || hasProjects) && (
-                    <Button
-                      type="button"
-                      className="size-10 shrink-0 gap-2 px-0 sm:w-auto sm:px-4"
-                      aria-label="สร้างโปรเจกต์"
-                      onClick={openCreateView}
-                    >
-                      <Plus className="size-4" />
-                      <span className="hidden sm:inline">สร้างโปรเจกต์</span>
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="hidden px-8 py-3 xl:block">
-              <nav
-                aria-label="เส้นทางหน้า"
-                className="flex min-w-0 items-center gap-1.5 text-sm"
-              >
-                <button
-                  type="button"
-                  className="shrink-0 text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  onClick={closeCreateView}
-                >
-                  โปรเจกต์ทั้งหมด
-                </button>
-                <ChevronRight
-                  aria-hidden="true"
-                  className="size-4 shrink-0 text-muted-foreground"
+      <main className="mx-auto w-full max-w-6xl space-y-5 px-4 py-6 sm:px-6 sm:py-8">
+        <PageHeader
+          title="โปรเจกต์ทั้งหมด"
+          description="เลือกโปรเจกต์เพื่อจัดการสูตรและดูผลประเมิน"
+          actions={
+            <>
+              {hasProjects && (
+                <Input
+                  search
+                  value={query}
+                  placeholder="ค้นหาโปรเจกต์"
+                  aria-label="ค้นหาโปรเจกต์"
+                  onChange={(e) => setQuery(e.target.value)}
+                  onClear={() => setQuery("")}
+                  containerClassName="flex-1 sm:w-72 sm:flex-none"
                 />
-                <span
-                  aria-current="page"
-                  className="truncate font-medium text-foreground"
-                >
-                  สร้างโปรเจกต์ใหม่
-                </span>
-              </nav>
-            </div>
-          )
-        }
-      >
-        {openingProject && <BrandedProgressLoader />}
-
-        {pageMode === "create" ? (
-          <ProjectCreateView
-            saving={saving}
-            error={formError}
-            onCancel={closeCreateView}
-            onSubmit={(values) => saveProject(values, "create")}
-          />
-        ) : (
-          <div className="mx-auto min-w-0 w-full max-w-[92rem] overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8">
-          {loading && knownProjectCount > 0 && (
-              <div
-                className={cn(
-                  "grid gap-4",
-                  layoutMode === "grid"
-                    ? "sm:grid-cols-2 2xl:grid-cols-3"
-                    : "grid-cols-1",
-                )}
-              >
-                {Array.from(
-                  { length: Math.min(knownProjectCount, 3) },
-                  (_, item) => (
-                  <div
-                    key={item}
-                    className="self-start overflow-hidden rounded-2xl border bg-card animate-pulse motion-reduce:animate-none"
-                  >
-                    <div className="h-1 bg-muted" />
-                    <div className="p-4 sm:p-5">
-                      <div className="flex items-center gap-3">
-                        <div className="size-10 shrink-0 rounded-xl bg-muted" />
-                        <div className="min-w-0 flex-1">
-                          <div className="h-3.5 w-1/3 rounded bg-muted" />
-                          <div className="mt-2 h-2.5 w-1/2 rounded bg-muted/70" />
-                        </div>
-                        <div className="flex gap-2">
-                          <div className="size-8 rounded-lg bg-muted/70" />
-                          <div className="size-8 rounded-lg bg-muted/70" />
-                        </div>
-                      </div>
-                      <div className="mt-4 border-t pt-3">
-                        <div className="h-2.5 w-40 max-w-1/2 rounded bg-muted/70" />
-                      </div>
-                    </div>
-                  </div>
-                  ),
-                )}
-              </div>
-            )}
-
-          {!loading && loadError && (
-            <div className="mx-auto max-w-2xl px-6 py-16 text-center sm:py-24">
-              <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-destructive/10 text-destructive">
-                <RefreshCw className="size-5" />
-              </span>
-              <h2 className="mt-4 font-semibold text-foreground">โหลดโปรเจกต์ไม่สำเร็จ</h2>
-              <p className="mt-2 text-sm text-muted-foreground">{loadError}</p>
-              <Button className="mt-5 gap-2" onClick={() => void loadProjects()}>
-                <RefreshCw className="size-4" />
-                ลองอีกครั้ง
-              </Button>
-            </div>
-          )}
-
-          {!loading && !loadError && !hasProjects && (
-            <Empty className="mx-auto max-w-xl px-4 py-16 sm:py-24">
-              <EmptyHeader>
-                <EmptyMedia variant="icon" className="bg-muted">
-                  <FolderOpen />
-                </EmptyMedia>
-                <EmptyTitle>ยังไม่มีโปรเจกต์</EmptyTitle>
-                <EmptyDescription className="max-w-sm">
-                  สร้างโปรเจกต์แรกเพื่อเริ่มจัดการสูตรและผลประเมิน
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <Button className="h-11 gap-2 px-6" onClick={openCreateView}>
-                  <Plus className="size-4" />
-                  สร้างโปรเจกต์
-                </Button>
-              </EmptyContent>
-            </Empty>
-          )}
-
-          {!loading && !loadError && noSearchResults && (
-            <div className="px-6 py-14 text-center">
-              <Search className="mx-auto size-6 text-muted-foreground" />
-              <h2 className="mt-3 font-semibold text-foreground">ไม่พบโปรเจกต์ที่ค้นหา</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                ลองเปลี่ยนชื่อหรือคำค้นหาอีกครั้ง
-              </p>
-              <Button variant="outline" className="mt-4" onClick={() => setQuery("")}>
-                ล้างคำค้นหา
-              </Button>
-            </div>
-          )}
-
-          {!loading && !loadError && visibleProjects.length > 0 && (
-            <div
-              ref={gridRef}
-              className={cn(
-                "grid min-w-0 gap-4",
-                layoutMode === "grid" ? "sm:grid-cols-2 2xl:grid-cols-3" : "grid-cols-1",
               )}
-              aria-live="polite"
+              <Button onClick={() => openDialog(null)} className="shrink-0">
+                <Plus /> สร้างโปรเจกต์
+              </Button>
+            </>
+          }
+        />
+
+        {selectedIds.length > 0 && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border bg-card px-4 py-2 text-sm">
+            <span>เลือกแล้ว {selectedIds.length} โปรเจกต์</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => askDelete(selectedIds.map(byId).filter((p): p is ProjectOut => Boolean(p)))}
             >
-              {paginatedProjects.map((project) => {
-                const color = projectColor(project.color_key);
-                const icon = projectIcon(project.icon_key);
-                const ProjectIcon = icon.icon;
-                return (
-                  <Card
-                    key={project.id}
-                    data-project-card={project.id}
-                    role="link"
-                    tabIndex={0}
-                    className={cn(
-                      "group relative flex min-w-0 w-full max-w-full self-start cursor-pointer overflow-hidden rounded-2xl border bg-card shadow-sm transition-[border-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                      layoutMode === "grid"
-                        ? "min-h-[11.5rem]"
-                        : "min-h-[5.5rem]",
-                      "border-white",
-                      color.hoverBorder,
-                      color.glow,
-                    )}
-                    onClick={() => openProject(project)}
-                    onKeyDown={(event) => {
-                      if (event.currentTarget !== event.target) return;
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        openProject(project);
-                      }
-                    }}
-                  >
-                    <CardContent
-                      className={cn(
-                        "flex min-w-0 flex-1 flex-col p-4 sm:p-5",
-                        layoutMode === "list" && "sm:flex-row sm:items-center sm:gap-6",
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "flex min-w-0 items-center gap-3",
-                          layoutMode === "list" && "min-w-0 flex-1",
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "grid size-10 shrink-0 place-items-center rounded-xl",
-                            color.soft,
-                            color.text,
-                          )}
-                        >
-                          <ProjectIcon className="size-[18px]" />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <h2 className="truncate text-[15px] font-semibold text-foreground">
-                            {project.name}
-                          </h2>
-                          <p
-                            className={cn(
-                              "mt-1 text-xs leading-5 text-muted-foreground",
-                              layoutMode === "grid" ? "line-clamp-2" : "truncate",
-                            )}
-                          >
-                            {project.description || "ยังไม่มีคำอธิบาย"}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                aria-label={`แก้ไขโปรเจกต์ ${project.name}`}
-                                className="size-11 text-muted-foreground hover:text-foreground sm:size-9"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  openEditDialog(project);
-                                }}
-                                onKeyDown={(event) => event.stopPropagation()}
-                              >
-                                <Pencil className="size-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>แก้ไขโปรเจกต์</TooltipContent>
-                          </Tooltip>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                aria-label={`ลบโปรเจกต์ ${project.name}`}
-                                className="size-11 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:size-9"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setDeleteError(null);
-                                  setDeletingProject(project);
-                                }}
-                                onKeyDown={(event) => event.stopPropagation()}
-                              >
-                                <Trash2 className="size-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>ลบโปรเจกต์</TooltipContent>
-                          </Tooltip>
-                        </div>
-                      </div>
-
-                      <div
-                        className={cn(
-                          "grid grid-cols-2 gap-3 text-xs",
-                          layoutMode === "grid"
-                            ? "mt-auto border-t pt-3"
-                            : "mt-4 border-t pt-3 sm:ml-auto sm:mt-0 sm:w-[21rem] sm:border-l sm:border-t-0 sm:pl-6 sm:pt-0",
-                        )}
-                      >
-                        <div className="flex min-w-0 items-start gap-2">
-                          <CalendarDays className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-                          <div className="min-w-0">
-                            <p className="text-[11px] text-muted-foreground">สร้างเมื่อ</p>
-                            <p className="mt-0.5 truncate font-medium text-foreground">
-                              {formatDate(project.created_at)}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex min-w-0 items-start gap-2">
-                          <Clock3 className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-                          <div className="min-w-0">
-                            <p className="text-[11px] text-muted-foreground">แก้ไขล่าสุด</p>
-                            <p className="mt-0.5 truncate font-medium text-foreground">
-                              {formatDate(project.updated_at || project.created_at)}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-              {Array.from(
-                {
-                  length: Math.max(
-                    0,
-                    PROJECTS_PER_PAGE - paginatedProjects.length,
-                  ),
-                },
-                (_, index) => (
-                  <div
-                    key={`page-space-${index}`}
-                    aria-hidden="true"
-                    className={cn(
-                      "invisible pointer-events-none hidden sm:block",
-                      layoutMode === "grid"
-                        ? "min-h-[11.5rem]"
-                        : "min-h-[5.5rem]",
-                    )}
-                  />
-                ),
-              )}
-            </div>
-          )}
-
-          <Pagination
-            className="mt-5"
-            aria-label="หน้ารายการโปรเจกต์"
-          >
-            <PaginationContent className="gap-0.5">
-              <PaginationItem>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 gap-0.5 px-2 text-xs text-muted-foreground hover:bg-accent hover:text-primary"
-                  aria-label="Previous หน้าก่อนหน้า"
-                  disabled={currentPage === 1}
-                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                >
-                  <ChevronLeft className="size-3.5" />
-                  <span className="hidden sm:inline">Previous</span>
-                </Button>
-              </PaginationItem>
-
-              {visiblePaginationEntries.map((entry, index) =>
-                entry === "ellipsis" ? (
-                  <PaginationItem key={`ellipsis-${index}`}>
-                    <PaginationEllipsis className="size-8 text-muted-foreground" />
-                  </PaginationItem>
-                ) : (
-                  <PaginationItem key={entry}>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className={cn(
-                        "size-8 text-xs text-foreground hover:bg-accent hover:text-primary",
-                        entry === currentPage &&
-                          "border border-primary/25 bg-accent text-primary-strong",
-                      )}
-                      aria-label={`ไปหน้าที่ ${entry}`}
-                      aria-current={entry === currentPage ? "page" : undefined}
-                      onClick={() => setCurrentPage(entry)}
-                    >
-                      {entry}
-                    </Button>
-                  </PaginationItem>
-                ),
-              )}
-
-              <PaginationItem>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 gap-0.5 px-2 text-xs text-muted-foreground hover:bg-accent hover:text-primary"
-                  aria-label="Next หน้าถัดไป"
-                  disabled={currentPage === totalPages}
-                  onClick={() =>
-                    setCurrentPage((page) => Math.min(totalPages, page + 1))
-                  }
-                >
-                  <span className="hidden sm:inline">Next</span>
-                  <ChevronRight className="size-3.5" />
-                </Button>
-              </PaginationItem>
-            </PaginationContent>
-          </Pagination>
+              <Trash2 /> ลบที่เลือก
+            </Button>
           </div>
         )}
 
-        <ProjectFormDialog
-          open={formMode === "edit"}
-          mode="edit"
-          project={formProject}
-          saving={saving}
-          error={formError}
-          onOpenChange={(open) => {
-            if (!open) closeForm();
-          }}
-          onSubmit={(values) => saveProject(values, "edit")}
-        />
+        {loading && (
+          <div className="space-y-2 rounded-xl border bg-card p-4" aria-label="กำลังโหลดโปรเจกต์">
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i} className="flex items-center gap-3 py-1.5">
+                <Skeleton className="size-10 rounded-lg" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-4 w-1/3" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
-        <AlertDialog
-          open={deletingProject !== null}
-          onOpenChange={(open) => {
-            if (!open && !deleting) {
-              setDeletingProject(null);
-              setDeleteError(null);
-            }
-          }}
-        >
-          <AlertDialogContent className="w-[calc(100%-2rem)] rounded-2xl sm:max-w-md">
-            <AlertDialogHeader>
-              <AlertDialogTitle>ลบโปรเจกต์นี้หรือไม่?</AlertDialogTitle>
-              <AlertDialogDescription>
-                โปรเจกต์ “{deletingProject?.name}” จะถูกนำออกจากรายการ
-                และคุณสามารถกด Undo จากข้อความแจ้งเตือนได้
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            {deleteError && (
-              <p role="alert" className="text-sm text-destructive">
-                {deleteError}
-              </p>
-            )}
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={deleting}>ยกเลิก</AlertDialogCancel>
-              <AlertDialogAction
-                disabled={deleting}
-                className="gap-2 bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                onClick={(event) => {
-                  event.preventDefault();
-                  void deleteProject();
-                }}
-              >
-                {deleting && <LoaderCircle className="size-4 animate-spin" />}
-                ลบโปรเจกต์
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </ProjectsShell>
-    </TooltipProvider>
+        {!loading && loadError && (
+          <Alert variant="destructive">
+            <AlertCircle />
+            <AlertTitle>โหลดโปรเจกต์ไม่สำเร็จ</AlertTitle>
+            <AlertDescription>
+              <p>{loadError}</p>
+              <Button variant="outline" size="sm" onClick={() => void loadProjects()} className="mt-1">
+                <RefreshCw /> ลองใหม่
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {!loading && !loadError && !hasProjects && (
+          <Empty className="border bg-card">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <FolderOpen />
+              </EmptyMedia>
+              <EmptyTitle>ยังไม่มีโปรเจกต์</EmptyTitle>
+              <EmptyDescription>สร้างโปรเจกต์แรกเพื่อเริ่มประเมินสูตรผลิตภัณฑ์</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button size="lg" onClick={() => openDialog(null)}>
+                <Plus /> สร้างโปรเจกต์
+              </Button>
+            </EmptyContent>
+          </Empty>
+        )}
+
+        {!loading && !loadError && hasProjects && filtered.length === 0 && (
+          <Empty className="border bg-card">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <SearchX />
+              </EmptyMedia>
+              <EmptyTitle>ไม่พบโปรเจกต์ที่ตรงกับ “{query}”</EmptyTitle>
+              <EmptyDescription>ลองค้นด้วยคำอื่น หรือล้างคำค้นหา</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button variant="outline" onClick={() => setQuery("")}>
+                ล้างคำค้นหา
+              </Button>
+            </EmptyContent>
+          </Empty>
+        )}
+
+        {!loading && !loadError && filtered.length > 0 && (
+          <ProjectList
+            projects={listItems}
+            total={projects.length}
+            selectionKey={selectionKey}
+            onSelectionChange={setSelectedIds}
+            onOpen={(item) => openProject(item.id)}
+            onEdit={(item) => {
+              const p = byId(item.id);
+              if (p) openDialog(p);
+            }}
+            onDelete={(item) => {
+              const p = byId(item.id);
+              if (p) askDelete([p]);
+            }}
+          />
+        )}
+      </main>
+
+      {/* Create / rename: name only */}
+      <Dialog open={dialogOpen} onOpenChange={(open) => !saving && setDialogOpen(open)}>
+        <DialogContent aria-describedby={undefined}>
+          <form
+            className="grid gap-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void saveProject();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{editing ? "เปลี่ยนชื่อโปรเจกต์" : "สร้างโปรเจกต์ใหม่"}</DialogTitle>
+            </DialogHeader>
+
+            <Input
+              id="project-name"
+              aria-label="ชื่อโปรเจกต์"
+              autoFocus
+              maxLength={100}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+
+            <DialogFooter>
+              <Button type="button" variant="outline" disabled={saving} onClick={() => setDialogOpen(false)}>
+                ยกเลิก
+              </Button>
+              <Button type="submit" disabled={saving || !name.trim()}>
+                {saving ? "กำลังบันทึก…" : editing ? "บันทึก" : "สร้างโปรเจกต์"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm delete */}
+      <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => !open && !deleting && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingDelete?.length === 1 ? `ลบโปรเจกต์ “${pendingDelete[0].name}”?` : `ลบ ${pendingDelete?.length ?? 0} โปรเจกต์?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>สูตรและผลประเมินในโปรเจกต์จะถูกลบด้วย กด “เลิกทำ” ได้ภายใน 8 วินาทีหลังลบ</AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmDelete();
+              }}
+            >
+              {deleting ? "กำลังลบ…" : "ลบ"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 }
