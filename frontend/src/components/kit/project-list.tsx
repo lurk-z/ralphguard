@@ -11,7 +11,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 export type ProjectListItem = {
   id: string;
   name: string;
-  description?: string;
   /** Already formatted for display, e.g. "13 พ.ย. 2569". */
   createdAt: string;
   updatedAt?: string;
@@ -167,7 +166,6 @@ export function ProjectList({ projects, onOpen, onEdit, onDelete, onSelectionCha
                         ) : (
                           <span className="block truncate text-base font-medium">{project.name}</span>
                         )}
-                        <p className="truncate text-sm text-muted-foreground">{project.description || "ยังไม่มีคำอธิบาย"}</p>
                         <p className="text-xs text-muted-foreground sm:hidden">แก้ไข {project.updatedAt ?? project.createdAt}</p>
                       </div>
                     </div>

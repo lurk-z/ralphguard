@@ -118,7 +118,7 @@ export default function ProjectsPage() {
   const filtered = useMemo(() => {
     const q = query.trim().toLocaleLowerCase("th-TH");
     if (!q) return projects;
-    return projects.filter((p) => `${p.name} ${p.description ?? ""}`.toLocaleLowerCase("th-TH").includes(q));
+    return projects.filter((p) => p.name.toLocaleLowerCase("th-TH").includes(q));
   }, [projects, query]);
 
   const listItems: ProjectListItem[] = useMemo(
@@ -128,7 +128,6 @@ export default function ProjectsPage() {
         return {
           id: String(p.id),
           name: p.name,
-          description: p.description ?? undefined,
           createdAt: formatDate(p.created_at),
           updatedAt: formatDate(p.updated_at || p.created_at),
           createdAtISO: p.created_at,
