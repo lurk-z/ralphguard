@@ -15,7 +15,11 @@ const nextConfig = {
       { source: "/projects/new", destination: "/projects", permanent: false },
       { source: "/history", destination: "/projects", permanent: false },
       { source: "/skin-viewer", destination: "/assess", permanent: false },
-      { source: "/models", destination: "/methodology", permanent: false },
+      { source: "/models", destination: "/", permanent: false },
+      { source: "/herbs", destination: "/projects", permanent: false },
+      { source: "/how-to", destination: "/", permanent: false },
+      { source: "/methodology", destination: "/", permanent: false },
+      { source: "/about", destination: "/", permanent: false },
       { source: "/projects/:id/results", destination: "/assess?projectId=:id", permanent: false },
     ];
   },

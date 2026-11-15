@@ -70,49 +70,6 @@ export type HerbalPlantSummary = {
   source: string;
 };
 
-export type HerbalPlantDetail = {
-  plant: HerbalPlantSummary & { provenance: Record<string, unknown> };
-  materials: Array<{
-    id: number;
-    plant_part: string;
-    material_type: string;
-    extract_type: string | null;
-    solvent: string | null;
-    assessment_method: "compound_qsar" | "botanical_evidence";
-    whole_material_qsar_eligible: boolean;
-    source: string;
-  }>;
-  constituents: Array<{
-    name: string;
-    pubchem_cid: number | null;
-    inchikey: string | null;
-    relationship_type: string;
-    evidence_source: string;
-    structure_resolved: boolean;
-    registry_verified: boolean;
-    qsar_eligible: boolean;
-  }>;
-  evidence: Array<{
-    endpoint: string;
-    effect: string;
-    evidence_type: string;
-    source: string;
-    source_url: string | null;
-    doi: string | null;
-  }>;
-  coverage: {
-    known_constituents: number;
-    structure_resolved: number;
-    registry_verified: number;
-    qsar_assessed: number;
-    awaiting_verification: number;
-    literature_only: number;
-    unresolved: number;
-    structure_percentage: number;
-    percentage: number;
-  };
-};
-
 export type FormulaItem = {
   smiles: string;
   name?: string;
@@ -399,9 +356,6 @@ export const api = {
     const params = new URLSearchParams({ q: query.trim(), limit: "50" });
     return http<HerbalPlantSummary[]>(`/api/herbs?${params.toString()}`, { signal }, 20000);
   },
-
-  getHerb: (herbId: number, signal?: AbortSignal) =>
-    http<HerbalPlantDetail>(`/api/herbs/${herbId}`, { signal }, 20000),
 
   lookupIngredientInPubChem: (
     name: string,

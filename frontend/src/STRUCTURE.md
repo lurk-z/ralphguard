@@ -4,14 +4,14 @@
 
 | โฟลเดอร์ | หน้า | หมายเหตุ |
 | --- | --- | --- |
-| `(site)/` | `/`, `/about`, `/how-to`, `/methodology` | หน้าเว็บสาธารณะ ไม่ต้องล็อกอิน |
+| `(site)/` | `/` | หน้าแรก (สาธารณะ ไม่ต้องล็อกอิน) |
 | `(auth)/` | `/login` | |
-| `(dashboard)/` | `/projects`, `/assess`, `/herbs` | ต้องล็อกอิน (ตรวจใน `(dashboard)/layout.tsx`) · หน้าหลักของระบบคือ `/projects` และ `/assess` |
+| `(dashboard)/` | `/projects`, `/assess` | ต้องล็อกอิน (ตรวจใน `(dashboard)/layout.tsx`) · หน้าหลักของระบบคือ `/projects` และ `/assess` |
 | `api/` | `/api/auth/*` | next-auth |
 | `test_components/` | `/test_components` | หน้าทดสอบ UI ตอน dev (404 ใน production) |
 
 วงเล็บ `( )` คือกลุ่มของ Next.js ไม่เป็นส่วนของ URL
-หน้าที่เลิกใช้แล้ว (`/register`, `/forgot-password`, `/settings`, `/projects/new`, `/history`, `/skin-viewer`, `/models`, `/projects/[id]/results`) redirect ใน `next.config.js`
+หน้าที่เลิกใช้แล้ว (`/register`, `/forgot-password`, `/settings`, `/projects/new`, `/history`, `/skin-viewer`, `/models`, `/projects/[id]/results`, `/herbs`, `/how-to`, `/methodology`, `/about`) redirect ใน `next.config.js`
 
 ## components/ — แยกตามฟีเจอร์
 
@@ -19,7 +19,7 @@
 | --- | --- |
 | `ui/` | shadcn ล้วน (ปุ่ม ช่องกรอก dialog ฯลฯ) **ห้ามมี logic หรือข้อมูลของแอป** |
 | `shared/` | ของใช้ร่วมหลายฟีเจอร์ (`SemanticIcon`, `BrandedProgressLoader`) |
-| `layout/` | โครงหน้าและเมนู (`SiteNav`, `SiteFooter`, `Navbar`) |
+| `layout/` | โครงหน้าและเมนู (`Navbar`) |
 | `auth/` | ปุ่มล็อกอิน เมนูผู้ใช้ session |
 | `projects/` | หน้ารายการโปรเจกต์ |
 | `face/` | ใบหน้า 3D ใน /assess: `SymptomFaceCanvas` → `PaintSymptomModel` · skeleton ระหว่างโหลด |
