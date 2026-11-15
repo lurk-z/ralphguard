@@ -661,3 +661,75 @@ html {
   border-radius: 0.75rem !important;
   box-shadow: 0 6px 18px rgb(15 23 42 / 0.08) !important;
 }
+
+/* ------------------------------------------------------------------ */
+/* AI chat parts (Trace, Persona). Tailwind 3 ports of shadcn.io AI.   */
+/* ------------------------------------------------------------------ */
+
+/* A running Trace line: its title shimmers. */
+[data-slot="trace-line"][data-status="running"] > [data-slot="trace-title"] {
+  /* Explicit colours: with `color: transparent` below, currentColor would be transparent too (title vanished). */
+  background: linear-gradient(90deg, hsl(var(--muted-foreground)) 0%, hsl(var(--muted-foreground)) 40%, hsl(var(--foreground)) 50%, hsl(var(--muted-foreground)) 60%, hsl(var(--muted-foreground)) 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: trace-shimmer 1.8s linear infinite;
+}
+@keyframes trace-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -150% 0; }
+}
+
+/*
+ * Persona · Obsidian (see components/ui/persona.tsx). Only transform/opacity are animated, so the browser
+ * repaints without recomputing styles. Facet shading is set once from JS (fill-opacity).
+ * Animations run only with [data-animate]; prefers-reduced-motion holds a still pose.
+ */
+.persona { --persona-ink: hsl(var(--foreground)); --persona-body: .72; }
+.persona-scene { position: absolute; inset: 0; pointer-events: none; forced-color-adjust: none; }
+.persona-obsidian { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; transform: scale(var(--persona-body)); transform-origin: 50% 50%; transition: opacity .6s; }
+.persona-facet { fill: var(--persona-ink); transform-box: fill-box; transform-origin: center; transform: scale(.985); }
+.persona-shadow {
+  position: absolute; left: 18%; right: 18%; bottom: 4%; height: 10%; border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--persona-ink) 26%, transparent), transparent);
+}
+.persona-ripples { position: absolute; inset: 0; }
+.persona-ripple {
+  position: absolute; inset: 0; border-radius: 50%; opacity: 0;
+  border: 2px solid color-mix(in oklab, var(--persona-ink) 50%, transparent);
+}
+.persona-sheen-clip { position: absolute; inset: 0; overflow: hidden; transform: scale(var(--persona-body)); }
+.persona-sheen {
+  position: absolute; inset: -40%;
+  background: conic-gradient(from 0deg, transparent 0 62%, rgba(255,255,255,.55) 72%, transparent 82% 100%);
+  mix-blend-mode: soft-light;
+}
+.persona[data-state='asleep'] .persona-obsidian { opacity: .6; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .persona[data-animate][data-state='idle'] .persona-obsidian { animation: persona-breathe 4s ease-in-out infinite; }
+  .persona[data-animate][data-state='listening'] .persona-obsidian { animation: persona-breathe 2.4s ease-in-out infinite; }
+  .persona[data-animate][data-state='listening'] .persona-ripple { animation: persona-ripple 2.4s cubic-bezier(.45, 0, .85, .55) calc(var(--persona-i) * -.8s) infinite; }
+  .persona[data-animate][data-state='thinking'] .persona-obsidian { animation: persona-wobble 1.6s ease-in-out infinite; }
+  .persona[data-animate][data-state='thinking'] .persona-facet { animation: persona-facet-out 1.6s ease-in-out infinite; }
+  .persona[data-animate][data-state='thinking'] .persona-sheen { animation: persona-spin 1.4s linear infinite; }
+  .persona[data-animate][data-state='speaking'] .persona-facet { animation: persona-facet-out .42s ease-in-out infinite alternate; }
+  .persona[data-animate][data-state='speaking'] .persona-obsidian { animation: persona-speak .42s ease-in-out infinite alternate; }
+}
+@keyframes persona-breathe { 0%, 100% { transform: scale(var(--persona-body)) translateY(0); } 50% { transform: scale(calc(var(--persona-body) * 1.02)) translateY(-1.5%); } }
+@keyframes persona-wobble { 0%, 100% { transform: scale(var(--persona-body)) rotate(-6deg); } 50% { transform: scale(var(--persona-body)) rotate(6deg); } }
+@keyframes persona-speak { from { transform: scale(var(--persona-body)); } to { transform: scale(calc(var(--persona-body) * 1.04)); } }
+@keyframes persona-facet-out { 0%, 100% { transform: scale(.985) translate(0, 0); } 50% { transform: scale(.985) translate(var(--fx), var(--fy)); } }
+@keyframes persona-spin { to { transform: rotate(360deg); } }
+@keyframes persona-ripple { 0% { opacity: 0; transform: scale(1); } 30% { opacity: .9; } 80% { opacity: .55; } 100% { opacity: 0; transform: scale(var(--persona-body)); } }
+
+/* Slim, quiet scrollbar (chat): 6px, barely visible until you hover the list. */
+.thin-scrollbar { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.thin-scrollbar:hover { scrollbar-color: hsl(var(--muted-foreground) / .35) transparent; }
+.thin-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+.thin-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.thin-scrollbar::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.thin-scrollbar::-webkit-scrollbar-thumb { background: transparent; border-radius: 9999px; }
+.thin-scrollbar:hover::-webkit-scrollbar-thumb { background: hsl(var(--muted-foreground) / .35); }
+.thin-scrollbar::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / .6); }

@@ -20,17 +20,17 @@ const Toaster = ({ ...props }: ToasterProps) => {
         duration: 4500,
         classNames: {
           toast:
-            "group toast font-sans !border-white !bg-white !text-slate-800 group-[.toaster]:rounded-xl group-[.toaster]:shadow-lg",
+            "group toast font-sans !border-border !bg-popover !text-popover-foreground group-[.toaster]:rounded-xl group-[.toaster]:shadow-lg",
           icon:
-            "group-data-[type=success]:!text-emerald-600 group-data-[type=warning]:!text-amber-500 group-data-[type=error]:!text-rose-600 group-data-[type=info]:!text-sky-600",
-          title: "group-[.toast]:font-sans group-[.toast]:font-semibold group-[.toast]:!text-slate-800",
-          description: "group-[.toast]:font-sans group-[.toast]:text-xs group-[.toast]:leading-5 group-[.toast]:!text-slate-600",
+            "group-data-[type=success]:!text-emerald-600 group-data-[type=warning]:!text-amber-500 group-data-[type=error]:!text-red-600 group-data-[type=info]:!text-primary",
+          title: "group-[.toast]:font-sans group-[.toast]:font-semibold group-[.toast]:!text-foreground",
+          description: "group-[.toast]:font-sans group-[.toast]:text-sm group-[.toast]:!text-muted-foreground",
           actionButton:
             "group-[.toast]:border group-[.toast]:border-border group-[.toast]:bg-muted group-[.toast]:font-sans group-[.toast]:text-foreground hover:!bg-accent",
           cancelButton:
             "group-[.toast]:bg-muted group-[.toast]:font-sans group-[.toast]:text-foreground",
           closeButton:
-            "group-[.toast]:!border-slate-200 group-[.toast]:!bg-white group-[.toast]:!text-slate-400 hover:group-[.toast]:!bg-slate-100 hover:group-[.toast]:!text-slate-600",
+            "group-[.toast]:!border-border group-[.toast]:!bg-popover group-[.toast]:!text-muted-foreground hover:group-[.toast]:!bg-muted hover:group-[.toast]:!text-foreground",
         },
       }}
       {...props}

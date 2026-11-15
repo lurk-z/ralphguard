@@ -120,11 +120,21 @@ module.exports = {
   				to: {
   					height: '0'
   				}
+  			},
+  			'collapsible-down': {
+  				from: { height: '0' },
+  				to: { height: 'var(--radix-collapsible-content-height)' }
+  			},
+  			'collapsible-up': {
+  				from: { height: 'var(--radix-collapsible-content-height)' },
+  				to: { height: '0' }
   			}
   		},
   		animation: {
   			'accordion-down': 'accordion-down 0.2s ease-out',
-  			'accordion-up': 'accordion-up 0.2s ease-out'
+  			'accordion-up': 'accordion-up 0.2s ease-out',
+  			'collapsible-down': 'collapsible-down 0.2s ease-out',
+  			'collapsible-up': 'collapsible-up 0.2s ease-out'
   		},
   		boxShadow: {
   			card: '0 1px 3px rgba(0,0,0,0.24), 0 1px 2px rgba(0,0,0,0.16)',

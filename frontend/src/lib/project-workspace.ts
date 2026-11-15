@@ -11,7 +11,7 @@ const MAX_GRAPH_EDGES = 500;
 /** Project-level Graph draft used when no Formula Panel card is selected. */
 export const FORMULA_GRAPH_DRAFT_ID = "__node_graph_draft__";
 
-export type WorkspaceMode = "assess" | "nodes";
+export type WorkspaceMode = "assess" | "nodes" | "lab";
 
 export type WorkspaceFormula = {
   id: string;
@@ -343,7 +343,7 @@ export function normalizeProjectWorkspace(value: unknown): ProjectWorkspace | nu
         ? requestedActiveId
         : formulas[0].id;
   const dayIdx: 0 | 1 | 2 = value.dayIdx === 0 || value.dayIdx === 2 ? value.dayIdx : 1;
-  const mode: WorkspaceMode = value.mode === "nodes" ? "nodes" : "assess";
+  const mode: WorkspaceMode = value.mode === "nodes" || value.mode === "lab" ? value.mode : "assess";
   const assessmentByFormulaId: Record<string, FormulaAssessmentSnapshot> = {};
   if (isRecord(value.assessmentByFormulaId)) {
     for (const [formulaId, rawSnapshot] of Object.entries(value.assessmentByFormulaId)) {
