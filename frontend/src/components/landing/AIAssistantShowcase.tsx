@@ -1,12 +1,12 @@
 import { ArrowUp, Bot, Check, FlaskConical, Mic, ShieldCheck, Volume2 } from 'lucide-react'
-import { SemanticIcon } from '@/components/SemanticIcon'
+import { SemanticIcon } from '@/components/shared/SemanticIcon'
 
 function Composer() {
   return (
     <div className="flex h-7 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2 shadow-sm sm:h-9 sm:gap-2 sm:px-3">
       <Mic className="size-3 text-slate-500 sm:size-3.5" />
       <span className="min-w-0 flex-1 truncate text-[9px] text-slate-400">พิมพ์ข้อความ…</span>
-      <span className="grid size-5 place-items-center rounded-full bg-brand text-white sm:size-6">
+      <span className="grid size-5 place-items-center rounded-full bg-brand-dark text-white sm:size-6">
         <ArrowUp className="size-3 sm:size-3.5" />
       </span>
     </div>
@@ -55,7 +55,7 @@ export default function AIAssistantShowcase() {
       >
         <AssistantHeader step="2" />
         <div className="flex-1 space-y-1 overflow-hidden px-2 py-1.5 sm:space-y-2 sm:px-3 sm:py-2.5">
-          <div className="ml-auto w-fit max-w-[94%] rounded-xl rounded-tr-sm bg-brand px-2 py-1.5 text-[7px] font-medium text-white sm:max-w-[90%] sm:rounded-2xl sm:px-3 sm:py-2 sm:text-[9px]">
+          <div className="ml-auto w-fit max-w-[94%] rounded-xl rounded-tr-sm bg-brand-dark px-2 py-1.5 text-[7px] font-medium text-white sm:max-w-[90%] sm:rounded-2xl sm:px-3 sm:py-2 sm:text-[9px]">
             สร้างสูตรเจลล้างมือแบบฆ่าเชื้อ
           </div>
           <div className="rounded-xl rounded-tl-sm bg-slate-100 p-2 text-[7px] leading-relaxed text-slate-600 sm:rounded-2xl sm:p-3 sm:text-[9px]">
@@ -67,7 +67,7 @@ export default function AIAssistantShowcase() {
               </div>
               <div className="mt-0.5 text-[7px] text-amber-700 sm:mt-1 sm:text-[8px]">1. สร้างสูตร “เจลล้างมือ”</div>
               <div className="mt-1 flex gap-1 sm:mt-2 sm:gap-1.5">
-                <span data-ai-confirm className="flex flex-1 items-center justify-center rounded-md bg-brand px-1.5 py-1 text-[7px] font-semibold text-white sm:rounded-lg sm:px-2 sm:py-1.5 sm:text-[8px]">
+                <span data-ai-confirm className="flex flex-1 items-center justify-center rounded-md bg-brand-dark px-1.5 py-1 text-[7px] font-semibold text-white sm:rounded-lg sm:px-2 sm:py-1.5 sm:text-[8px]">
                   ยืนยันการเปลี่ยนแปลง
                 </span>
                 <span className="rounded-md border border-amber-300 bg-white px-1.5 py-1 text-[7px] text-amber-700 sm:rounded-lg sm:px-2 sm:py-1.5 sm:text-[8px]">ยกเลิก</span>

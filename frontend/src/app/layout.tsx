@@ -39,9 +39,8 @@ export const metadata: Metadata = {
   title: "RalphGuard",
   description:
     "In-silico Irritation & Toxicity Risk Screening Platform for cosmetic formulations.",
-  icons: {
-    icon: "/icons/logo.png",
-  },
+  // Favicons come from app/icon.png (32 px) and app/apple-icon.png (180 px).
+  // The full-size logo.png (872 KB) is only for the PDF report.
 };
 
 export default function RootLayout({

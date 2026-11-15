@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { FaceCanvasSkeleton } from "@/components/face/FaceCanvasSkeleton";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -16,7 +17,7 @@ import {
   Settings,
 } from "lucide-react";
 import { toast } from "sonner";
-import { SemanticIcon, type SemanticIconName } from "@/components/SemanticIcon";
+import { SemanticIcon, type SemanticIconName } from "@/components/shared/SemanticIcon";
 
 import {
   AssessmentRecord,
@@ -42,12 +43,12 @@ import {
   resolveCatalogSubstance,
   type CatalogItem,
 } from "@/lib/catalog";
-import VoiceAssistant from "@/components/VoiceAssistant";
-import CsvImportModal from "@/components/CsvImportModal";
-import LabelScanModal, { type ScanImportContext } from "@/components/LabelScanModal";
-import ManualSubstanceModal from "@/components/ManualSubstanceModal";
-import SubstanceHoverCard from "@/components/SubstanceHoverCard";
-import SubstanceLibraryPage from "@/components/SubstanceLibraryPage";
+import VoiceAssistant from "@/components/assistant/VoiceAssistant";
+import CsvImportModal from "@/components/formula/CsvImportModal";
+import LabelScanModal, { type ScanImportContext } from "@/components/formula/LabelScanModal";
+import ManualSubstanceModal from "@/components/substances/ManualSubstanceModal";
+import SubstanceHoverCard from "@/components/substances/SubstanceHoverCard";
+import SubstanceLibraryPage from "@/components/substances/SubstanceLibraryPage";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -120,22 +121,18 @@ import {
 
 // ── 3D head (client-only). Auto-fills irritation by the result intensity. ──
 const FaceView = dynamic(
-  () => import("@/components/SymptomFaceCanvas").then((m) => m.SymptomFaceCanvas),
+  () => import("@/components/face/SymptomFaceCanvas").then((m) => m.SymptomFaceCanvas),
   {
     ssr: false,
-    loading: () => (
-      <div className="grid h-full w-full place-items-center text-xs text-slate-800/50">
-        กำลังโหลดโมเดล 3 มิติ…
-      </div>
-    ),
+    loading: () => <FaceCanvasSkeleton />,
   },
 );
 
 // ── Inflammation trend chart (client-only, recharts) ──
-const TrendChart = dynamic(() => import("@/components/TrendChart"), { ssr: false });
+const TrendChart = dynamic(() => import("@/components/charts/TrendChart"), { ssr: false });
 
 // ── Node graph (client-only) ──
-const FormulaGraph = dynamic(() => import("@/components/FormulaGraph"), {
+const FormulaGraph = dynamic(() => import("@/components/formula/FormulaGraph"), {
   ssr: false,
   loading: () => (
     <div className="grid h-full w-full place-items-center text-xs text-slate-800/50">
@@ -2191,7 +2188,7 @@ export default function StudioPage() {
               className="mr-2 grid size-9 shrink-0 place-items-center rounded-lg transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             >
               <img
-                src="/icons/logo.png"
+                src="/icons/logo-192.webp"
                 alt=""
                 aria-hidden="true"
                 className="size-7 object-contain"
@@ -2253,7 +2250,7 @@ export default function StudioPage() {
               }
               className={`flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11px] font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${
                 activeNavigationItem === "substances"
-                  ? "bg-brand text-white shadow-sm"
+                  ? "bg-brand-dark text-white shadow-sm"
                   : "border border-brand/30 bg-white text-brand hover:border-brand/60 hover:bg-teal-50"
               }`}
             >
@@ -2341,13 +2338,14 @@ export default function StudioPage() {
               return (
                 <button
                   key={m}
+                  aria-label={label}
                   onClick={() => {
                     changePrimaryNavigation("assessment");
                     setMode(m);
                   }}
                   className={`flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs transition ${active
                     ? "bg-white font-semibold text-brand-dark shadow-sm"
-                    : "text-slate-500 hover:text-slate-800"
+                    : "text-slate-600 hover:text-slate-800"
                     }`}
                 >
                   <SemanticIcon name={icon} className="size-3.5" />
@@ -2477,7 +2475,7 @@ export default function StudioPage() {
                       <button
                         type="button"
                         onClick={openCreate}
-                        className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand px-3 text-xs font-medium text-white transition-colors hover:bg-brand-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 focus-visible:ring-offset-2"
+                        className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand-dark px-3 text-xs font-medium text-white transition-colors hover:bg-brand-dark/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 focus-visible:ring-offset-2"
                       >
                         <Plus className="size-3.5" />
                         สร้างสูตรใหม่
@@ -3059,7 +3057,7 @@ export default function StudioPage() {
                   ref={trendTriggerRef}
                   onClick={toggleTrendPanel}
                   aria-label={showTrend ? "ปิดกราฟแนวโน้ม" : "เปิดกราฟแนวโน้ม"}
-                  className={`assess-trend-trigger grid size-10 place-items-center rounded-l-xl border border-r-0 border-slate-200 text-base shadow-card ${showTrend ? "bg-brand text-white" : "bg-white text-slate-600 hover:text-brand"
+                  className={`assess-trend-trigger grid size-10 place-items-center rounded-l-xl border border-r-0 border-slate-200 text-base shadow-card ${showTrend ? "bg-brand-dark text-white" : "bg-white text-slate-600 hover:text-brand"
                     }`}
                 >
                   <SemanticIcon name="activity" className="size-4" />
@@ -3162,7 +3160,7 @@ export default function StudioPage() {
                     }}
                     disabled={!activeFormula || !hasActivePaint}
                     title={!activeFormula ? "เลือกกล่องสูตรก่อน" : !hasActivePaint ? "สูตรที่เลือกยังไม่มีรอยทา" : `ลบรอยทาทั้งหมดของ ${activeFormula.name}`}
-                    aria-label="ลบรอยทั้งหมด"
+                    aria-label="ลบทั้งหมด"
                     className="flex h-11 min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-xs font-semibold text-slate-600 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-600 md:h-8 md:flex-none md:px-2.5 md:text-[11px]"
                   >
                     <SemanticIcon name="trash" className="size-3.5" />
@@ -3173,12 +3171,11 @@ export default function StudioPage() {
                     type="button"
                     disabled={assessing || !activeFormula}
                     title={!activeFormula ? "เลือกกล่องสูตรก่อนประเมิน" : assessing ? "กำลังประเมินสูตร" : completed ? "ประเมินอีกครั้ง" : "ประเมินสูตร"}
-                    aria-label={assessing ? "กำลังประเมินสูตร" : completed ? "ประเมินอีกครั้ง" : "ประเมินสูตร"}
                     onClick={() => {
                       setEraseMode(false); // กดประเมิน = กลับมาโหมด paint ผลลัพธ์
                       run();
                     }}
-                    className="flex h-11 w-[7.5rem] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-brand px-2 text-xs font-semibold text-white transition-colors hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50 md:h-9 md:w-auto md:min-w-28 md:gap-2 md:px-4 md:text-[12px]"
+                    className="flex h-11 w-[7.5rem] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-brand-dark px-2 text-xs font-semibold text-white transition-colors hover:bg-brand-dark/90 disabled:cursor-not-allowed disabled:opacity-50 md:h-9 md:w-auto md:min-w-28 md:gap-2 md:px-4 md:text-[12px]"
                   >
                     <SemanticIcon name={assessing || completed ? "refresh" : "play"} className="size-4" />
                     <span>{assessing ? "กำลังประเมิน" : completed ? "ประเมินใหม่" : "เริ่มประเมิน"}</span>
@@ -3211,7 +3208,7 @@ export default function StudioPage() {
                           type="button"
                           onClick={() => setDayIdx(i)}
                           aria-pressed={i === dayIdx}
-                          className={`h-8 rounded-lg border text-[11px] transition-colors ${i === dayIdx ? "border-brand bg-brand font-semibold text-white" : "border-slate-200 bg-slate-50 text-slate-600 hover:border-brand/40 hover:bg-teal-50 hover:text-brand-dark"
+                          className={`h-8 rounded-lg border text-[11px] transition-colors ${i === dayIdx ? "border-brand bg-brand-dark font-semibold text-white" : "border-slate-200 bg-slate-50 text-slate-600 hover:border-brand/40 hover:bg-teal-50 hover:text-brand-dark"
                             }`}
                         >
                           Day {d}
@@ -3357,7 +3354,7 @@ export default function StudioPage() {
                                   setPendingOptimization(null);
                                   setOptMsg("ยืนยันอัตราส่วนใหม่แล้ว กด Run เพื่อประเมิน");
                                 }}
-                                className="flex-1 rounded bg-brand px-2 py-1 text-[10px] font-semibold text-white"
+                                className="flex-1 rounded bg-brand-dark px-2 py-1 text-[10px] font-semibold text-white"
                               >
                                 ยืนยัน
                               </button>
@@ -3720,7 +3717,7 @@ export default function StudioPage() {
               </button>
               <button
                 type="submit"
-                className="h-9 rounded-lg bg-brand px-4 text-sm font-semibold text-white transition-colors hover:bg-brand-dark"
+                className="h-9 rounded-lg bg-brand-dark px-4 text-sm font-semibold text-white transition-colors hover:bg-brand-dark/90"
               >
                 {formulaDetailsEditingId ? "บันทึกการแก้ไข" : "สร้างสูตร"}
               </button>

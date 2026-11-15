@@ -41,12 +41,12 @@ function Brand({
   return (
     <Link
       href="/projects"
-      aria-label="กลับหน้าโปรเจกต์"
       onClick={onNavigate}
       className="flex min-w-0 items-center gap-2.5 rounded-lg outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       <Image
-        src="/icons/logo.png"
+        unoptimized
+        src="/icons/logo-192.webp"
         alt=""
         width={34}
         height={34}
@@ -55,7 +55,7 @@ function Brand({
       />
       <div className={compact ? "sr-only" : "min-w-0 overflow-hidden"}>
         <p className="truncate whitespace-nowrap font-display text-base font-bold leading-tight text-foreground">
-          Ralph<span className="text-primary">Guard</span>
+          Ralph<span className="text-primary-strong">Guard</span>
         </p>
         <p className="truncate whitespace-nowrap text-[9px] uppercase leading-tight tracking-[0.11em] text-muted-foreground">
           AI Chemical Risk Screening

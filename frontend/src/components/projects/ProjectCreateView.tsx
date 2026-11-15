@@ -229,7 +229,7 @@ export default function ProjectCreateView({
                         className={cn(
                           "grid size-10 shrink-0 place-items-center justify-self-center rounded-lg text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                           selected
-                            ? "bg-background text-primary ring-1 ring-primary/20"
+                            ? "bg-background text-primary-strong ring-1 ring-primary/20"
                             : "hover:bg-background/80 hover:text-foreground",
                         )}
                         onClick={() => setIconKey(item.key)}

@@ -28,7 +28,7 @@ import {
   Trash2,
 } from "lucide-react";
 
-import BrandedProgressLoader from "@/components/BrandedProgressLoader";
+import BrandedProgressLoader from "@/components/shared/BrandedProgressLoader";
 import ProjectCreateView from "@/components/projects/ProjectCreateView";
 import ProjectFormDialog, {
   type ProjectFormValues,
@@ -641,7 +641,7 @@ export default function ProjectListPage() {
                           aria-pressed={layoutMode === "grid"}
                           className={cn(
                             "size-8",
-                            layoutMode === "grid" && "bg-accent text-primary",
+                            layoutMode === "grid" && "bg-accent text-primary-strong",
                           )}
                           onClick={() => {
                             captureGridState();
@@ -663,7 +663,7 @@ export default function ProjectListPage() {
                           aria-pressed={layoutMode === "list"}
                           className={cn(
                             "size-8",
-                            layoutMode === "list" && "bg-accent text-primary",
+                            layoutMode === "list" && "bg-accent text-primary-strong",
                           )}
                           onClick={() => {
                             captureGridState();
@@ -835,7 +835,6 @@ export default function ProjectListPage() {
                     data-project-card={project.id}
                     role="link"
                     tabIndex={0}
-                    aria-label={`เปิดโปรเจกต์ ${project.name}`}
                     className={cn(
                       "group relative flex min-w-0 w-full max-w-full self-start cursor-pointer overflow-hidden rounded-2xl border bg-card shadow-sm transition-[border-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                       layoutMode === "grid"
@@ -996,7 +995,7 @@ export default function ProjectListPage() {
                   variant="ghost"
                   size="sm"
                   className="h-8 gap-0.5 px-2 text-xs text-muted-foreground hover:bg-accent hover:text-primary"
-                  aria-label="หน้าก่อนหน้า"
+                  aria-label="Previous หน้าก่อนหน้า"
                   disabled={currentPage === 1}
                   onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
                 >
@@ -1019,7 +1018,7 @@ export default function ProjectListPage() {
                       className={cn(
                         "size-8 text-xs text-foreground hover:bg-accent hover:text-primary",
                         entry === currentPage &&
-                          "border border-primary/25 bg-accent text-primary",
+                          "border border-primary/25 bg-accent text-primary-strong",
                       )}
                       aria-label={`ไปหน้าที่ ${entry}`}
                       aria-current={entry === currentPage ? "page" : undefined}
@@ -1037,7 +1036,7 @@ export default function ProjectListPage() {
                   variant="ghost"
                   size="sm"
                   className="h-8 gap-0.5 px-2 text-xs text-muted-foreground hover:bg-accent hover:text-primary"
-                  aria-label="หน้าถัดไป"
+                  aria-label="Next หน้าถัดไป"
                   disabled={currentPage === totalPages}
                   onClick={() =>
                     setCurrentPage((page) => Math.min(totalPages, page + 1))

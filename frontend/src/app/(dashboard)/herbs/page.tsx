@@ -3,7 +3,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { api, apiErrorMessage, HerbalPlantDetail, HerbalPlantSummary } from "@/lib/api";
-import SiteNav from "@/components/SiteNav";
+import SiteNav from "@/components/layout/SiteNav";
 
 export default function HerbsPage() {
   const [query, setQuery] = useState("");

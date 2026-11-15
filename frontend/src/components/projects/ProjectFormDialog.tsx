@@ -216,7 +216,7 @@ export default function ProjectFormDialog({
                       className={cn(
                         "grid size-9 place-items-center rounded-lg text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         selected
-                          ? "bg-accent text-primary ring-1 ring-primary/20"
+                          ? "bg-accent text-primary-strong ring-1 ring-primary/20"
                           : "hover:bg-muted hover:text-foreground",
                       )}
                       onClick={() => setIconKey(item.key)}

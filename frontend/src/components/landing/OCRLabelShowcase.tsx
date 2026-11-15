@@ -92,7 +92,7 @@ export default function OCRLabelShowcase() {
             {INGREDIENTS.map(([name, smiles]) => (
               <div key={name} className="grid grid-cols-[1fr_28%] items-center gap-1 border-t border-slate-100 px-2 py-1 sm:px-3 sm:py-1.5">
                 <div className="flex min-w-0 items-start gap-1">
-                  <span className="mt-0.5 grid size-2.5 shrink-0 place-items-center rounded-sm bg-brand text-white sm:size-3.5"><Check className="size-2 sm:size-2.5" /></span>
+                  <span className="mt-0.5 grid size-2.5 shrink-0 place-items-center rounded-sm bg-brand-dark text-white sm:size-3.5"><Check className="size-2 sm:size-2.5" /></span>
                   <div className="min-w-0">
                     <div className="text-[6px] font-semibold text-slate-700 sm:text-[8px]">{name} <span className="ml-0.5 text-[4px] font-normal text-amber-600 sm:text-[6px]">PubChem</span></div>
                     <div className="truncate font-mono text-[4px] text-slate-400 sm:text-[5px]">{smiles}</div>
@@ -111,7 +111,7 @@ export default function OCRLabelShowcase() {
 
           <div className="flex justify-end gap-1 pt-0.5">
             <span className="rounded-md border border-slate-200 px-2 py-1 text-[5px] text-slate-500 sm:text-[7px]">เลือกรูปใหม่</span>
-            <span className="rounded-md bg-brand px-2 py-1 text-[5px] font-semibold text-white sm:text-[7px]">ยืนยันและนำเข้าสูตร</span>
+            <span className="rounded-md bg-brand-dark px-2 py-1 text-[5px] font-semibold text-white sm:text-[7px]">ยืนยันและนำเข้าสูตร</span>
           </div>
         </div>
       </article>

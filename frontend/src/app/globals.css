@@ -50,6 +50,8 @@
     --primary: 182 100% 32%;
     /* brand #009FA5 */
     --primary-foreground: 0 0% 100%;
+    /* Darker teal for text and filled buttons: >= 4.5:1 on white and on --accent. */
+    --primary-strong: 182 100% 24%;
     --secondary: 190 30% 95%;
     --secondary-foreground: 202 40% 16%;
     --muted: 200 24% 96%;
@@ -57,7 +59,7 @@
     /* #5C6B70 */
     --accent: 182 60% 93%;
     /* soft teal tint */
-    --accent-foreground: 182 100% 28%;
+    --accent-foreground: 182 100% 24%;
     --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
     --border: 200 20% 90%;
@@ -71,7 +73,7 @@
     --sidebar-primary: 182 100% 32%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 182 60% 93%;
-    --sidebar-accent-foreground: 182 100% 28%;
+    --sidebar-accent-foreground: 182 100% 24%;
     --sidebar-border: 200 20% 90%;
     --sidebar-ring: 182 100% 32%;
   }
@@ -90,6 +92,8 @@
     --primary: 182 100% 32%;
     /* brand #009FA5 */
     --primary-foreground: 0 0% 100%;
+    /* Darker teal for text and filled buttons: >= 4.5:1 on white and on --accent. */
+    --primary-strong: 182 100% 24%;
     --secondary: 168 30% 94%;
     --secondary-foreground: 220 26% 14%;
     --muted: 168 20% 95%;
@@ -122,6 +126,8 @@
     --primary: 182 100% 32%;
     /* brand #009FA5 — white text clears WCAG AA (≥4.5:1) */
     --primary-foreground: 0 0% 100%;
+    /* Darker teal for text and filled buttons: >= 4.5:1 on white and on --accent. */
+    --primary-strong: 182 100% 24%;
     --secondary: 190 30% 95%;
     --secondary-foreground: 202 40% 16%;
     --muted: 200 24% 96%;
@@ -129,7 +135,7 @@
     /* #5C6B70 slate — passes AA on white */
     --accent: 182 60% 93%;
     /* soft teal tint for active nav / callouts */
-    --accent-foreground: 182 100% 28%;
+    --accent-foreground: 182 100% 24%;
     --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
     --border: 200 20% 90%;
@@ -149,6 +155,7 @@
     --popover-foreground: 170 22% 92%;
     --primary: 182 100% 32%;
     --primary-foreground: 192 45% 7%;
+    --primary-strong: 182 100% 32%;
     --secondary: 187 34% 16%;
     --secondary-foreground: 170 22% 92%;
     --muted: 187 28% 13%;

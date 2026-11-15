@@ -10,8 +10,8 @@ import GridScanShowcase from './GridScanShowcase'
 import AIAssistantShowcase from './AIAssistantShowcase'
 import NodeWorkspaceShowcase from './NodeWorkspaceShowcase'
 import OCRLabelShowcase from './OCRLabelShowcase'
-import { scrollState } from '@/app/_lib/scroll'
-import { storyState, smoothstep } from '@/app/_lib/story'
+import { scrollState } from '@/lib/landing/scroll'
+import { storyState, smoothstep } from '@/lib/landing/story'
 
 function scrollToSection1() {
   const el = document.getElementById('section-1')

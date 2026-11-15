@@ -26,7 +26,8 @@ export default function Navbar() {
         {/* Logo */}
         <a href="#hero" className="flex items-center gap-2.5 group">
           <Image
-            src="/icons/logo.png"
+            unoptimized
+            src="/icons/logo-192.webp"
             alt=""
             width={36}
             height={36}

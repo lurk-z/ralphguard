@@ -10,7 +10,7 @@
  * backend/DB endpoint later without touching the UI.
  */
 import type { FormulaItem, IngredientRegistryItem, Region } from "./api";
-import type { SemanticIconName } from "@/components/SemanticIcon";
+import type { SemanticIconName } from "@/components/shared/SemanticIcon";
 
 export type CatalogItem = { name: string; smiles: string; conc: number };
 export type CatalogGroup = { category: string; icon: SemanticIconName; items: CatalogItem[] };
