@@ -1,613 +1,210 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from '@/components/ui/breadcrumb'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { Input } from '@/components/ui/input'
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
-  InputGroupText,
-} from '@/components/ui/input-group'
-import { Label } from '@/components/ui/label'
-import {
-  NavigationMenu,
-  NavigationMenuContent,
-  NavigationMenuItem,
-  NavigationMenuLink,
-  NavigationMenuList,
-  NavigationMenuTrigger,
-} from '@/components/ui/navigation-menu'
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from '@/components/ui/pagination'
-import { Particles } from '@/components/ui/particles'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Progress } from '@/components/ui/progress'
-import { Separator } from '@/components/ui/separator'
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '@/components/ui/sheet'
-import {
-  SidebarProvider,
-  Sidebar,
-  SidebarContent,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuButton,
-} from '@/components/ui/sidebar'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Slider } from '@/components/ui/slider'
-import { Toaster } from '@/components/ui/sonner'
-import { Switch } from '@/components/ui/switch'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerTrigger,
-} from '@/components/ui/drawer'
-import {
-  Empty,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-  EmptyDescription,
-  EmptyContent,
-} from '@/components/ui/empty'
+import { useMemo, useState } from "react";
+import { Boxes, FileCode2, MapPin, PackageOpen } from "lucide-react";
+import { BrandLogo } from "@/components/kit/brand-logo";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { SegmentedTabs } from "@/components/kit/segmented-tabs";
+import { cn } from "@/lib/utils";
+import { DEMO_FOR_FILE, FOLDER_LABEL, INVENTORY, TIERS, type InventoryItem, type Tier } from "./_catalog";
+import { DEMOS } from "./_demos";
+import { WhenVisible } from "./_parts";
 
-import {
-  FlaskConical, Settings, HelpCircle, LayoutGrid,
-  Beaker, PackageOpen, ChevronDown, Search, Mail, Eye, EyeOff,
-} from 'lucide-react'
-import { toast } from 'sonner'
+type Filter = "all" | Tier | "unused";
 
-// ─── Layout helper ────────────────────────────────────────────────────────────
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="space-y-4">
-      <h2 className="text-xs font-mono font-semibold uppercase tracking-widest text-muted-foreground border-b border-border pb-2">
-        {title}
-      </h2>
-      <div className="flex flex-wrap items-start gap-3">{children}</div>
-    </section>
-  )
-}
+const folderLabel = (item: InventoryItem) =>
+  FOLDER_LABEL[item.file] ?? FOLDER_LABEL[item.folder] ?? (item.folder.startsWith("components/three") ? "3D" : item.folder);
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+/**
+ * Component showcase (dev only, 404 in production).
+ * Every file in components/ and hooks/, grouped by size (light / medium / heavy),
+ * with the pages that use it and a live example where one exists.
+ * Data: ./_inventory.json (`npm run inventory`) + ./_catalog.ts · examples: ./_demos.tsx
+ */
 export default function TestComponentsPage() {
-  const [sw, setSw] = useState(true)
-  const [progress, setProgress] = useState(65)
-  const [sliderVal, setSliderVal] = useState([40])
-  const [showPwd, setShowPwd] = useState(false)
-  const [currentPage, setCurrentPage] = useState(3)
+  const [filter, setFilter] = useState<Filter>("all");
+  const [query, setQuery] = useState("");
+
+  const items = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return INVENTORY.components.filter((c) => {
+      if (filter === "unused" && c.usedBy.length > 0) return false;
+      if (filter !== "all" && filter !== "unused" && c.tier !== filter) return false;
+      return !q || `${c.file} ${c.name} ${DEMO_FOR_FILE[c.file]?.title ?? ""}`.toLowerCase().includes(q);
+    });
+  }, [filter, query]);
+
+  const all = INVENTORY.components;
+  const unused = all.filter((c) => c.usedBy.length === 0);
+  const pages = [...new Set(all.flatMap((c) => c.usedBy))].sort();
+  const count = (t: Tier) => all.filter((c) => c.tier === t).length;
 
   return (
-    <div className="app-light min-h-screen bg-background text-foreground">
-      <Toaster />
-
-      {/* Header */}
-      <header className="sticky top-0 z-30 border-b border-border bg-card px-6 py-4">
-        <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-          RalphGuard · Design System
-        </p>
-        <h1 className="mt-0.5 text-xl font-bold text-foreground">UI Components</h1>
+    <div className="app-light min-h-dvh bg-muted/30 text-foreground">
+      <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
+          <BrandLogo href={null} compact />
+          <div className="min-w-0 flex-1">
+            <h1 className="text-base font-semibold">Components ทั้งหมด</h1>
+            <p className="text-xs text-muted-foreground">
+              {all.length} ไฟล์ · วัดเมื่อ {INVENTORY.generated} · หน้าทดสอบเปิดเฉพาะตอน dev
+            </p>
+          </div>
+          <Input
+            search
+            value={query}
+            placeholder="ค้นหา component"
+            aria-label="ค้นหา component"
+            onChange={(e) => setQuery(e.target.value)}
+            onClear={() => setQuery("")}
+            containerClassName="w-full sm:w-64"
+          />
+        </div>
+        <div className="mx-auto max-w-6xl overflow-x-auto px-4 pb-3 sm:px-6">
+          <SegmentedTabs
+            variant="pill"
+            label="กรองตามน้ำหนัก"
+            value={filter}
+            onChange={(v) => setFilter(v as Filter)}
+            items={[
+              { value: "all", label: `ทั้งหมด ${all.length}` },
+              ...TIERS.map((t) => ({ value: t.id, label: `${t.label} ${count(t.id)}` })),
+              { value: "unused", label: `ไม่มีหน้าไหนใช้ ${unused.length}` },
+            ]}
+          />
+        </div>
       </header>
 
-      <main className="mx-auto max-w-5xl space-y-10 px-6 py-10">
+      <main className="mx-auto max-w-6xl space-y-10 px-4 py-6 sm:px-6">
+        <Summary pages={pages} />
 
-        {/* ── Button ── */}
-        <Section title="Button">
-          <Button>Primary</Button>
-          <Button variant="secondary">Secondary</Button>
-          <Button variant="outline">Outline</Button>
-          <Button variant="ghost">Ghost</Button>
-          <Button variant="destructive">Destructive</Button>
-          <Button size="sm">Small</Button>
-          <Button size="lg">Large</Button>
-          <Button disabled>Disabled</Button>
-        </Section>
-
-        {/* ── Badge ── */}
-        <Section title="Badge">
-          <Badge>Default</Badge>
-          <Badge variant="secondary">Secondary</Badge>
-          <Badge variant="outline">Outline</Badge>
-          <Badge variant="destructive">Destructive</Badge>
-        </Section>
-
-        {/* ── Avatar ── */}
-        <Section title="Avatar">
-          <Avatar>
-            <AvatarImage src="https://github.com/shadcn.png" alt="shadcn" />
-            <AvatarFallback>SC</AvatarFallback>
-          </Avatar>
-          <Avatar>
-            <AvatarFallback>TS</AvatarFallback>
-          </Avatar>
-          <Avatar className="size-14">
-            <AvatarFallback className="text-lg">RG</AvatarFallback>
-          </Avatar>
-        </Section>
-
-        {/* ── Input · Label · Textarea ── */}
-        <Section title="Input · Label · Textarea">
-          <div className="flex flex-col gap-1.5 w-56">
-            <Label htmlFor="test-input">ชื่อสูตร</Label>
-            <Input id="test-input" placeholder="กรอกชื่อสูตร…" />
-          </div>
-          <div className="flex flex-col gap-1.5 w-56">
-            <Label htmlFor="test-textarea">คำอธิบาย</Label>
-            <Textarea id="test-textarea" placeholder="รายละเอียด…" rows={3} />
-          </div>
-        </Section>
-
-        {/* ── InputGroup ── */}
-        <Section title="InputGroup">
-          <div className="w-64">
-            <InputGroup>
-              <InputGroupAddon>
-                <Search className="size-4" />
-              </InputGroupAddon>
-              <InputGroupInput placeholder="ค้นหาสาร…" />
-            </InputGroup>
-          </div>
-          <div className="w-64">
-            <InputGroup>
-              <InputGroupAddon>
-                <Mail className="size-4" />
-              </InputGroupAddon>
-              <InputGroupInput type="email" placeholder="อีเมล" />
-              <InputGroupAddon align="inline-end">
-                <InputGroupText>.th</InputGroupText>
-              </InputGroupAddon>
-            </InputGroup>
-          </div>
-          <div className="w-64">
-            <InputGroup>
-              <InputGroupInput
-                type={showPwd ? 'text' : 'password'}
-                placeholder="รหัสผ่าน"
-              />
-              <InputGroupAddon align="inline-end">
-                <InputGroupButton onClick={() => setShowPwd(!showPwd)}>
-                  {showPwd ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                </InputGroupButton>
-              </InputGroupAddon>
-            </InputGroup>
-          </div>
-        </Section>
-
-        {/* ── Switch ── */}
-        <Section title="Switch">
-          <div className="flex items-center gap-2">
-            <Switch id="sw1" checked={sw} onCheckedChange={setSw} />
-            <Label htmlFor="sw1">{sw ? 'เปิด' : 'ปิด'}</Label>
-          </div>
-          <div className="flex items-center gap-2">
-            <Switch id="sw2" checked={false} onCheckedChange={() => {}} disabled />
-            <Label htmlFor="sw2">Disabled</Label>
-          </div>
-        </Section>
-
-        {/* ── Skeleton ── */}
-        <Section title="Skeleton">
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-4 w-48" />
-            <Skeleton className="h-4 w-36" />
-            <Skeleton className="h-4 w-24" />
-          </div>
-          <Skeleton className="size-12 rounded-full" />
-          <div className="flex flex-col gap-2 w-48">
-            <Skeleton className="h-32 w-full rounded-xl" />
-            <Skeleton className="h-3 w-3/4" />
-            <Skeleton className="h-3 w-1/2" />
-          </div>
-        </Section>
-
-        {/* ── Separator ── */}
-        <Section title="Separator">
-          <div className="w-full space-y-2">
-            <p className="text-sm text-foreground">ข้อความด้านบน</p>
-            <Separator />
-            <p className="text-sm text-muted-foreground">ข้อความด้านล่าง</p>
-          </div>
-        </Section>
-
-        {/* ── Progress ── */}
-        <Section title="Progress">
-          <div className="w-full space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-foreground">ความคืบหน้า</span>
-              <span className="font-mono text-muted-foreground">{progress}%</span>
-            </div>
-            <Progress value={progress} />
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => setProgress(Math.max(0, progress - 10))}>− 10</Button>
-              <Button size="sm" variant="outline" onClick={() => setProgress(Math.min(100, progress + 10))}>+ 10</Button>
-            </div>
-          </div>
-        </Section>
-
-        {/* ── Slider ── */}
-        <Section title="Slider">
-          <div className="w-72 space-y-3">
-            <Slider value={sliderVal} onValueChange={setSliderVal} min={0} max={100} step={1} />
-            <p className="font-mono text-sm text-muted-foreground">ค่า: {sliderVal[0]}</p>
-          </div>
-        </Section>
-
-        {/* ── Card ── */}
-        <Section title="Card">
-          <Card className="w-64">
-            <CardHeader className="pb-2">
-              <p className="text-sm font-semibold text-foreground">Water (Aqua)</p>
-              <p className="font-mono text-[11px] text-muted-foreground">CAS 7732-18-5</p>
-            </CardHeader>
-            <CardContent>
-              <Badge>ตัวทำละลายหลัก</Badge>
-            </CardContent>
-          </Card>
-          <Card className="w-64">
-            <CardHeader className="pb-2">
-              <p className="text-sm font-semibold text-foreground">Sodium Lauryl Sulfate</p>
-              <p className="font-mono text-[11px] text-muted-foreground">CAS 151-21-3</p>
-            </CardHeader>
-            <CardContent className="flex gap-2">
-              <Badge variant="destructive">ระคายเคือง</Badge>
-              <Badge variant="outline">Surfactant</Badge>
-            </CardContent>
-          </Card>
-        </Section>
-
-        {/* ── Tabs ── */}
-        <Section title="Tabs">
-          <Tabs defaultValue="a" className="w-72">
-            <TabsList className="w-full">
-              <TabsTrigger value="a" className="flex-1">การทดลอง</TabsTrigger>
-              <TabsTrigger value="b" className="flex-1">โหนดโมเดล</TabsTrigger>
-              <TabsTrigger value="c" className="flex-1">ผลลัพธ์</TabsTrigger>
-            </TabsList>
-            <TabsContent value="a">
-              <p className="text-sm text-muted-foreground pt-2">เนื้อหาการทดลอง</p>
-            </TabsContent>
-            <TabsContent value="b">
-              <p className="text-sm text-muted-foreground pt-2">เนื้อหาโหนดโมเดล</p>
-            </TabsContent>
-            <TabsContent value="c">
-              <p className="text-sm text-muted-foreground pt-2">ผลการประเมินความเสี่ยง</p>
-            </TabsContent>
-          </Tabs>
-        </Section>
-
-        {/* ── Tooltip ── */}
-        <Section title="Tooltip">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline">Hover ดูนี่</Button>
-              </TooltipTrigger>
-              <TooltipContent className="text-white">นี่คือ Tooltip</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </Section>
-
-        {/* ── Breadcrumb ── */}
-        <Section title="Breadcrumb">
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/">หน้าแรก</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/assess">ประเมิน</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>สูตร ABC-123</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-        </Section>
-
-        {/* ── Pagination ── */}
-        <Section title="Pagination">
-          <Pagination>
-            <PaginationContent>
-              <PaginationItem>
-                <PaginationPrevious
-                  href="#"
-                  onClick={(e) => { e.preventDefault(); setCurrentPage(Math.max(1, currentPage - 1)) }}
-                />
-              </PaginationItem>
-              {[1, 2, 3, 4, 5].map((p) => (
-                <PaginationItem key={p}>
-                  <PaginationLink
-                    href="#"
-                    isActive={p === currentPage}
-                    onClick={(e) => { e.preventDefault(); setCurrentPage(p) }}
-                  >
-                    {p}
-                  </PaginationLink>
-                </PaginationItem>
-              ))}
-              <PaginationItem>
-                <PaginationEllipsis />
-              </PaginationItem>
-              <PaginationItem>
-                <PaginationNext
-                  href="#"
-                  onClick={(e) => { e.preventDefault(); setCurrentPage(Math.min(10, currentPage + 1)) }}
-                />
-              </PaginationItem>
-            </PaginationContent>
-          </Pagination>
-        </Section>
-
-        {/* ── Navigation Menu ── */}
-        <Section title="Navigation Menu">
-          <NavigationMenu>
-            <NavigationMenuList>
-              <NavigationMenuItem>
-                <NavigationMenuTrigger>ประเมิน</NavigationMenuTrigger>
-                <NavigationMenuContent>
-                  <div className="grid gap-2 p-4 w-48">
-                    <NavigationMenuLink className="text-sm hover:text-primary" href="/assess">ประเมินสูตร</NavigationMenuLink>
-                    <NavigationMenuLink className="text-sm hover:text-primary" href="/history">ประวัติการประเมิน</NavigationMenuLink>
-                  </div>
-                </NavigationMenuContent>
-              </NavigationMenuItem>
-              <NavigationMenuItem>
-                <NavigationMenuTrigger>โมเดล</NavigationMenuTrigger>
-                <NavigationMenuContent>
-                  <div className="grid gap-2 p-4 w-48">
-                    <NavigationMenuLink className="text-sm hover:text-primary" href="/skin-viewer">โมเดลผิว 3D</NavigationMenuLink>
-                    <NavigationMenuLink className="text-sm hover:text-primary" href="/models">ความน่าเชื่อถือ</NavigationMenuLink>
-                  </div>
-                </NavigationMenuContent>
-              </NavigationMenuItem>
-            </NavigationMenuList>
-          </NavigationMenu>
-        </Section>
-
-        {/* ── Dialog ── */}
-        <Section title="Dialog">
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button variant="outline">เปิด Dialog</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>ยืนยันการดำเนินการ</DialogTitle>
-              </DialogHeader>
-              <p className="text-sm text-muted-foreground">คุณต้องการดำเนินการนี้หรือไม่?</p>
-              <div className="flex justify-end gap-2 pt-2">
-                <Button variant="outline">ยกเลิก</Button>
-                <Button>ยืนยัน</Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-        </Section>
-
-        {/* ── Alert Dialog ── */}
-        <Section title="Alert Dialog">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive">ลบโปรเจ็ค</Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>คุณแน่ใจหรือไม่?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  การดำเนินการนี้ไม่สามารถย้อนกลับได้ โปรเจ็คและข้อมูลทั้งหมดจะถูกลบอย่างถาวร
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>ยกเลิก</AlertDialogCancel>
-                <AlertDialogAction>ยืนยันลบ</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </Section>
-
-        {/* ── Dropdown Menu ── */}
-        <Section title="Dropdown Menu">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-2">
-                ตัวเลือก <ChevronDown className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuLabel>จัดการสูตร</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem>แก้ไข</DropdownMenuItem>
-              <DropdownMenuItem>ทำสำเนา</DropdownMenuItem>
-              <DropdownMenuItem className="text-destructive">ลบ</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </Section>
-
-        {/* ── Popover ── */}
-        <Section title="Popover">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline">เปิด Popover</Button>
-            </PopoverTrigger>
-            <PopoverContent>
-              <p className="text-sm font-medium text-foreground">ตัวเลือกสารเคมี</p>
-              <p className="mt-1 text-xs text-muted-foreground">เลือกสารเคมีที่ต้องการเพิ่มลงในสูตร</p>
-            </PopoverContent>
-          </Popover>
-        </Section>
-
-        {/* ── Sheet ── */}
-        <Section title="Sheet">
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="outline">เปิด Sheet</Button>
-            </SheetTrigger>
-            <SheetContent>
-              <SheetHeader>
-                <SheetTitle>รายละเอียดสูตร</SheetTitle>
-              </SheetHeader>
-              <p className="mt-4 text-sm text-muted-foreground">
-                Sheet เลื่อนเข้ามาจากด้านขวา ใช้สำหรับ detail panel
-              </p>
-            </SheetContent>
-          </Sheet>
-        </Section>
-
-        {/* ── Drawer ── */}
-        <Section title="Drawer">
-          <Drawer>
-            <DrawerTrigger asChild>
-              <Button variant="outline">เปิด Drawer</Button>
-            </DrawerTrigger>
-            <DrawerContent>
-              <DrawerHeader>
-                <DrawerTitle>รายละเอียดสูตร</DrawerTitle>
-              </DrawerHeader>
-              <div className="p-4 text-sm text-muted-foreground">
-                Drawer เลื่อนขึ้นมาจากด้านล่าง เหมาะสำหรับ mobile-first UI
-              </div>
-            </DrawerContent>
-          </Drawer>
-        </Section>
-
-        {/* ── Sonner (Toast) ── */}
-        <Section title="Sonner (Toast)">
-          <Button onClick={() => toast('บันทึกสำเร็จแล้ว')}>Toast Default</Button>
-          <Button variant="outline" onClick={() => toast.success('สร้างสูตรสำเร็จ')}>Toast Success</Button>
-          <Button variant="outline" onClick={() => toast.error('เกิดข้อผิดพลาด')}>Toast Error</Button>
-          <Button variant="outline" onClick={() => toast.warning('คำเตือน: ความเข้มเกินมาตรฐาน')}>Toast Warning</Button>
-        </Section>
-
-        {/* ── Empty State ── */}
-        <Section title="Empty State">
-          <div className="w-full rounded-xl border border-dashed border-border">
-            <Empty>
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <PackageOpen />
-                </EmptyMedia>
-                <EmptyTitle>ยังไม่มีสูตร</EmptyTitle>
-                <EmptyDescription>สร้างสูตรใหม่เพื่อเริ่มการทดลองสารเคมี</EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <Button>สร้างสูตรแรก</Button>
-              </EmptyContent>
-            </Empty>
-          </div>
-        </Section>
-
-        {/* ── Sidebar (Icon Rail) ── */}
-        <Section title="Sidebar (Icon Rail Preview)">
-          <div className="h-64 w-14 rounded-xl border border-border overflow-hidden">
-            <SidebarProvider>
-              <Sidebar collapsible="none" className="h-full w-14 bg-card">
-                <SidebarContent className="py-2">
-                  <SidebarMenu className="items-center gap-1">
-                    {[
-                      { icon: FlaskConical, label: 'ทดลอง' },
-                      { icon: Beaker, label: 'สูตร' },
-                      { icon: LayoutGrid, label: 'เทมเพลต' },
-                      { icon: Settings, label: 'ตั้งค่า' },
-                      { icon: HelpCircle, label: 'ช่วยเหลือ' },
-                    ].map(({ icon: Icon, label }, i) => (
-                      <SidebarMenuItem key={label}>
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <SidebarMenuButton isActive={i === 0} className="size-10 justify-center p-0">
-                                <Icon className="size-[18px]" />
-                              </SidebarMenuButton>
-                            </TooltipTrigger>
-                            <TooltipContent side="right" className="text-white">{label}</TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </SidebarMenuItem>
-                    ))}
-                  </SidebarMenu>
-                </SidebarContent>
-              </Sidebar>
-            </SidebarProvider>
-          </div>
-        </Section>
-
-        {/* ── Particles ── */}
-        <Section title="Particles">
-          <div className="relative w-full h-48 rounded-xl overflow-hidden border border-border">
-            <Particles
-              className="absolute inset-0 bg-slate-950 rounded-xl"
-              quantity={60}
-              color="#6ee7b7"
-              size={0.6}
-            />
-            <div className="relative z-10 flex h-full items-center justify-center">
-              <p className="text-white font-semibold text-sm">Mouse-reactive particles</p>
-            </div>
-          </div>
-        </Section>
-
+        {filter === "unused" ? (
+          <TierSection title="ไม่มีหน้าไหนใช้" hint="ไม่มีหน้าใด import (ไม่นับ /test_components) · ตัวเลือกให้ลบหรือรอใช้" items={items} />
+        ) : (
+          TIERS.filter((t) => filter === "all" || filter === t.id).map((t) => (
+            <TierSection key={t.id} title={t.label} hint={t.hint} tierClassName={t.className} items={items.filter((c) => c.tier === t.id)} />
+          ))
+        )}
+        {items.length === 0 && <p className="py-12 text-center text-sm text-muted-foreground">ไม่พบ component ที่ตรงกับ “{query}”</p>}
       </main>
     </div>
-  )
+  );
+}
+
+/** Pages × how many components each one uses. */
+function Summary({ pages }: { pages: string[] }) {
+  const all = INVENTORY.components;
+  return (
+    <section aria-labelledby="h-summary" className="rounded-xl border bg-card p-4 sm:p-5">
+      <h2 id="h-summary" className="text-sm font-semibold">ใช้ที่หน้าไหน</h2>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {pages.map((p) => (
+          <span key={p} className="inline-flex items-center gap-1.5 rounded-lg border bg-background px-2.5 py-1 text-xs">
+            <MapPin className="size-3 text-muted-foreground" aria-hidden="true" />
+            <code>{p}</code>
+            <span className="tabular-nums text-muted-foreground">{all.filter((c) => c.usedBy.includes(p)).length}</span>
+          </span>
+        ))}
+      </div>
+      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+        ขนาด = โค้ดของไฟล์ + แพ็กเกจที่ลากมา (เช่น Radix) หลัง minify + gzip ไม่นับ React, Next, lucide, three.js และตัวช่วย class ที่ทุกหน้าโหลดอยู่แล้ว
+        · ชิ้นที่ใช้ Radix ตัวเดียวกันจะดูหนักซ้ำกัน แต่บนหน้าจริงโหลดครั้งเดียว
+        · ชิ้นที่หน้าโหลดผ่าน <code>next/dynamic</code> (เปิดคลังสาร, Nodes, กราฟ, Lab ฯลฯ) ไม่อยู่ใน first load จึงนับเป็น “เบา” พร้อมป้ายสีฟ้า และบอกขนาดจริงไว้
+      </p>
+    </section>
+  );
+}
+
+function TierSection({ title, hint, tierClassName, items }: { title: string; hint: string; tierClassName?: string; items: InventoryItem[] }) {
+  if (items.length === 0) return null;
+  const groups = Object.entries(
+    items.reduce<Record<string, InventoryItem[]>>((acc, c) => {
+      (acc[folderLabel(c)] ??= []).push(c);
+      return acc;
+    }, {}),
+  );
+  return (
+    <section aria-label={title} className="space-y-4">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <h2 className="text-lg font-semibold">{title}</h2>
+        {tierClassName && <span className={cn("rounded-full border px-2 py-0.5 text-xs", tierClassName)}>{items.length} ไฟล์</span>}
+        <span className="text-xs text-muted-foreground">{hint}</span>
+      </div>
+      {groups.map(([label, list]) => (
+        <div key={label} className="space-y-3">
+          <h3 className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <Boxes className="size-3.5" aria-hidden="true" /> {label} · {list.length}
+          </h3>
+          <div className="grid gap-3">
+            {list.map((c) => (
+              <ComponentCard key={c.file} item={c} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function ComponentCard({ item }: { item: InventoryItem }) {
+  const demoInfo = DEMO_FOR_FILE[item.file];
+  const Demo = demoInfo ? DEMOS[demoInfo.demo] : undefined;
+  const tier = TIERS.find((t) => t.id === item.tier)!;
+  return (
+    <article id={`c-${item.file}`} className="overflow-hidden rounded-xl border bg-card">
+      <header className="flex flex-col gap-2 border-b bg-muted/40 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <h4 className="text-sm font-semibold">{demoInfo?.title ?? item.name}</h4>
+          <p className="flex items-start gap-1.5 break-all text-xs text-muted-foreground">
+            <FileCode2 className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+            <code>{item.file}</code>
+            <span className="shrink-0">· {item.lines} บรรทัด</span>
+          </p>
+          <p className="flex flex-wrap items-center gap-1.5 text-xs">
+            <MapPin className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+            {item.usedBy.length ? (
+              item.usedBy.map((p) => (
+                <code key={p} className="rounded bg-background px-1.5 py-0.5 ring-1 ring-border">
+                  {p}
+                </code>
+              ))
+            ) : (
+              <span className="font-medium text-destructive">ไม่มีหน้าไหนใช้</span>
+            )}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
+          <span className={cn("rounded-full border px-2 py-0.5 text-xs font-medium", tier.className)}>
+            {tier.label} · {item.gzKB ?? "?"} KB
+          </span>
+          {item.lazy && (
+            <span
+              title={`ขนาดจริง ${item.gzKB} KB (${TIERS.find((t) => t.id === item.sizeTier)?.label}) แต่โหลดเมื่อเปิดใช้เท่านั้น`}
+              className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-800"
+            >
+              โหลดเมื่อเปิดใช้ · ย้ายมาจาก{TIERS.find((t) => t.id === item.sizeTier)?.label}
+            </span>
+          )}
+          {item.libs.map((lib) => (
+            <Badge key={lib} variant="outline" className="font-mono text-[10px]">
+              {lib}
+            </Badge>
+          ))}
+        </div>
+      </header>
+      {Demo ? (
+        <div className="p-4 sm:p-5">
+          <WhenVisible>
+            <Demo />
+          </WhenVisible>
+        </div>
+      ) : (
+        <p className="flex items-center gap-1.5 px-4 py-3 text-xs text-muted-foreground">
+          <PackageOpen className="size-3.5" aria-hidden="true" />
+          ยังไม่มีตัวอย่างในหน้านี้{item.usedBy.length ? ` · ดูของจริงที่ ${item.usedBy[0]}` : ""}
+        </p>
+      )}
+    </article>
+  );
 }

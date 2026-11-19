@@ -104,7 +104,7 @@ export function ScoreRow({ label, endpoint, score, band = "low", confidence, not
                 <button
                   type="button"
                   aria-label="หมายเหตุ"
-                  className="grid size-6 shrink-0 place-items-center rounded-md text-amber-600 outline-none hover:bg-amber-50 focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                  className="relative grid size-6 shrink-0 place-items-center rounded-md text-amber-600 after:absolute after:-inset-2 after:content-[''] outline-none hover:bg-amber-50 focus-visible:ring-[3px] focus-visible:ring-ring/40"
                 >
                   <AlertTriangle className="size-4" />
                 </button>

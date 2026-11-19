@@ -18,6 +18,8 @@ export type SegmentedTabsProps<T extends string> = {
   variant?: "line" | "pill";
   /** Stretch tabs to fill the width (good on mobile). */
   fullWidth?: boolean;
+  /** Phones (below 640 px): show only the icons; the labels stay for screen readers. Needs an icon on every item. */
+  collapseLabels?: boolean;
   label?: string;
   className?: string;
 };
@@ -34,6 +36,7 @@ export function SegmentedTabs<T extends string>({
   onChange,
   variant = "line",
   fullWidth = false,
+  collapseLabels = false,
   label,
   className,
 }: SegmentedTabsProps<T>) {
@@ -57,10 +60,10 @@ export function SegmentedTabs<T extends string>({
               key={itemValue}
               value={itemValue}
               aria-controls={undefined}
-              className="relative z-10 h-full rounded-lg px-4 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+              className={cn("relative z-10 h-full rounded-lg px-4 data-[state=active]:bg-transparent data-[state=active]:shadow-none", collapseLabels && Icon && "max-sm:px-3.5")}
             >
               {Icon && <Icon aria-hidden="true" />}
-              <span className="truncate">{itemLabel}</span>
+              <span className={cn("truncate", collapseLabels && Icon && "max-sm:sr-only")}>{itemLabel}</span>
             </TabsTrigger>
           ))}
         </TabsList>

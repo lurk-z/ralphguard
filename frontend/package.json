@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
-    "generate:region-map": "node scripts/generate-face-region-map.mjs"
+    "generate:region-map": "node scripts/generate-face-region-map.mjs",
+    "inventory": "node scripts/component-inventory.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -55,6 +56,7 @@
     "@types/react-dom": "^18.3.7",
     "@types/three": "^0.169.0",
     "autoprefixer": "^10.4.20",
+    "esbuild": "^0.24.2",
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.13",
     "postcss": "^8.4.47",

@@ -1,0 +1,1554 @@
+{
+  "generated": "2026-11-19",
+  "thresholdsKB": {
+    "light": 5,
+    "heavy": 15
+  },
+  "components": [
+    {
+      "file": "components/charts/TrendChart.tsx",
+      "folder": "components/charts",
+      "name": "TrendChart",
+      "exports": [
+        "TrendChart"
+      ],
+      "lines": 88,
+      "gzKB": 108.2,
+      "rawKB": 390.8,
+      "libs": [
+        "recharts"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/formula/FormulaGraph.tsx",
+      "folder": "components/formula",
+      "name": "FormulaGraph",
+      "exports": [
+        "FormulaGraph"
+      ],
+      "lines": 1645,
+      "gzKB": 105.6,
+      "rawKB": 340.1,
+      "libs": [
+        "reactflow"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/substances/SubstanceLibraryPage.tsx",
+      "folder": "components/substances",
+      "name": "SubstanceLibraryPage",
+      "exports": [
+        "SubstanceLibraryPage"
+      ],
+      "lines": 1251,
+      "gzKB": 56.8,
+      "rawKB": 196.8,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/landing/SmoothScroll.tsx",
+      "folder": "components/landing",
+      "name": "SmoothScroll",
+      "exports": [
+        "SmoothScroll"
+      ],
+      "lines": 55,
+      "gzKB": 49.2,
+      "rawKB": 126,
+      "libs": [
+        "gsap"
+      ],
+      "tier": "heavy",
+      "sizeTier": "heavy",
+      "lazy": false,
+      "usedBy": [
+        "/"
+      ]
+    },
+    {
+      "file": "components/landing/ScrollStory.tsx",
+      "folder": "components/landing",
+      "name": "ScrollStory",
+      "exports": [
+        "ScrollStory"
+      ],
+      "lines": 485,
+      "gzKB": 38.7,
+      "rawKB": 112.7,
+      "libs": [
+        "gsap"
+      ],
+      "tier": "heavy",
+      "sizeTier": "heavy",
+      "lazy": false,
+      "usedBy": [
+        "/"
+      ]
+    },
+    {
+      "file": "components/ui/select.tsx",
+      "folder": "components/ui",
+      "name": "Select",
+      "exports": [
+        "Select",
+        "SelectGroup",
+        "SelectValue",
+        "SelectTrigger",
+        "SelectContent",
+        "SelectLabel",
+        "SelectItem",
+        "SelectSeparator",
+        "SelectScrollUpButton",
+        "SelectScrollDownButton"
+      ],
+      "lines": 160,
+      "gzKB": 31.1,
+      "rawKB": 90.1,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/kit/app-header.tsx",
+      "folder": "components/kit",
+      "name": "UserMenu",
+      "exports": [
+        "UserMenu",
+        "AppHeader"
+      ],
+      "lines": 77,
+      "gzKB": 29.6,
+      "rawKB": 86.3,
+      "libs": [],
+      "tier": "heavy",
+      "sizeTier": "heavy",
+      "lazy": false,
+      "usedBy": [
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/LabRoomExplorer.tsx",
+      "folder": "components/three",
+      "name": "LabRoomExplorer",
+      "exports": [
+        "LabRoomExplorer"
+      ],
+      "lines": 33,
+      "gzKB": 29.2,
+      "rawKB": 104.4,
+      "libs": [
+        "@react-three/fiber",
+        "@react-three/drei",
+        "three"
+      ],
+      "tier": "heavy",
+      "sizeTier": "heavy",
+      "lazy": false,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/ui/dropdown-menu.tsx",
+      "folder": "components/ui",
+      "name": "DropdownMenu",
+      "exports": [
+        "DropdownMenu",
+        "DropdownMenuTrigger",
+        "DropdownMenuContent",
+        "DropdownMenuItem",
+        "DropdownMenuCheckboxItem",
+        "DropdownMenuRadioItem",
+        "DropdownMenuLabel",
+        "DropdownMenuSeparator",
+        "DropdownMenuShortcut",
+        "DropdownMenuGroup",
+        "DropdownMenuPortal",
+        "DropdownMenuSub",
+        "DropdownMenuSubContent",
+        "DropdownMenuSubTrigger",
+        "DropdownMenuRadioGroup"
+      ],
+      "lines": 202,
+      "gzKB": 27.7,
+      "rawKB": 81.7,
+      "libs": [],
+      "tier": "heavy",
+      "sizeTier": "heavy",
+      "lazy": false,
+      "usedBy": [
+        "/assess",
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/ui/popover.tsx",
+      "folder": "components/ui",
+      "name": "Popover",
+      "exports": [
+        "Popover",
+        "PopoverTrigger",
+        "PopoverContent",
+        "PopoverAnchor"
+      ],
+      "lines": 34,
+      "gzKB": 22.2,
+      "rawKB": 61.5,
+      "libs": [],
+      "tier": "heavy",
+      "sizeTier": "heavy",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/kit/score-card.tsx",
+      "folder": "components/kit",
+      "name": "ScoreRow",
+      "exports": [
+        "ScoreRow",
+        "ScoreList",
+        "ScoreStat"
+      ],
+      "lines": 191,
+      "gzKB": 20.1,
+      "rawKB": 55.6,
+      "libs": [],
+      "tier": "heavy",
+      "sizeTier": "heavy",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/formula/LabelScanModal.tsx",
+      "folder": "components/formula",
+      "name": "LabelScanModal",
+      "exports": [
+        "LabelScanModal"
+      ],
+      "lines": 1064,
+      "gzKB": 19.2,
+      "rawKB": 82.1,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/ui/tooltip.tsx",
+      "folder": "components/ui",
+      "name": "Tooltip",
+      "exports": [
+        "Tooltip",
+        "TooltipTrigger",
+        "TooltipContent",
+        "TooltipProvider"
+      ],
+      "lines": 33,
+      "gzKB": 17.4,
+      "rawKB": 47.8,
+      "libs": [],
+      "tier": "heavy",
+      "sizeTier": "heavy",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/face/SymptomFaceCanvas.tsx",
+      "folder": "components/face",
+      "name": "SymptomFaceCanvas",
+      "exports": [
+        "SymptomFaceCanvas"
+      ],
+      "lines": 351,
+      "gzKB": 16.9,
+      "rawKB": 48,
+      "libs": [
+        "@react-three/fiber",
+        "@react-three/drei",
+        "three"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/LabRoomCanvas.tsx",
+      "folder": "components/three",
+      "name": "LabRoomCanvas",
+      "exports": [
+        "LabRoomCanvas"
+      ],
+      "lines": 223,
+      "gzKB": 16.2,
+      "rawKB": 55.1,
+      "libs": [
+        "@react-three/fiber",
+        "@react-three/drei",
+        "three"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/agents/LabAgents.tsx",
+      "folder": "components/three",
+      "name": "LabAgents",
+      "exports": [
+        "LabAgents"
+      ],
+      "lines": 161,
+      "gzKB": 13.5,
+      "rawKB": 48.2,
+      "libs": [
+        "@react-three/fiber",
+        "@react-three/drei",
+        "three"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/ui/alert-dialog.tsx",
+      "folder": "components/ui",
+      "name": "AlertDialog",
+      "exports": [
+        "AlertDialog",
+        "AlertDialogPortal",
+        "AlertDialogOverlay",
+        "AlertDialogTrigger",
+        "AlertDialogContent",
+        "AlertDialogHeader",
+        "AlertDialogFooter",
+        "AlertDialogTitle",
+        "AlertDialogDescription",
+        "AlertDialogAction",
+        "AlertDialogCancel"
+      ],
+      "lines": 141,
+      "gzKB": 13.3,
+      "rawKB": 40,
+      "libs": [],
+      "tier": "medium",
+      "sizeTier": "medium",
+      "lazy": false,
+      "usedBy": [
+        "/assess",
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/station/StationPanel.tsx",
+      "folder": "components/three",
+      "name": "StationPanel",
+      "exports": [
+        "StationPanel"
+      ],
+      "lines": 441,
+      "gzKB": 12.7,
+      "rawKB": 50.3,
+      "libs": [],
+      "tier": "medium",
+      "sizeTier": "medium",
+      "lazy": false,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/face/PaintSymptomModel.tsx",
+      "folder": "components/face",
+      "name": "PaintSymptomModel",
+      "exports": [
+        "PaintSymptomModel"
+      ],
+      "lines": 1725,
+      "gzKB": 12.6,
+      "rawKB": 37,
+      "libs": [
+        "@react-three/fiber",
+        "@react-three/drei",
+        "three"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/ui/dialog.tsx",
+      "folder": "components/ui",
+      "name": "Dialog",
+      "exports": [
+        "Dialog",
+        "DialogPortal",
+        "DialogOverlay",
+        "DialogTrigger",
+        "DialogClose",
+        "DialogContent",
+        "DialogHeader",
+        "DialogFooter",
+        "DialogTitle",
+        "DialogDescription"
+      ],
+      "lines": 123,
+      "gzKB": 12.5,
+      "rawKB": 35.8,
+      "libs": [],
+      "tier": "medium",
+      "sizeTier": "medium",
+      "lazy": false,
+      "usedBy": [
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/ui/sheet.tsx",
+      "folder": "components/ui",
+      "name": "Sheet",
+      "exports": [
+        "Sheet",
+        "SheetPortal",
+        "SheetOverlay",
+        "SheetTrigger",
+        "SheetClose",
+        "SheetContent",
+        "SheetHeader",
+        "SheetFooter",
+        "SheetTitle",
+        "SheetDescription"
+      ],
+      "lines": 146,
+      "gzKB": 12.5,
+      "rawKB": 36.1,
+      "libs": [],
+      "tier": "medium",
+      "sizeTier": "medium",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/substances/SubstanceHoverCard.tsx",
+      "folder": "components/substances",
+      "name": "SubstanceHoverCard",
+      "exports": [
+        "SubstanceHoverCard"
+      ],
+      "lines": 362,
+      "gzKB": 10.1,
+      "rawKB": 41.5,
+      "libs": [],
+      "tier": "medium",
+      "sizeTier": "medium",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/kit/project-list.tsx",
+      "folder": "components/kit",
+      "name": "ProjectList",
+      "exports": [
+        "ProjectList"
+      ],
+      "lines": 211,
+      "gzKB": 8.7,
+      "rawKB": 26.8,
+      "libs": [],
+      "tier": "medium",
+      "sizeTier": "medium",
+      "lazy": false,
+      "usedBy": [
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/formula/CsvImportModal.tsx",
+      "folder": "components/formula",
+      "name": "CsvImportModal",
+      "exports": [
+        "CsvImportModal"
+      ],
+      "lines": 357,
+      "gzKB": 8.5,
+      "rawKB": 26.9,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "medium",
+      "lazy": true,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/kit/brush-toolbar.tsx",
+      "folder": "components/kit",
+      "name": "BrushToolbar",
+      "exports": [
+        "BrushToolbar"
+      ],
+      "lines": 101,
+      "gzKB": 7.5,
+      "rawKB": 19.5,
+      "libs": [],
+      "tier": "medium",
+      "sizeTier": "medium",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/assistant/VoiceAssistant.tsx",
+      "folder": "components/assistant",
+      "name": "VoiceAssistant",
+      "exports": [
+        "VoiceAssistant"
+      ],
+      "lines": 622,
+      "gzKB": 6.9,
+      "rawKB": 21.1,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "medium",
+      "lazy": true,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/kit/segmented-tabs.tsx",
+      "folder": "components/kit",
+      "name": "SegmentedTabs",
+      "exports": [
+        "SegmentedTabs"
+      ],
+      "lines": 80,
+      "gzKB": 6.6,
+      "rawKB": 17.9,
+      "libs": [],
+      "tier": "medium",
+      "sizeTier": "medium",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/ui/slider.tsx",
+      "folder": "components/ui",
+      "name": "Slider",
+      "exports": [
+        "Slider"
+      ],
+      "lines": 29,
+      "gzKB": 6.4,
+      "rawKB": 16.2,
+      "libs": [],
+      "tier": "medium",
+      "sizeTier": "medium",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/ui/tabs.tsx",
+      "folder": "components/ui",
+      "name": "Tabs",
+      "exports": [
+        "Tabs",
+        "TabsList",
+        "TabsTrigger",
+        "TabsContent"
+      ],
+      "lines": 63,
+      "gzKB": 6.3,
+      "rawKB": 16.8,
+      "libs": [],
+      "tier": "medium",
+      "sizeTier": "medium",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/ui/checkbox.tsx",
+      "folder": "components/ui",
+      "name": "Checkbox",
+      "exports": [
+        "Checkbox"
+      ],
+      "lines": 30,
+      "gzKB": 6.2,
+      "rawKB": 16.9,
+      "libs": [],
+      "tier": "medium",
+      "sizeTier": "medium",
+      "lazy": false,
+      "usedBy": [
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/station/StationScene.tsx",
+      "folder": "components/three",
+      "name": "StationScene",
+      "exports": [
+        "StationScene"
+      ],
+      "lines": 115,
+      "gzKB": 6.1,
+      "rawKB": 17.4,
+      "libs": [
+        "@react-three/fiber",
+        "three"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/substances/ManualSubstanceModal.tsx",
+      "folder": "components/substances",
+      "name": "ManualSubstanceModal",
+      "exports": [
+        "ManualSubstanceModal"
+      ],
+      "lines": 290,
+      "gzKB": 6,
+      "rawKB": 18.1,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "medium",
+      "lazy": true,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/station/useStationSession.ts",
+      "folder": "components/three",
+      "name": "useStationSession",
+      "exports": [],
+      "lines": 168,
+      "gzKB": 5.6,
+      "rawKB": 19,
+      "libs": [],
+      "tier": "medium",
+      "sizeTier": "medium",
+      "lazy": false,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/kit/formula-card.tsx",
+      "folder": "components/kit",
+      "name": "FormulaCard",
+      "exports": [
+        "FormulaCard"
+      ],
+      "lines": 214,
+      "gzKB": 4.4,
+      "rawKB": 13,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/station/stationProps.ts",
+      "folder": "components/three",
+      "name": "StationProps",
+      "exports": [
+        "StationProps"
+      ],
+      "lines": 421,
+      "gzKB": 4.2,
+      "rawKB": 12,
+      "libs": [
+        "three"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/landing/AIAssistantShowcase.tsx",
+      "folder": "components/landing",
+      "name": "AIAssistantShowcase",
+      "exports": [
+        "AIAssistantShowcase"
+      ],
+      "lines": 141,
+      "gzKB": 3.2,
+      "rawKB": 10.9,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/"
+      ]
+    },
+    {
+      "file": "components/landing/LabScene.tsx",
+      "folder": "components/landing",
+      "name": "LabScene",
+      "exports": [
+        "LabScene"
+      ],
+      "lines": 443,
+      "gzKB": 3.2,
+      "rawKB": 7,
+      "libs": [
+        "@react-three/fiber",
+        "@react-three/drei",
+        "three"
+      ],
+      "tier": "heavy",
+      "sizeTier": "heavy",
+      "lazy": false,
+      "usedBy": [
+        "/"
+      ]
+    },
+    {
+      "file": "components/shared/BrandedProgressLoader.tsx",
+      "folder": "components/shared",
+      "name": "BrandedProgressLoader",
+      "exports": [
+        "BrandedProgressLoader"
+      ],
+      "lines": 66,
+      "gzKB": 3,
+      "rawKB": 6.9,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/ui/avatar.tsx",
+      "folder": "components/ui",
+      "name": "Avatar",
+      "exports": [
+        "Avatar",
+        "AvatarImage",
+        "AvatarFallback",
+        "AvatarBadge",
+        "AvatarGroup",
+        "AvatarGroupCount"
+      ],
+      "lines": 98,
+      "gzKB": 3,
+      "rawKB": 7.6,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/ui/progress.tsx",
+      "folder": "components/ui",
+      "name": "Progress",
+      "exports": [
+        "Progress"
+      ],
+      "lines": 29,
+      "gzKB": 2.5,
+      "rawKB": 5.7,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/agents/agent.ts",
+      "folder": "components/three",
+      "name": "Cancelled",
+      "exports": [
+        "Cancelled",
+        "Agent",
+        "Sample"
+      ],
+      "lines": 408,
+      "gzKB": 2.3,
+      "rawKB": 5.8,
+      "libs": [
+        "three"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/layout/Navbar.tsx",
+      "folder": "components/layout",
+      "name": "Navbar",
+      "exports": [
+        "Navbar"
+      ],
+      "lines": 57,
+      "gzKB": 2.2,
+      "rawKB": 4.9,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/"
+      ]
+    },
+    {
+      "file": "components/landing/OCRLabelShowcase.tsx",
+      "folder": "components/landing",
+      "name": "OCRLabelShowcase",
+      "exports": [
+        "OCRLabelShowcase"
+      ],
+      "lines": 127,
+      "gzKB": 2.1,
+      "rawKB": 7,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/station/ResultCard.tsx",
+      "folder": "components/three",
+      "name": "ResultCard",
+      "exports": [
+        "ResultCard"
+      ],
+      "lines": 85,
+      "gzKB": 2,
+      "rawKB": 7.3,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/ui/button.tsx",
+      "folder": "components/ui",
+      "name": "Button",
+      "exports": [
+        "Button"
+      ],
+      "lines": 60,
+      "gzKB": 1.6,
+      "rawKB": 3.6,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/",
+        "/assess",
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/landing/chapters.ts",
+      "folder": "components/landing",
+      "name": "chapters",
+      "exports": [],
+      "lines": 84,
+      "gzKB": 1.4,
+      "rawKB": 6.5,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/station/stationDirector.ts",
+      "folder": "components/three",
+      "name": "StationSceneDirector",
+      "exports": [
+        "StationSceneDirector"
+      ],
+      "lines": 217,
+      "gzKB": 1.4,
+      "rawKB": 3.8,
+      "libs": [
+        "three"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/landing/GridScanShowcase.tsx",
+      "folder": "components/landing",
+      "name": "GridScanShowcase",
+      "exports": [
+        "GridScanShowcase"
+      ],
+      "lines": 78,
+      "gzKB": 1.2,
+      "rawKB": 3.2,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/agents/AgentFollow.tsx",
+      "folder": "components/three",
+      "name": "AgentFollow",
+      "exports": [
+        "AgentFollow"
+      ],
+      "lines": 126,
+      "gzKB": 1.2,
+      "rawKB": 2.6,
+      "libs": [
+        "@react-three/fiber",
+        "@react-three/drei",
+        "three"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/agents/nav.ts",
+      "folder": "components/three",
+      "name": "NavGrid",
+      "exports": [
+        "NavGrid"
+      ],
+      "lines": 161,
+      "gzKB": 1.2,
+      "rawKB": 2.5,
+      "libs": [
+        "three"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/plainRoom.ts",
+      "folder": "components/three",
+      "name": "plainRoom",
+      "exports": [],
+      "lines": 144,
+      "gzKB": 1.1,
+      "rawKB": 1.9,
+      "libs": [
+        "three"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/formula/RevisionBriefNote.tsx",
+      "folder": "components/formula",
+      "name": "RevisionBriefNote",
+      "exports": [
+        "RevisionBriefNote"
+      ],
+      "lines": 46,
+      "gzKB": 1,
+      "rawKB": 2.3,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/ui/sonner.tsx",
+      "folder": "components/ui",
+      "name": "Toaster",
+      "exports": [
+        "Toaster"
+      ],
+      "lines": 42,
+      "gzKB": 1,
+      "rawKB": 2.2,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "ทุกหน้า (layout)"
+      ]
+    },
+    {
+      "file": "components/shared/SemanticIcon.tsx",
+      "folder": "components/shared",
+      "name": "SemanticIcon",
+      "exports": [
+        "SemanticIcon"
+      ],
+      "lines": 145,
+      "gzKB": 0.9,
+      "rawKB": 1.6,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/",
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/ui/input.tsx",
+      "folder": "components/ui",
+      "name": "Input",
+      "exports": [
+        "Input"
+      ],
+      "lines": 71,
+      "gzKB": 0.9,
+      "rawKB": 2,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/assess",
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/auth/GoogleSignInButton.tsx",
+      "folder": "components/auth",
+      "name": "GoogleSignInButton",
+      "exports": [
+        "GoogleSignInButton"
+      ],
+      "lines": 15,
+      "gzKB": 0.8,
+      "rawKB": 1.4,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/login"
+      ]
+    },
+    {
+      "file": "components/kit/assessment-icon.tsx",
+      "folder": "components/kit",
+      "name": "AssessmentIcon",
+      "exports": [
+        "AssessmentIcon"
+      ],
+      "lines": 85,
+      "gzKB": 0.8,
+      "rawKB": 1.7,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/face/FaceCanvasSkeleton.tsx",
+      "folder": "components/face",
+      "name": "FaceCanvasSkeleton",
+      "exports": [
+        "FaceCanvasSkeleton"
+      ],
+      "lines": 54,
+      "gzKB": 0.7,
+      "rawKB": 1.4,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/face/FaceLoadingOverlay.tsx",
+      "folder": "components/face",
+      "name": "FaceLoadingOverlay",
+      "exports": [
+        "FaceLoadingOverlay"
+      ],
+      "lines": 20,
+      "gzKB": 0.7,
+      "rawKB": 1.5,
+      "libs": [
+        "@react-three/drei"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/agents/loopControl.ts",
+      "folder": "components/three",
+      "name": "loopControl",
+      "exports": [],
+      "lines": 66,
+      "gzKB": 0.7,
+      "rawKB": 1.6,
+      "libs": [
+        "three"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/CameraRig.tsx",
+      "folder": "components/three",
+      "name": "CameraRig",
+      "exports": [
+        "CameraRig"
+      ],
+      "lines": 75,
+      "gzKB": 0.7,
+      "rawKB": 1.2,
+      "libs": [
+        "@react-three/fiber",
+        "@react-three/drei",
+        "three"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/kit/brand-logo.tsx",
+      "folder": "components/kit",
+      "name": "BrandLogo",
+      "exports": [
+        "BrandLogo"
+      ],
+      "lines": 64,
+      "gzKB": 0.6,
+      "rawKB": 1.1,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/landing/NodeWorkspaceShowcase.tsx",
+      "folder": "components/landing",
+      "name": "NodeWorkspaceShowcase",
+      "exports": [
+        "NodeWorkspaceShowcase"
+      ],
+      "lines": 27,
+      "gzKB": 0.6,
+      "rawKB": 1.1,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/"
+      ]
+    },
+    {
+      "file": "components/ui/alert.tsx",
+      "folder": "components/ui",
+      "name": "Alert",
+      "exports": [
+        "Alert",
+        "AlertTitle",
+        "AlertDescription"
+      ],
+      "lines": 41,
+      "gzKB": 0.6,
+      "rawKB": 1.3,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/assess",
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/ui/empty.tsx",
+      "folder": "components/ui",
+      "name": "Empty",
+      "exports": [
+        "Empty",
+        "EmptyHeader",
+        "EmptyTitle",
+        "EmptyDescription",
+        "EmptyContent",
+        "EmptyMedia"
+      ],
+      "lines": 105,
+      "gzKB": 0.6,
+      "rawKB": 1.6,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/assess",
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/ui/table.tsx",
+      "folder": "components/ui",
+      "name": "Table",
+      "exports": [
+        "Table",
+        "TableHeader",
+        "TableBody",
+        "TableFooter",
+        "TableHead",
+        "TableRow",
+        "TableCell",
+        "TableCaption"
+      ],
+      "lines": 121,
+      "gzKB": 0.6,
+      "rawKB": 1.7,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/kit/severity-legend.tsx",
+      "folder": "components/kit",
+      "name": "SeverityLegend",
+      "exports": [
+        "SeverityLegend"
+      ],
+      "lines": 25,
+      "gzKB": 0.5,
+      "rawKB": 0.9,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/agents/workflow.ts",
+      "folder": "components/three",
+      "name": "workflow",
+      "exports": [],
+      "lines": 72,
+      "gzKB": 0.5,
+      "rawKB": 1.1,
+      "libs": [
+        "three"
+      ],
+      "tier": "light",
+      "sizeTier": "heavy",
+      "lazy": true,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/ui/card.tsx",
+      "folder": "components/ui",
+      "name": "Card",
+      "exports": [
+        "Card",
+        "CardHeader",
+        "CardFooter",
+        "CardTitle",
+        "CardDescription",
+        "CardContent"
+      ],
+      "lines": 77,
+      "gzKB": 0.5,
+      "rawKB": 1.2,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "hooks/use-idle-frameloop.ts",
+      "folder": "hooks/use-idle-frameloop.ts",
+      "name": "WakeOnMount",
+      "exports": [
+        "WakeOnMount"
+      ],
+      "lines": 87,
+      "gzKB": 0.5,
+      "rawKB": 1,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/",
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/kit/page-header.tsx",
+      "folder": "components/kit",
+      "name": "PageHeader",
+      "exports": [
+        "PageHeader"
+      ],
+      "lines": 24,
+      "gzKB": 0.4,
+      "rawKB": 0.7,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/ui/badge.tsx",
+      "folder": "components/ui",
+      "name": "Badge",
+      "exports": [
+        "Badge"
+      ],
+      "lines": 37,
+      "gzKB": 0.4,
+      "rawKB": 0.9,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/kit/risk-bands.ts",
+      "folder": "components/kit",
+      "name": "risk-bands",
+      "exports": [],
+      "lines": 24,
+      "gzKB": 0.2,
+      "rawKB": 0.4,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    },
+    {
+      "file": "components/three/skincare-lab/station/bridge.ts",
+      "folder": "components/three",
+      "name": "bridge",
+      "exports": [],
+      "lines": 54,
+      "gzKB": 0.2,
+      "rawKB": 0.2,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/assess",
+        "/lab-room"
+      ]
+    },
+    {
+      "file": "components/ui/skeleton.tsx",
+      "folder": "components/ui",
+      "name": "Skeleton",
+      "exports": [
+        "Skeleton"
+      ],
+      "lines": 16,
+      "gzKB": 0.2,
+      "rawKB": 0.3,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/assess",
+        "/projects"
+      ]
+    },
+    {
+      "file": "components/auth/SessionProvider.tsx",
+      "folder": "components/auth",
+      "name": "SessionProvider",
+      "exports": [
+        "SessionProvider"
+      ],
+      "lines": 5,
+      "gzKB": 0.1,
+      "rawKB": 0.2,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "ทุกหน้า (layout)"
+      ]
+    },
+    {
+      "file": "hooks/use-ever-true.ts",
+      "folder": "hooks/use-ever-true.ts",
+      "name": "use-ever-true",
+      "exports": [],
+      "lines": 17,
+      "gzKB": 0.1,
+      "rawKB": 0.1,
+      "libs": [],
+      "tier": "light",
+      "sizeTier": "light",
+      "lazy": false,
+      "usedBy": [
+        "/assess"
+      ]
+    }
+  ]
+}

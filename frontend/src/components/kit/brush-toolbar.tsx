@@ -42,9 +42,10 @@ export function BrushToolbar({
   className,
 }: BrushToolbarProps) {
   return (
-    <div className={cn("flex w-full max-w-xl items-center gap-2 rounded-full border bg-card p-1.5 shadow-md", brushSize !== undefined && "pl-4", className)}>
+    <div className={cn("flex w-full max-w-xl flex-wrap items-center justify-end gap-2 rounded-full border bg-card p-1.5 shadow-md max-sm:rounded-3xl sm:flex-nowrap", brushSize !== undefined && "pl-4", className)}>
       {brushSize !== undefined && (
-        <>
+        // On phones the size control takes its own row above the buttons; from 640 px it shares one pill.
+        <div className="flex min-w-0 basis-full items-center gap-2 max-sm:pr-3 sm:basis-auto sm:flex-1">
           <Paintbrush className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           <Slider
             aria-label="ขนาดรอยทา"
@@ -58,8 +59,8 @@ export function BrushToolbar({
             className="min-w-20 flex-1"
           />
           <span className="w-10 shrink-0 text-right text-sm font-semibold tabular-nums text-primary-strong">{brushSize}%</span>
-          <span aria-hidden="true" className="h-6 w-px shrink-0 bg-border" />
-        </>
+          <span aria-hidden="true" className="h-6 w-px shrink-0 bg-border max-sm:hidden" />
+        </div>
       )}
 
       {onToggleErase && (

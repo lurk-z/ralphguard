@@ -52,12 +52,9 @@ import {
   resolveCatalogSubstance,
   type CatalogItem,
 } from "@/lib/catalog";
-import VoiceAssistant from "@/components/assistant/VoiceAssistant";
-import CsvImportModal from "@/components/formula/CsvImportModal";
-import LabelScanModal, { type ScanImportContext } from "@/components/formula/LabelScanModal";
-import ManualSubstanceModal from "@/components/substances/ManualSubstanceModal";
+import type { ScanImportContext } from "@/components/formula/LabelScanModal";
 import SubstanceHoverCard from "@/components/substances/SubstanceHoverCard";
-import SubstanceLibraryPage from "@/components/substances/SubstanceLibraryPage";
+import { useEverTrue } from "@/hooks/use-ever-true";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -152,6 +149,16 @@ const SkincareLab = dynamic(() => import("@/components/three/skincare-lab/LabRoo
   loading: () => <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground">กำลังโหลดห้องแล็บ…</div>,
 });
 const TrendChart = dynamic(() => import("@/components/charts/TrendChart"), { ssr: false });
+
+// ── Heavy panels: downloaded only when first opened (not at first paint) ──
+const SubstanceLibraryPage = dynamic(() => import("@/components/substances/SubstanceLibraryPage"), { ssr: false });
+const VoiceAssistant = dynamic(() => import("@/components/assistant/VoiceAssistant"), {
+  ssr: false,
+  loading: () => <div className="grid h-full place-items-center text-xs text-muted-foreground">กำลังโหลดผู้ช่วย…</div>,
+});
+const CsvImportModal = dynamic(() => import("@/components/formula/CsvImportModal"), { ssr: false });
+const LabelScanModal = dynamic(() => import("@/components/formula/LabelScanModal"), { ssr: false });
+const ManualSubstanceModal = dynamic(() => import("@/components/substances/ManualSubstanceModal"), { ssr: false });
 
 // ── Node graph (client-only) ──
 const FormulaGraph = dynamic(() => import("@/components/formula/FormulaGraph"), {
@@ -1696,6 +1703,11 @@ export default function StudioPage() {
   const [scanTargetFormulaId, setScanTargetFormulaId] = useState<string | null>(null);
   const [scanTargetProjectId, setScanTargetProjectId] = useState<number | null>(null);
   const [csvOpen, setCsvOpen] = useState(false);
+  // Heavy panels mount (and download) only after they are first opened.
+  const libraryMounted = useEverTrue(activeNavigationItem === "substances");
+  const assistantMounted = useEverTrue(rightInspectorTab === "assistant");
+  const scanMounted = useEverTrue(scanOpen);
+  const csvMounted = useEverTrue(csvOpen);
   const [csvTargetFormulaId, setCsvTargetFormulaId] = useState<string | null>(null);
   const [csvTargetProjectId, setCsvTargetProjectId] = useState<number | null>(null);
   const openLabelScan = (formulaId: string) => {
@@ -2388,6 +2400,7 @@ export default function StudioPage() {
         {activeNavigationItem === "assessment" ? (
           <SegmentedTabs
             variant="pill"
+            collapseLabels
             label="โหมดทำงาน"
             className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
             value={mode}
@@ -2750,7 +2763,7 @@ export default function StudioPage() {
 
         {/* Center canvas */}
         <main className="assess-center-canvas relative col-start-3 row-start-2 flex min-h-0 min-w-0 flex-col overflow-hidden">
-          <SubstanceLibraryPage
+          {libraryMounted && <SubstanceLibraryPage
             active={activeNavigationItem === "substances"}
             activeFormulaName={activeFormula?.name}
             selectedItems={formula}
@@ -2769,7 +2782,7 @@ export default function StudioPage() {
                 conc: item.concentration,
               });
             }}
-          />
+          />}
           {mode === "assess" && (
             <Viewport
               paintOwnerKey={`${projectId ?? "standalone"}:${activeId}`}
@@ -3163,7 +3176,7 @@ export default function StudioPage() {
                   aria-label="ผู้ช่วย AI"
                   className={`${inspectorTab === "assistant" ? "flex" : "hidden"} h-full min-h-0 flex-col`}
                 >
-                  <VoiceAssistant
+                  {assistantMounted && <VoiceAssistant
                     key={`assistant:${projectId ?? "standalone"}`}
                     projectId={projectId}
                     productName={productName}
@@ -3176,7 +3189,7 @@ export default function StudioPage() {
                     } : undefined}
                     onImportFormula={importFormula}
                     onAction={runAssistantAction}
-                  />
+                  />}
                 </div>
               </>
             )}
@@ -3682,8 +3695,8 @@ export default function StudioPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <CsvImportModal open={csvOpen} onClose={closeCsvImport} onImport={importCsvItems} />
-      <LabelScanModal open={scanOpen} onClose={closeLabelScan} onImport={importScannedItems} />
+      {csvMounted && <CsvImportModal open={csvOpen} onClose={closeCsvImport} onImport={importCsvItems} />}
+      {scanMounted && <LabelScanModal open={scanOpen} onClose={closeLabelScan} onImport={importScannedItems} />}
     </div>
   );
 }

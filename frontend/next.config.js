@@ -5,7 +5,9 @@ const nextConfig = {
   // Keep the development cache separate from production builds. Running
   // `next build` while `next dev` is open must not replace the manifests and
   // CSS chunks currently served by the dev server.
-  distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
+  // Set NEXT_DIST_DIR (e.g. ".next-dev-3001") when a second dev server runs: two servers writing
+  // the same folder overwrite each other's chunks and the page 404s on /_next/static/chunks/....
+  distDir: process.env.NEXT_DIST_DIR || (process.env.NODE_ENV === "development" ? ".next-dev" : ".next"),
   // Retired pages. Old bookmarks still land somewhere useful instead of a 404.
   async redirects() {
     return [

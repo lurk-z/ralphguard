@@ -46,7 +46,7 @@ function SortHead({ label, active, dir, onClick, className }: { label: string; a
         type="button"
         onClick={onClick}
         className={cn(
-          "-mx-1 inline-flex items-center gap-1 rounded px-1 py-1 outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40",
+          "-mx-1 inline-flex min-h-9 items-center gap-1 rounded px-1 py-1 outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40",
           active && "text-foreground"
         )}
       >
