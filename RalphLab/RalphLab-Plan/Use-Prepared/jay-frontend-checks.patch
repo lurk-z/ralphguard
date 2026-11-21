@@ -1,0 +1,134 @@
+diff --git a/frontend/.eslintrc.json b/frontend/.eslintrc.json
+new file mode 100644
+index 0000000..2541221
+--- /dev/null
++++ b/frontend/.eslintrc.json
+@@ -0,0 +1 @@
++{"extends":"next/core-web-vitals"}
+diff --git a/frontend/package.json b/frontend/package.json
+index 4798c6a..604d825 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -4,6 +4,7 @@
+   "private": true,
+   "scripts": {
+     "dev": "next dev",
++    "test": "node --experimental-strip-types --test --test-timeout=20000 \"tests/*.test.ts\"",
+     "build": "next build",
+     "start": "next start",
+     "lint": "next lint",
+diff --git a/frontend/src/lib/pubchem-online.ts b/frontend/src/lib/pubchem-online.ts
+index a3355ae..6bb9688 100644
+--- a/frontend/src/lib/pubchem-online.ts
++++ b/frontend/src/lib/pubchem-online.ts
+@@ -2,7 +2,7 @@ import {
+   ApiError,
+   ApiTimeoutError,
+   type IngredientRegistryItem,
+-} from "@/lib/api";
++} from "./api.ts";
+ 
+ const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+ 
+diff --git a/frontend/tests/api-request.test.ts b/frontend/tests/api-request.test.ts
+index 3677732..8597a21 100644
+--- a/frontend/tests/api-request.test.ts
++++ b/frontend/tests/api-request.test.ts
+@@ -3,10 +3,21 @@ import test from "node:test";
+ 
+ import { ApiError, ApiTimeoutError, api, apiErrorMessage } from "../src/lib/api.ts";
+ 
++/** NextAuth reads its session before the application request. Keep the two responses separate. */
++function withSession(apiFetch: typeof fetch): typeof fetch {
++  return ((input, init) => {
++    const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
++    if (url.pathname === "/api/auth/session") {
++      return Promise.resolve(Response.json({ user: { name: "Test user" }, backendToken: "test-token" }));
++    }
++    return apiFetch(input, init);
++  }) as typeof fetch;
++}
++
+ test("API methods forward a caller abort signal to fetch", async () => {
+   const originalFetch = globalThis.fetch;
+   let receivedSignal: AbortSignal | null = null;
+-  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
++  globalThis.fetch = withSession((_input: string | URL | Request, init?: RequestInit) => {
+     receivedSignal = init?.signal ?? null;
+     return new Promise<Response>((_resolve, reject) => {
+       if (receivedSignal?.aborted) {
+@@ -19,7 +30,7 @@ test("API methods forward a caller abort signal to fetch", async () => {
+         { once: true },
+       );
+     });
+-  }) as typeof fetch;
++  });
+ 
+   try {
+     const controller = new AbortController();
+@@ -38,14 +49,14 @@ test("API methods forward a caller abort signal to fetch", async () => {
+ test("timeout errors have an actionable Thai message", () => {
+   assert.equal(
+     apiErrorMessage(new ApiTimeoutError(12000), "โหลดข้อมูลไม่สำเร็จ"),
+-    "โหลดข้อมูลไม่สำเร็จ: หมดเวลาการเชื่อมต่อเซิร์ฟเวอร์",
++    "โหลดข้อมูลไม่สำเร็จ: เซิร์ฟเวอร์ไม่ตอบสนอง กรุณาลองใหม่อีกครั้ง",
+   );
+ });
+ 
+ test("project creation returns the backend project and never invents a local fallback", async () => {
+   const originalFetch = globalThis.fetch;
+   let requestInit: RequestInit | undefined;
+-  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
++  globalThis.fetch = withSession(async (_input: string | URL | Request, init?: RequestInit) => {
+     requestInit = init;
+     return new Response(
+       JSON.stringify({
+@@ -56,13 +67,14 @@ test("project creation returns the backend project and never invents a local fal
+       }),
+       { status: 201, headers: { "Content-Type": "application/json" } },
+     );
+-  }) as typeof fetch;
++  });
+ 
+   try {
+     const project = await api.createProject("Safety Lab");
+     assert.equal(project.id, 42);
+     assert.equal(project.name, "Safety Lab");
+     assert.equal(requestInit?.method, "POST");
++    assert.equal(new Headers(requestInit?.headers).get("Authorization"), "Bearer test-token");
+     assert.equal(JSON.parse(String(requestInit?.body)).name, "Safety Lab");
+   } finally {
+     globalThis.fetch = originalFetch;
+@@ -71,12 +83,12 @@ test("project creation returns the backend project and never invents a local fal
+ 
+ test("project creation surfaces backend failure instead of returning a fake project", async () => {
+   const originalFetch = globalThis.fetch;
+-  globalThis.fetch = (async () =>
++  globalThis.fetch = withSession(async () =>
+     new Response(JSON.stringify({ detail: "database unavailable" }), {
+       status: 503,
+       statusText: "Service Unavailable",
+       headers: { "Content-Type": "application/json" },
+-    })) as typeof fetch;
++    }));
+ 
+   try {
+     await assert.rejects(api.createProject("Safety Lab"), (cause: unknown) => {
+@@ -90,7 +102,7 @@ test("project creation surfaces backend failure instead of returning a fake proj
+ test("ready registry search requests QSAR-ready verified substances and exposes the count", async () => {
+   const originalFetch = globalThis.fetch;
+   const urls: string[] = [];
+-  globalThis.fetch = (async (input: string | URL | Request) => {
++  globalThis.fetch = withSession(async (input: string | URL | Request) => {
+     const url = String(input);
+     urls.push(url);
+     const body = url.includes("ready-count") ? { count: 189_302 } : [];
+@@ -98,7 +110,7 @@ test("ready registry search requests QSAR-ready verified substances and exposes
+       status: 200,
+       headers: { "Content-Type": "application/json" },
+     });
+-  }) as typeof fetch;
++  });
+ 
+   try {
+     await api.searchReadyIngredientRegistry("niacinamide", 25);

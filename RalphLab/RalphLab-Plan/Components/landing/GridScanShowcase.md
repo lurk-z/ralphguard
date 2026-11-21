@@ -1,0 +1,158 @@
+---
+component: GridScanShowcase
+version: V1
+file: frontend/src/components/landing/GridScanShowcase.tsx
+group: landing
+weight: light
+size_gzip_kb: 1.2
+lazy: false
+pages: [/]
+tags: [component, V1]
+---
+
+# GridScanShowcase · V1
+
+> ภาพประกอบการสแกนกริดผิวในเนื้อเรื่องหน้าแรก
+
+| รุ่น | ไฟล์ | น้ำหนัก | ขนาด (gzip) | โหลดเมื่อ |
+|---|---|---|---:|---|
+| **V1** · 19 พ.ย. 2569 | `frontend/src/components/landing/GridScanShowcase.tsx` | เบา | 1.2 KB | พร้อมหน้า |
+
+## ใช้งานหน้าไหน
+
+| หน้า | โหลด |
+|---|---|
+| `/` | พร้อมหน้า |
+
+นำเข้าโดย: `components/landing/ScrollStory.tsx`
+
+## ไฟล์ที่ต้องมี
+
+สร้างไฟล์ `frontend/src/components/landing/GridScanShowcase.tsx` จากโค้ดด้านล่าง
+
+ไม่ต้องมีไฟล์อื่นเพิ่ม
+
+## การติดตั้ง
+
+ไม่ต้องติดตั้งแพ็กเกจเพิ่ม
+
+แพ็กเกจพื้นฐานที่ต้องมีอยู่แล้ว: `next`
+
+ต้องมีในโปรเจกต์:
+
+- สี `brand`, `brand-dark`, `brand-soft` ใน `tailwind.config.js` (`colors.brand`)
+
+## ตัวอย่างการใช้
+
+```tsx
+import GridScanShowcase from "@/components/landing/GridScanShowcase";
+```
+
+ของจริงใน `components/landing/ScrollStory.tsx` บรรทัด 390:
+
+```tsx
+                <GridScanShowcase />
+              </div>
+            </div>
+          )
+        } else if (i === 2) {
+          return (
+            <div
+              key={i}
+              ref={(el) => { chapterRefs.current[i] = el }}
+              className="absolute inset-0"
+              style={{ opacity: 0, willChange: 'opacity, transform', textShadow: '0 1px 14px rgba(8,20,24,0.6), 0 1px 3px rgba(8,20,24,0.55)' }}
+            >
+```
+
+## โค้ด V1
+
+`frontend/src/components/landing/GridScanShowcase.tsx` · 78 บรรทัด
+
+```tsx
+import Image from 'next/image'
+
+const VIEWS = [
+  {
+    src: '/landing/grid-scan-angle.png',
+    alt: 'ผล Grid Scan บนโมเดลผิวมุมหันซ้าย',
+    title: 'หันซ้าย',
+    detail: 'ตรวจขอบเขตด้านซ้าย',
+    mirror: true,
+  },
+  {
+    src: '/landing/grid-scan-front.png',
+    alt: 'ผล Grid Scan บนโมเดลผิวในมุมตรง',
+    title: 'หน้าตรง',
+    detail: 'เทียบตำแหน่งสองด้าน',
+    mirror: false,
+  },
+  {
+    src: '/landing/grid-scan-angle.png',
+    alt: 'ผล Grid Scan บนโมเดลผิวมุมหันขวา',
+    title: 'หันขวา',
+    detail: 'ตรวจขอบเขตด้านขวา',
+    mirror: false,
+  },
+]
+
+export default function GridScanShowcase() {
+  return (
+    <div className="relative h-[min(45vh,430px)] w-[min(96vw,1080px)]">
+      <div className="absolute left-1/2 top-0 z-20 -translate-x-1/2 rounded-full border border-brand/25 bg-slate-950/70 px-3 py-1 font-mono text-[9px] font-semibold tracking-[0.14em] text-teal-100 shadow-[0_0_24px_rgba(0,159,165,.2)] backdrop-blur-md sm:text-[10px]">
+        GRID SCAN · MULTI-ANGLE VIEW
+      </div>
+
+      <div className="absolute inset-x-0 top-9 grid grid-cols-3 items-start gap-1.5 sm:gap-3">
+      {VIEWS.map((view, index) => (
+        <figure
+          key={`${view.title}-${view.src}`}
+          data-scan-card
+          className={`min-w-0 will-change-transform ${index === 1 ? 'z-10 pt-3 sm:pt-5' : 'z-0'}`}
+        >
+          <div className="relative overflow-hidden rounded-[1.15rem] border border-white/45 bg-white/95 p-1.5 shadow-[0_22px_60px_rgba(2,20,24,.28)] ring-1 ring-slate-950/10 backdrop-blur sm:rounded-[1.4rem] sm:p-2">
+            <div className="relative overflow-hidden rounded-[0.85rem] bg-[#f4f1ee] sm:rounded-[1rem]">
+              <div className="overflow-hidden">
+                <Image
+                  src={view.src}
+                  alt={view.alt}
+                  width={1033}
+                  height={940}
+                  sizes="(max-width: 640px) 32vw, 350px"
+                  className={`h-auto w-full scale-[1.015] ${view.mirror ? '-scale-x-[1.015]' : ''}`}
+                />
+              </div>
+              <div
+                data-scan-beam
+                aria-hidden
+                className="absolute inset-x-[4%] top-[8%] h-px bg-gradient-to-r from-transparent via-cyan-200 to-transparent opacity-0 shadow-[0_0_14px_3px_rgba(34,211,238,.4)] will-change-[top,opacity]"
+              />
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-950/35 via-transparent to-transparent" />
+
+              <figcaption className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-2.5 text-left sm:p-4">
+                <div className="min-w-0 text-white">
+                  <div className="text-[10px] font-semibold sm:text-xs">{view.title}</div>
+                  <div className="truncate text-[8px] text-white/70 sm:text-[10px]">{view.detail}</div>
+                </div>
+                <span className="shrink-0 rounded-full border border-white/20 bg-slate-950/45 px-2 py-1 font-mono text-[7px] text-teal-100 backdrop-blur sm:text-[8px]">
+                  0{index + 1} / VIEW
+                </span>
+              </figcaption>
+            </div>
+          </div>
+        </figure>
+      ))}
+      </div>
+
+    </div>
+  )
+}
+```
+
+## ประวัติเวอร์ชัน
+
+| รุ่น | วันที่ | สิ่งที่เปลี่ยน | commit |
+|---|---|---|---|
+| V1 | 19 พ.ย. 2569 | บันทึกครั้งแรกตามโค้ดในโปรเจกต์ | ddd97e1 (jay-sandbox) |
+
+> แก้โค้ดแล้ว **ห้ามเขียนทับ V1** ให้เพิ่มหัวข้อ `## โค้ด V2` ใต้ V1 พร้อมแถวใหม่ในตารางนี้ ดูวิธีใน [VERSIONS](../VERSIONS.md)
