@@ -1,0 +1,16 @@
+{
+  "source": "characters/pilot_char1_station.blend (build_station_clips.py); prop clips from Lab2_3room_station.blend",
+  "fps": 24,
+  "events": {
+    "Station_Pick": { "grab": 1.2083 },
+    "Station_Place": { "release": 1.0417 },
+    "Station_Dispense": { "grab": 1.0417, "squeeze": 2.4583, "drop": 2.5833, "release": 4.0417 },
+    "Fridge_Open": { "grab": 0.6667, "release": 1.3333 },
+    "Fridge_Close": { "contact": 0.6667, "release": 1.25 },
+    "Bin_Release": { "release": 0.8333 }
+  },
+  "propClips": {
+    "Fridge_Open": "Fridge_Door_Open",
+    "Fridge_Close": "Fridge_Door_Close"
+  }
+}
