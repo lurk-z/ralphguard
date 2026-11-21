@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { SemanticIcon, type SemanticIconName } from "@/components/shared/SemanticIcon";
+import { chatAssessment } from "@/lib/lab-station/assessment";
 
 import {
   AssessmentRecord,
@@ -55,6 +56,7 @@ import {
 import type { ScanImportContext } from "@/components/formula/LabelScanModal";
 import SubstanceHoverCard from "@/components/substances/SubstanceHoverCard";
 import { useEverTrue } from "@/hooks/use-ever-true";
+import RevisionBriefNote from "@/components/formula/RevisionBriefNote";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -2976,7 +2978,14 @@ export default function StudioPage() {
               </div>
             </div>
           )}
-          {activeNavigationItem !== "substances" && mode === "lab" && <SkincareLab embedded />}
+          {activeNavigationItem !== "substances" && mode === "lab" && (
+            projectContextStatus === "loading"
+              ? <div role="status" className="grid h-full place-items-center text-sm text-muted-foreground">กำลังเปิดห้องแล็บ…</div>
+              : <SkincareLab embedded projectId={projectId} formula={activeFormula && {
+                id: activeFormula.id, name: productName, items: activeFormula.items,
+                assessment: chatAssessment(assessment, productName),
+              }} />
+          )}
           {activeNavigationItem !== "substances" && mode === "nodes" && (
             <div className="absolute inset-0">
               <FormulaGraph
@@ -3697,6 +3706,7 @@ export default function StudioPage() {
 
       {csvMounted && <CsvImportModal open={csvOpen} onClose={closeCsvImport} onImport={importCsvItems} />}
       {scanMounted && <LabelScanModal open={scanOpen} onClose={closeLabelScan} onImport={importScannedItems} />}
+      <RevisionBriefNote projectId={projectId} formulaId={activeId} />
     </div>
   );
 }

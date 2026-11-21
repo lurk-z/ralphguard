@@ -1,142 +1,135 @@
 'use client'
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef } from 'react'
+import { useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import gsap from 'gsap'
 import * as THREE from 'three'
-import { topLevelOf, type PreparedRoom } from './prepareRoom'
-import { OVERVIEW, fitDistance, poseForView, type CameraPose, type RoomView } from './views'
+import type { LabRoom } from './plainRoom'
 
-export type CameraRigHandle = {
-  /** Glide to a shortcut view. */
-  goTo: (view: RoomView, duration?: number) => void
-  /** Frame one object (or the clicked spot on a large surface) and keep orbiting around it. */
-  focus: (object: THREE.Object3D, point: THREE.Vector3) => void
+// Start on an elevated three-quarter view of the whole room.
+const OVERVIEW_DIRECTION = new THREE.Vector3(0.5, 0.72, 1).normalize()
+const FRAME_FILL = 0.88
+const OVERVIEW_TRANSITION_SECONDS = 0.6
+
+type OverviewTransition = {
+  elapsed: number
+  fromTarget: THREE.Vector3
+  fromPosition: THREE.Vector3
+  toPosition: THREE.Vector3
 }
 
-type Props = {
-  room: PreparedRoom
-  /** Fired when the user grabs the camera (drag, wheel, pinch). */
-  onManualControl?: () => void
-}
-
-const prefersReducedMotion = () =>
-  typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-const CameraRig = forwardRef<CameraRigHandle, Props>(function CameraRig({ room, onManualControl }, ref) {
+export default function CameraRig({ room, chatOpen, followingAgent }: {
+  room: LabRoom
+  chatOpen: boolean
+  followingAgent: boolean
+}) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
+  const { width, height } = useThree((s) => s.size)
   const controlsRef = useRef<OrbitControlsImpl>(null)
-  const tweenRef = useRef<gsap.core.Tween | null>(null)
+  const framedCamera = useRef<THREE.PerspectiveCamera | null>(null)
+  const previousChatOpen = useRef(chatOpen)
+  const framedSize = useRef({ width: 0, height: 0 })
+  const transition = useRef<OverviewTransition | null>(null)
 
   // Every limit is derived from the room's real size, not hard-coded units.
-  const { maxDim, targetBox } = useMemo(() => {
+  const { center, corners, radius, maxDim, targetBox } = useMemo(() => {
+    const { min, max } = room.bounds
+    const { center, radius } = room.bounds.getBoundingSphere(new THREE.Sphere())
+    const corners: THREE.Vector3[] = []
+    for (const x of [min.x, max.x]) {
+      for (const y of [min.y, max.y]) {
+        for (const z of [min.z, max.z]) corners.push(new THREE.Vector3(x, y, z).sub(center))
+      }
+    }
     const size = room.bounds.getSize(new THREE.Vector3())
     const maxDim = Math.max(size.x, size.y, size.z)
     const targetBox = room.bounds.clone().expandByScalar(maxDim * 0.2)
     targetBox.min.y = room.bounds.min.y // never pivot below the floor slab
-    return { maxDim, targetBox }
+    return { center, corners, radius, maxDim, targetBox }
   }, [room])
 
-  const flyTo = useCallback(
-    (pose: CameraPose, duration = 1.15) => {
-      const controls = controlsRef.current
-      if (!controls) return
-      tweenRef.current?.kill()
-      tweenRef.current = null
+  const aspect = width > 0 && height > 0 ? width / height : 1
+  const tanVertical = FRAME_FILL * Math.tan(THREE.MathUtils.degToRad(camera.getEffectiveFOV()) / 2)
+  const tanHorizontal = tanVertical * aspect
+  // Even the narrowest pane must allow the camera to back up far enough.
+  const maxDistance = Math.max(maxDim * 3, radius * (1 + 1 / Math.min(tanVertical, tanHorizontal)))
 
-      const fromTarget = controls.target.clone()
-      const from = new THREE.Spherical().setFromVector3(camera.position.clone().sub(fromTarget))
-      const to = new THREE.Spherical().setFromVector3(pose.position.clone().sub(pose.target))
-      // Swing the short way round.
-      let dTheta = to.theta - from.theta
-      dTheta = Math.atan2(Math.sin(dTheta), Math.cos(dTheta))
-
-      const s = new THREE.Spherical()
-      const offset = new THREE.Vector3()
-      const apply = (t: number) => {
-        controls.target.lerpVectors(fromTarget, pose.target, t)
-        s.radius = THREE.MathUtils.lerp(from.radius, to.radius, t)
-        s.phi = THREE.MathUtils.lerp(from.phi, to.phi, t)
-        s.theta = from.theta + dTheta * t
-        camera.position.copy(controls.target).add(offset.setFromSpherical(s))
-        controls.update()
-      }
-
-      if (duration <= 0 || prefersReducedMotion()) {
-        apply(1)
-        return
-      }
-      const state = { t: 0 }
-      tweenRef.current = gsap.to(state, {
-        t: 1,
-        duration,
-        ease: 'power3.inOut',
-        onUpdate: () => apply(state.t),
-        onComplete: () => {
-          tweenRef.current = null
-        },
-      })
-    },
-    [camera]
-  )
-
-  useImperativeHandle(
-    ref,
-    () => ({
-      goTo: (view, duration) => flyTo(poseForView(view, room.root, room.bounds, camera), duration),
-      focus: (object, point) => {
-        const controls = controlsRef.current
-        if (!controls) return
-        const top = topLevelOf(object, room.root)
-        const sphere = new THREE.Box3().setFromObject(top).getBoundingSphere(new THREE.Sphere())
-        // Large surfaces (floor, walls, worktops): zoom toward the clicked spot.
-        // Small props: frame the whole object.
-        const large = sphere.radius > maxDim * 0.16
-        const target = large ? point.clone() : sphere.center.clone()
-        const dir = camera.position.clone().sub(controls.target).normalize()
-        if (dir.y < 0.3) dir.setY(0.3).normalize() // keep a readable elevation
-        const current = camera.position.distanceTo(controls.target)
-        const distance = large
-          ? THREE.MathUtils.clamp(current * 0.5, maxDim * 0.14, maxDim * 0.6)
-          : Math.max(fitDistance(sphere.radius, camera) * 1.9, maxDim * 0.06)
-        flyTo({ target, position: target.clone().addScaledVector(dir, distance) }, 0.9)
-      },
-    }),
-    [camera, flyTo, maxDim, room]
-  )
-
-  // Start on the elevated overview.
   useLayoutEffect(() => {
     camera.near = maxDim * 0.004
     camera.far = maxDim * 30
     camera.updateProjectionMatrix()
-    flyTo(poseForView(OVERVIEW, room.root, room.bounds, camera), 0)
-  }, [camera, flyTo, maxDim, room])
 
-  // Manual input wins immediately: any drag / wheel / pinch cancels a transition.
-  useEffect(() => {
+    framedCamera.current = null
+    transition.current = null
+  }, [camera, maxDim, room])
+
+  useLayoutEffect(() => {
+    const chatClosed = previousChatOpen.current && !chatOpen
+    previousChatOpen.current = chatOpen
+    if (width <= 0 || height <= 0) return
+
+    const initialFrame = framedCamera.current !== camera
+    const sizeChanged = framedSize.current.width !== width || framedSize.current.height !== height
+    framedSize.current = { width, height }
+    // The panel's first resize must not interrupt the Agent just selected.
+    if (followingAgent && !initialFrame) {
+      transition.current = null
+      return
+    }
+    if (!initialFrame && !sizeChanged && !chatClosed) return
+
     const controls = controlsRef.current
-    if (!controls) return
-    const onStart = () => {
-      if (tweenRef.current) {
-        tweenRef.current.kill()
-        tweenRef.current = null
-      }
-      onManualControl?.()
+    const direction = !initialFrame && controls
+      ? camera.position.clone().sub(controls.target).normalize()
+      : OVERVIEW_DIRECTION
+    framedCamera.current = camera
+
+    // Compute the new view without moving the live camera before the animation starts.
+    const worldToCamera = new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().lookAt(direction, new THREE.Vector3(), camera.up),
+    ).invert()
+    const view = new THREE.Vector3()
+    let distance = 0
+    for (const corner of corners) {
+      view.copy(corner).applyQuaternion(worldToCamera)
+      distance = Math.max(distance, view.z + Math.max(Math.abs(view.x) / tanHorizontal, Math.abs(view.y) / tanVertical))
     }
-    controls.addEventListener('start', onStart)
-    return () => {
-      controls.removeEventListener('start', onStart)
-      tweenRef.current?.kill()
+    const position = center.clone().addScaledVector(direction, distance)
+    if (chatClosed && controls && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      transition.current = { elapsed: 0, fromTarget: controls.target.clone(), fromPosition: camera.position.clone(), toPosition: position }
+      return
     }
-  }, [onManualControl])
+    if (transition.current) {
+      // The canvas can report its expanded size a frame after the chat closes.
+      transition.current.toPosition.copy(position)
+      return
+    }
+
+    camera.position.copy(position)
+    if (controls) {
+      controls.target.copy(center)
+      controls.update()
+    } else camera.lookAt(center)
+    camera.updateMatrixWorld()
+  }, [camera, center, corners, width, height, tanHorizontal, tanVertical, chatOpen, followingAgent])
 
   // Keep the orbit pivot near the room so panning can't lose the scene.
-  useFrame(() => {
+  useFrame((_, deltaTime) => {
     const controls = controlsRef.current
-    if (controls && !tweenRef.current) controls.target.clamp(targetBox.min, targetBox.max)
+    if (!controls) return
+    const animation = transition.current
+    if (animation) {
+      animation.elapsed += Math.min(deltaTime, 0.05)
+      const progress = Math.min(1, animation.elapsed / OVERVIEW_TRANSITION_SECONDS)
+      const eased = progress * progress * (3 - 2 * progress)
+      controls.target.lerpVectors(animation.fromTarget, center, eased)
+      camera.position.lerpVectors(animation.fromPosition, animation.toPosition, eased)
+      controls.update()
+      if (progress === 1) transition.current = null
+      return
+    }
+    controls.target.clamp(targetBox.min, targetBox.max)
   })
 
   return (
@@ -152,11 +145,10 @@ const CameraRig = forwardRef<CameraRigHandle, Props>(function CameraRig({ room, 
       zoomSpeed={0.9}
       panSpeed={0.9}
       minDistance={maxDim * 0.03}
-      maxDistance={maxDim * 3}
+      maxDistance={maxDistance}
       minPolarAngle={0.05}
       maxPolarAngle={Math.PI / 2 - 0.03}
+      onStart={() => { transition.current = null }}
     />
   )
-})
-
-export default CameraRig
+}

@@ -1,272 +1,194 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import Link from 'next/link'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Layers, RotateCcw, Sparkles, Users } from 'lucide-react'
-import type { CameraRigHandle } from './CameraRig'
-import { OVERVIEW, ROOM_VIEWS, type RoomView } from './views'
-import type { AgentId } from './agents/agents'
-import { AgentChatSheet, AgentStrip } from './agents/AgentChatSheet'
-import { useAgentLab } from './agents/useAgentLab'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { MessageCircle } from 'lucide-react'
+import StationPanel from './station/StationPanel'
+import { createStationBridge } from './station/bridge'
+import { ROLE_LABEL } from './agents/roles'
+import { HANDOFFS, type Progress } from './agents/handoffDemo'
+import type { Role } from './agents/workflow'
+import LabAgentChat from './chat/LabAgentChat'
+import { useLabAgentChat, type ChatFormula } from './chat/useLabAgentChat'
+import { useAgentDemo } from './chat/useAgentDemo'
+import type { DemoScreen } from '@/lib/lab-demo/conversations'
 
 // WebGL scene — client-only.
 const LabRoomCanvas = dynamic(() => import('./LabRoomCanvas'), { ssr: false })
 
-const panel =
-  'rounded-2xl border border-white/60 bg-white/75 shadow-[0_8px_30px_rgba(15,35,55,0.12)] backdrop-blur-md'
+/**
+ * The 3D lab room with its agents, plus the four-endpoint testing station panel.
+ * `embedded`: fill the nearest positioned parent instead of the whole window (used as a tab inside /assess).
+ */
+const CHAT_WIDTH_KEY = 'ralphlab:agent-chat:width'
+const CHAT_MIN_WIDTH = 290
+const CHAT_MAX_WIDTH = 560
+const MIN_ROOM_WIDTH = 365
 
-function Toggle({
-  pressed,
-  onClick,
-  icon,
-  label,
-  hint,
-}: {
-  pressed: boolean
-  onClick: () => void
-  icon: React.ReactNode
-  label: string
-  hint: string
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      onClick={onClick}
-      title={`${label} (${hint})`}
-      className={`flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
-        pressed ? 'bg-brand text-white' : 'text-slate-600 hover:bg-slate-900/5'
-      }`}
-    >
-      <span className="[&_svg]:size-4">{icon}</span>
-      <span>{label}</span>
-      <span
-        className={`rounded px-1 font-mono text-[10px] ${pressed ? 'bg-white/20' : 'bg-slate-900/5 text-slate-400'}`}
-      >
-        {hint}
-      </span>
-    </button>
-  )
-}
-
-/** `embedded`: fill the nearest positioned parent instead of the whole window (used as a tab inside /assess). */
-export default function LabRoomExplorer({ embedded = false }: { embedded?: boolean } = {}) {
-  const rigRef = useRef<CameraRigHandle>(null)
-  // Embedded (Lab tab): five scripted AI agents with a chat sheet each.
-  const agentLab = useAgentLab()
-  const [chatWith, setChatWith] = useState<AgentId | null>(null)
-  const openChat = useCallback(
-    (id: AgentId | null) => {
-      setChatWith(id)
-      agentLab.setOpen(id)
-    },
-    [agentLab]
-  )
+export default function LabRoomExplorer({ embedded = false, projectId = null, formula }: {
+  embedded?: boolean
+  projectId?: number | null
+  formula?: ChatFormula
+} = {}) {
   const [ready, setReady] = useState(false)
-  const [effects, setEffects] = useState(true)
-  const [cutaway, setCutaway] = useState(true)
-  const [people, setPeople] = useState(true)
-  const [activeView, setActiveView] = useState<string | null>(OVERVIEW.id)
-  const [focusName, setFocusName] = useState<string | null>(null)
-  const [autoReduced, setAutoReduced] = useState(false)
-
-  const goTo = useCallback((view: RoomView, duration?: number) => {
-    rigRef.current?.goTo(view, duration)
-    setActiveView(view.id)
-    setFocusName(null)
-  }, [])
-
-  const reset = useCallback(() => {
-    goTo(OVERVIEW, 0.8)
-    setCutaway(true)
-  }, [goTo])
-
+  const [agent, setAgent] = useState<Role | null>(null)
+  const [cameraAgent, setCameraAgent] = useState<Role | null>(null)
+  const [chatWidth, setChatWidth] = useState(400)
+  const [demoChat, setDemoChat] = useState(false)
+  // Normal Lab entry uses the project-scoped handoff chat with simulated agents.
+  const [agentDemoOn, setAgentDemoOn] = useState(true)
+  const [demoScreen, setDemoScreen] = useState<DemoScreen>({ kind: 'private' })
+  const agentDemo = useAgentDemo(projectId)
+  const [progress, setProgress] = useState<Progress>()
+  const [sampleOpen, setSampleOpen] = useState(0)
+  const splitRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const drag = useRef<{ pointerId: number; x: number; width: number; maxWidth: number; nextWidth: number } | null>(null)
+  const resizeFrame = useRef(0)
+  const chat = useLabAgentChat(projectId, demoChat, progress)
   const handleReady = useCallback(() => setReady(true), [])
-  const handleFocus = useCallback((name: string | null) => {
-    setFocusName(name)
-    setActiveView(null)
+  const selectAgent = useCallback((role: Role | null, threadId?: string) => {
+    setDemoScreen({ kind: 'private', threadId })
+    setSampleOpen(0)
+    setAgent(role)
+    setCameraAgent(role)
   }, [])
-  const handleManual = useCallback(() => setActiveView(null), [])
-  const handlePerformanceDrop = useCallback(() => {
-    setEffects(false)
-    setAutoReduced(true)
+  const inspectSample = useCallback(() => {
+    setAgent('analyst')
+    setCameraAgent(null)
+    setSampleOpen(value => value + 1)
+  }, [])
+  const stopFollowing = useCallback(() => setCameraAgent(null), [])
+  // Shared between the DOM panel and the 3D scene (the scene registers its director here).
+  const [bridge] = useState(createStationBridge)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const scriptedRoom = params.get('demoChat') === '1'
+    setDemoChat(scriptedRoom)
+    setAgentDemoOn(params.has('agentDemo') ? params.get('agentDemo') === '1' : !scriptedRoom)
+    try {
+      const value = Number(window.localStorage.getItem(CHAT_WIDTH_KEY))
+      if (value >= CHAT_MIN_WIDTH && value <= CHAT_MAX_WIDTH) setChatWidth(value)
+    } catch { /* Browser storage may be disabled. */ }
+    return () => window.cancelAnimationFrame(resizeFrame.current)
   }, [])
 
-  // Keyboard shortcuts.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      const tag = (e.target as HTMLElement | null)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
-      const key = e.key.toLowerCase()
-      // Embedded (tab in /assess): walls and staff positions are fixed on, camera shortcuts are off; only E (light effects) works.
-      if (embedded) {
-        if (key === 'e') setEffects((v) => !v)
-        return
-      }
-      const view = ROOM_VIEWS.find((v) => v.key === key)
-      if (view) goTo(view)
-      else if (key === 'r' || key === '0') reset()
-      else if (key === 'e') setEffects((v) => !v)
-      else if (key === 'w') setCutaway((v) => !v)
-      else if (key === 'p') setPeople((v) => !v)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [goTo, reset, embedded])
+  function maxChatWidth() {
+    const splitWidth = splitRef.current?.clientWidth ?? CHAT_MAX_WIDTH + MIN_ROOM_WIDTH
+    return Math.max(CHAT_MIN_WIDTH, Math.min(CHAT_MAX_WIDTH, splitWidth - MIN_ROOM_WIDTH))
+  }
+
+  function chooseChatMode(mode: 'demo' | 'api') {
+    const demo = mode === 'demo'
+    setAgentDemoOn(demo)
+    setDemoChat(false)
+    setDemoScreen({ kind: 'private' })
+    const url = new URL(window.location.href)
+    url.searchParams.delete('demoChat')
+    url.searchParams.set('agentDemo', demo ? '1' : '0')
+    window.history.replaceState(window.history.state, '', url)
+  }
+
+  function commitWidth(width: number) {
+    panelRef.current?.style.setProperty('--chat-width', `${width}px`)
+    setChatWidth(width)
+    try { window.localStorage.setItem(CHAT_WIDTH_KEY, String(width)) } catch { /* Browser storage may be disabled. */ }
+  }
+
+  function moveDivider(pointerId: number, x: number) {
+    const current = drag.current
+    if (!current || current.pointerId !== pointerId) return
+    const width = Math.round(Math.max(CHAT_MIN_WIDTH, Math.min(current.maxWidth, current.width + current.x - x)))
+    if (width === current.nextWidth) return
+    current.nextWidth = width
+    // Update the pane boundary once per paint, then commit React state at the end.
+    if (resizeFrame.current) return
+    resizeFrame.current = window.requestAnimationFrame(() => {
+      resizeFrame.current = 0
+      panelRef.current?.style.setProperty('--chat-width', `${current.nextWidth}px`)
+    })
+  }
+
+  function finishDrag(pointerId: number) {
+    const current = drag.current
+    if (!current || current.pointerId !== pointerId) return
+    window.cancelAnimationFrame(resizeFrame.current)
+    resizeFrame.current = 0
+    drag.current = null
+    commitWidth(current.nextWidth)
+  }
 
   return (
-    <main className={`${embedded ? "absolute" : "fixed"} inset-0 select-none overflow-hidden bg-[#c9d5df] text-slate-800`}>
-      <LabRoomCanvas
-        rigRef={rigRef}
-        effects={effects}
-        cutaway={cutaway}
-        people={people}
-        onReady={handleReady}
-        onFocus={handleFocus}
-        onManualControl={handleManual}
-        onPerformanceDrop={handlePerformanceDrop}
-        noFocus={embedded}
-        onBackgroundClick={embedded ? () => openChat(null) : undefined}
-        agents={
-          embedded
-            ? { walksRef: agentLab.walksRef, selected: chatWith, status: agentLab.status, unread: agentLab.unread, onSelect: openChat }
-            : undefined
-        }
-      />
-
-      {!ready && (
-        <div className={`absolute inset-0 grid place-items-center bg-[#c9d5df] text-sm text-slate-500`}>
-          กำลังโหลดห้องแล็บสกินแคร์…
-        </div>
-      )}
-
-      {/* Title (full-page version only) */}
-      {!embedded && (
-        <header className={`absolute left-3 top-3 flex items-center gap-3 px-3 py-2 sm:left-5 sm:top-5 ${panel}`}>
-          <Link
-            href="/"
-            aria-label="กลับหน้าแรก"
-            className="grid size-8 place-items-center rounded-lg text-slate-500 transition-colors hover:bg-slate-900/5 hover:text-slate-800"
-          >
-            <ArrowLeft className="size-4" />
-          </Link>
-          <div className="pr-1 leading-tight">
-            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-brand">Ralph Lab</p>
-            <h1 className="text-sm font-bold">ห้องแล็บสกินแคร์ 3 มิติ</h1>
+    <main className={`${embedded ? 'absolute' : 'fixed'} lab-chat-workspace inset-0 overflow-hidden bg-[#c9d5df] text-slate-800`}>
+      <div ref={splitRef} className="lab-chat-split">
+        <div className="relative min-h-0 min-w-0 flex-1 select-none overflow-hidden">
+          <div className="lab-room-viewport">
+            <LabRoomCanvas onReady={handleReady} bridge={bridge} chatOpen={agent !== null} cameraAgent={cameraAgent} onAgentSelect={selectAgent} onStopFollowing={stopFollowing} onHandoff={demoChat ? setProgress : undefined} onSample={demoChat ? inspectSample : undefined} />
           </div>
-        </header>
-      )}
-
-      {/* Display toggles (full-page version only) */}
-      {!embedded && (
-      <div className={`absolute right-3 top-3 flex flex-col gap-1 p-1.5 sm:right-5 sm:top-5 sm:flex-row ${panel}`}>
-        <Toggle
-          pressed={effects}
-          onClick={() => setEffects((v) => !v)}
-          icon={<Sparkles />}
-          label="เอฟเฟกต์แสง"
-          hint="E"
-        />
-        <Toggle
-          pressed={cutaway}
-          onClick={() => setCutaway((v) => !v)}
-          icon={<Layers />}
-          label="ซ่อนผนังที่บัง"
-          hint="W"
-        />
-        <Toggle
-          pressed={people}
-          onClick={() => setPeople((v) => !v)}
-          icon={<Users />}
-          label="ตำแหน่งคน"
-          hint="P"
-        />
-      </div>
-      )}
-
-      {/* Shown once if effects were switched off to keep the frame rate up. */}
-      {autoReduced && !effects && (
-        <button
-          type="button"
-          onClick={() => setAutoReduced(false)}
-          className={`absolute right-3 top-[7.25rem] px-3 py-1.5 text-xs text-slate-600 sm:right-5 sm:top-20 ${panel}`}
-        >
-          ปิดเอฟเฟกต์แสงอัตโนมัติเพื่อให้ลื่นขึ้น · กด E เพื่อเปิดอีกครั้ง
-        </button>
-      )}
-
-      {!embedded && (
-        <>
-      {/* Focused object */}
-      {focusName && (
-        <div
-          className={`pointer-events-none absolute left-1/2 top-20 -translate-x-1/2 px-3 py-1.5 text-xs sm:top-5 ${panel}`}
-        >
-          <span className="text-slate-500">โฟกัส</span> <span className="font-mono font-medium">{focusName}</span>
-        </div>
-      )}
-
-      {/* View shortcuts */}
-      <nav
-        aria-label="มุมกล้อง"
-        className={`absolute inset-x-3 bottom-3 mx-auto flex w-fit max-w-full items-center gap-1 overflow-x-auto p-1.5 sm:bottom-5 ${panel}`}
-      >
-        {ROOM_VIEWS.map((view) => {
-          const active = activeView === view.id
-          return (
-            <button
-              key={view.id}
-              type="button"
-              aria-pressed={active}
-              onClick={() => goTo(view)}
-              className={`flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
-                active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-900/5'
-              }`}
-            >
-              <span>{view.label}</span>
-              <span
-                className={`rounded px-1 font-mono text-[10px] ${active ? 'bg-white/20' : 'bg-slate-900/5 text-slate-400'}`}
-              >
-                {view.key}
-              </span>
+          {demoChat ? progress && (
+            <button type="button" onClick={() => selectAgent(HANDOFFS[progress.index].from)} className="absolute bottom-3 left-3 z-20 max-w-[calc(100%-1.5rem)] rounded-xl bg-white/95 px-3 py-2 text-left text-xs shadow-sm">
+              <span className="block text-teal-700">โครงการจำลอง D01 · {progress.index + 1}/{HANDOFFS.length}</span>
+              {HANDOFFS[progress.index].title} · {progress.delivered ? 'ส่งถึงแล้ว' : 'กำลังส่ง'}
             </button>
-          )
-        })}
-        <span aria-hidden className="mx-1 h-6 w-px shrink-0 bg-slate-900/10" />
-        <button
-          type="button"
-          onClick={reset}
-          title="รีเซ็ตมุมกล้อง (R)"
-          className="flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-900/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-        >
-          <RotateCcw className="size-4" />
-          <span>รีเซ็ต</span>
-        </button>
-      </nav>
-
-      {/* Controls hint */}
-      <p className="pointer-events-none absolute inset-x-3 bottom-[4.5rem] text-center text-[11px] text-slate-600/80 sm:bottom-[5.25rem]">
-        <span className="sm:hidden">ลากเพื่อหมุน · สองนิ้วเพื่อเลื่อนและซูม · แตะสองครั้งเพื่อโฟกัส</span>
-        <span className="hidden sm:inline">
-          ลากเพื่อหมุน · คลิกขวาเพื่อเลื่อน · scroll เพื่อซูม · ดับเบิลคลิกวัตถุเพื่อโฟกัส
-        </span>
-      </p>
-        </>
-      )}
-
-      {embedded && (
-        <>
-          <AgentStrip lab={agentLab} selected={chatWith} onSelect={openChat} />
-          <AgentChatSheet agentId={chatWith} lab={agentLab} onClose={() => openChat(null)} onOpenAgent={openChat} />
-        </>
-      )}
-      {embedded && (
-        <p className="pointer-events-none absolute inset-x-3 bottom-3 text-center text-xs text-slate-600/80">
-          ลากเพื่อหมุน · คลิกขวาเพื่อเลื่อน · scroll เพื่อซูม · กด E เพื่อเปิด/ปิดเอฟเฟกต์แสง
-        </p>
-      )}
+          ) : <StationPanel bridge={bridge} />}
+          {!ready && <div className="absolute inset-0 grid place-items-center bg-[#c9d5df] text-sm text-slate-500">กำลังโหลดห้องแล็บ</div>}
+          {(ready || agentDemoOn) && (
+            <div className="absolute left-3 top-3 z-[21] flex items-center gap-1.5 rounded-full bg-white/90 px-2.5 py-1.5 text-xs shadow-sm ring-1 ring-slate-200">
+              {agentDemoOn ? <button type="button" aria-label="เปิดรายการแชต" title="เปิดรายการแชต" className="flex items-center gap-1 rounded-full px-1 py-1 text-teal-800 hover:bg-teal-50 focus-visible:ring-2 focus-visible:ring-teal-600" onClick={() => {
+                setAgent((value) => value ?? 'director')
+                setCameraAgent(null)
+                setDemoScreen({ kind: 'inbox' })
+              }}><MessageCircle aria-hidden="true" className="size-3.5" />แชต</button> : <MessageCircle aria-hidden="true" className="size-3.5 text-teal-700" />}
+              <select aria-label="เลือก Agent สำหรับแชต" value={agentDemoOn && demoScreen.kind !== 'private' ? '' : agent ?? ''} onChange={(event) => selectAgent((event.target.value || null) as Role | null)} className="max-w-[140px] bg-transparent py-0.5 text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-teal-600">
+                <option value="">แชตกับ Agent</option>
+                {(Object.keys(ROLE_LABEL) as Role[]).map((role) => <option key={role} value={role}>{ROLE_LABEL[role]}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+        {agent && (
+          <div ref={panelRef} className="lab-chat-panel" style={{ '--chat-width': `${chatWidth}px` } as CSSProperties}>
+            <div
+              className="lab-chat-divider"
+              role="separator"
+              tabIndex={0}
+              aria-label="ปรับความกว้างแชต"
+              aria-orientation="vertical"
+              aria-valuemin={CHAT_MIN_WIDTH}
+              aria-valuemax={CHAT_MAX_WIDTH}
+              aria-valuenow={chatWidth}
+              onPointerDown={(event) => {
+                if (event.button !== 0 || drag.current) return
+                const width = panelRef.current?.clientWidth ?? chatWidth
+                drag.current = { pointerId: event.pointerId, x: event.clientX, width, maxWidth: maxChatWidth(), nextWidth: width }
+                stopFollowing()
+                event.currentTarget.setPointerCapture(event.pointerId)
+                event.preventDefault()
+              }}
+              onPointerMove={(event) => moveDivider(event.pointerId, event.clientX)}
+              onPointerUp={(event) => {
+                moveDivider(event.pointerId, event.clientX)
+                finishDrag(event.pointerId)
+              }}
+              onPointerCancel={(event) => finishDrag(event.pointerId)}
+              onLostPointerCapture={(event) => finishDrag(event.pointerId)}
+              onKeyDown={(event) => {
+                const direction = event.key === 'ArrowLeft' ? 1 : event.key === 'ArrowRight' ? -1 : 0
+                if (!direction || drag.current) return
+                event.preventDefault()
+                const width = panelRef.current?.clientWidth ?? chatWidth
+                stopFollowing()
+                commitWidth(Math.max(CHAT_MIN_WIDTH, Math.min(maxChatWidth(), width + direction * 24)))
+              }}
+            />
+            <LabAgentChat key={`${projectId ?? 'standalone'}:${agent}:${agentDemoOn ? agentDemo.userId : 'chat'}:${demoScreen.kind === 'group' ? demoScreen.jobId : demoScreen.kind === 'private' ? demoScreen.threadId ?? 'private' : 'inbox'}`}
+              agent={agent} formula={demoChat || agentDemoOn ? undefined : formula} chat={chat} onSelectAgent={selectAgent} onClose={() => selectAgent(null)} progress={demoChat ? progress : undefined}
+              onModeChange={chooseChatMode}
+              sampleOpen={sampleOpen} agentDemo={agentDemoOn ? agentDemo : undefined} screen={demoScreen} navigate={setDemoScreen} />
+          </div>
+        )}
+      </div>
     </main>
   )
 }

@@ -1,50 +1,34 @@
 'use client'
 
-import { Suspense, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { ContactShadows, Html, PerformanceMonitor, useAnimations, useGLTF } from '@react-three/drei'
-import { Bloom, EffectComposer, ToneMapping } from '@react-three/postprocessing'
-import { ToneMappingMode } from 'postprocessing'
+import { ContactShadows, PerformanceMonitor, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
-import CameraRig, { type CameraRigHandle } from './CameraRig'
-import { liquidGlow, liquidTime } from './materials'
-import { prepareRoom, topLevelOf, type PreparedRoom } from './prepareRoom'
-import { prepareUnionRoom } from './unionRoom'
-import { isPickable } from './batching'
-import { AGENT_RADIUS, AISLE, FOOTPRINTS, measureClearance } from './footprints'
-import { AGENT_HEIGHT } from './layout'
-import AgentFigures, { type AgentFiguresProps } from './agents/AgentFigures'
+import CameraRig from './CameraRig'
+import { prepareRoom, type LabRoom } from './plainRoom'
+import LabAgents from './agents/LabAgents'
+import type { Role } from './agents/workflow'
+import type { Progress } from './agents/handoffDemo'
+import type { StationBridge } from './station/bridge'
 
-// By default the room is built at runtime from `Lab_room.glb`. Add `?union` to the
-// URL to load the pre-built static `Lab_room_Union.glb` instead (made by
-// scripts/blender/build_lab_room_union.py).
-const UNION = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('union')
-const LEGACY = !UNION
-const MODEL_URL = LEGACY ? '/models/Lab_room.glb' : '/models/Lab_room_Union.glb'
+// The three-room Ralph Lab from Blender, shown exactly as exported.
+const MODEL_URL = '/models/Lab_room_3room.glb'
+const ROOM_CAMERA = { fov: 32, near: 0.02, far: 100, position: [3, 2.5, 3.5] as [number, number, number] }
 
-export type LabRoomCanvasProps = {
-  rigRef: RefObject<CameraRigHandle>
-  /** Bloom + composer on/off. The room stays fully readable when off. */
-  effects: boolean
-  /** Hide whichever walls sit between the camera and the room. */
-  cutaway: boolean
-  /** Show the seven staff standing positions (markers + station names). */
-  people?: boolean
-  onReady?: (info: { removed: string[] }) => void
-  onFocus?: (name: string | null) => void
-  /** Fired when the user grabs the camera (drag, wheel, pinch). */
-  onManualControl?: () => void
-  /** Fired once when the frame rate stays low, so the page can switch effects off. */
-  onPerformanceDrop?: () => void
-  /** Turn off double-click-to-focus (camera stays free-orbit only). */
-  noFocus?: boolean
-  /** Show the five AI agents instead of the plain station markers. */
-  agents?: AgentFiguresProps
-  /** A click (not a drag) on the room that hits no agent, e.g. to close a chat. */
-  onBackgroundClick?: () => void
+type Props = {
+  /** Fired once the room is built and on screen. */
+  onReady?: () => void
+  /** Testing-station link to the DOM panel (the station is shown only when given). */
+  bridge?: StationBridge
+  chatOpen: boolean
+  cameraAgent: Role | null
+  onAgentSelect?: (role: Role) => void
+  onStopFollowing: () => void
+  onHandoff?: (progress: Progress) => void
+  onSample?: () => void
 }
 
-function Lights({ room }: { room: PreparedRoom }) {
+function Lights({ room }: { room: LabRoom }) {
   const keyRef = useRef<THREE.DirectionalLight>(null)
   const { center, reach } = useMemo(() => {
     const center = room.bounds.getCenter(new THREE.Vector3())
@@ -91,9 +75,9 @@ function Lights({ room }: { room: PreparedRoom }) {
   )
 }
 
-// Gradient backdrop drawn as geometry (not a clear colour) so it passes through
-// the same tone mapping whether the effect composer is on or off.
-function Backdrop({ room }: { room: PreparedRoom }) {
+// Gradient backdrop drawn as geometry (not a clear colour) so it goes through
+// the same tone mapping as the room.
+function Backdrop({ room }: { room: LabRoom }) {
   const { center, radius } = useMemo(() => {
     const sphere = room.bounds.getBoundingSphere(new THREE.Sphere())
     return { center: sphere.center, radius: sphere.radius * 9 }
@@ -135,92 +119,27 @@ function Backdrop({ room }: { room: PreparedRoom }) {
   )
 }
 
-// Seven staff standing positions: agent-sized capsules, floor rings and station
-// names. The main aisle line is drawn only in the debug view (`?debug`).
-function FootprintMarkers({ floorY, aisle, labels }: { floorY: number; aisle: boolean; labels: boolean }) {
-  const line = useMemo(() => {
-    const pts = AISLE.map(([x, z]) => new THREE.Vector3(x, floorY + 0.012, z))
-    return new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(pts),
-      new THREE.LineBasicMaterial({ color: '#f59e0b' })
-    )
-  }, [floorY])
-  return (
-    <group name="debug-footprints">
-      {FOOTPRINTS.map((f) => (
-        <group key={f.id} position={[f.x, floorY, f.z]}>
-          <mesh position={[0, AGENT_HEIGHT / 2, 0]}>
-            <capsuleGeometry args={[AGENT_RADIUS, AGENT_HEIGHT - AGENT_RADIUS * 2, 4, 12]} />
-            <meshStandardMaterial color="#f59e0b" transparent opacity={0.45} depthWrite={false} />
-          </mesh>
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.006, 0]}>
-            <ringGeometry args={[AGENT_RADIUS * 0.85, AGENT_RADIUS, 24]} />
-            <meshBasicMaterial color="#b45309" />
-          </mesh>
-          {labels && (
-            <Html position={[0, AGENT_HEIGHT + 0.05, 0]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
-              <span className="whitespace-nowrap rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-medium text-amber-800 shadow-sm">
-                {f.label}
-              </span>
-            </Html>
-          )}
-        </group>
-      ))}
-      {aisle && <primitive object={line} />}
-    </group>
-  )
-}
-
-function Room({
-  rigRef,
-  cutaway,
-  onReady,
-  onFocus,
-  onManualControl,
-  people,
-  noFocus,
-  agents,
-}: Pick<LabRoomCanvasProps, 'rigRef' | 'cutaway' | 'onReady' | 'onFocus' | 'onManualControl' | 'people' | 'noFocus' | 'agents'>) {
+function Room({ onReady, bridge, chatOpen, cameraAgent, onAgentSelect, onStopFollowing, onHandoff, onSample }: Props) {
   const gltf = useGLTF(MODEL_URL)
-  const room = useMemo(() => {
-    const t0 = performance.now()
-    const prepared = LEGACY ? prepareRoom(gltf) : prepareUnionRoom(gltf)
-    // Exposed for the debug view's performance notes.
-    prepared.root.userData.prepareMs = Math.round(performance.now() - t0)
-    return prepared
-  }, [gltf])
-  useEffect(() => () => room.dispose(), [room])
-
-  // Liquid fill levels: the GLB's own morph-weight clips, looping.
-  const { actions } = useAnimations(room.liquidClips, room.root)
-  useEffect(() => {
-    const playing = Object.values(actions).filter(Boolean) as THREE.AnimationAction[]
-    playing.forEach((a) => a.reset().setLoop(THREE.LoopRepeat, Infinity).play())
-    return () => playing.forEach((a) => a.stop())
-  }, [actions])
+  const room = useMemo(() => prepareRoom(gltf), [gltf])
 
   useEffect(() => {
-    onReady?.({ removed: room.removed })
+    onReady?.()
   }, [room, onReady])
 
-  // `/lab-room?debug` exposes the scene for inspection from the console
-  // (camera placement for comparison screenshots, mesh/material audits).
+  // `/lab-room?debug` exposes the scene for inspection from the console.
   const get = useThree((s) => s.get)
-  const [debug, setDebug] = useState(false)
   useEffect(() => {
     if (!new URLSearchParams(window.location.search).has('debug')) return
-    setDebug(true)
     const w = window as unknown as { __labRoom?: unknown }
-    const tile = room.root.getObjectByName('tile')
-    const floor = tile ? new THREE.Box3().setFromObject(tile).max.y : room.bounds.min.y
-    w.__labRoom = { room, THREE, state: get, clearance: measureClearance(room.root, floor) }
+    w.__labRoom = { room, THREE, state: get }
     return () => {
       delete w.__labRoom
     }
   }, [room, get])
 
   // The room is static, so the shadow map is rendered once and again only when
-  // a cut-away wall appears or disappears — not every frame.
+  // a wall appears or disappears — not every frame.
   const gl = useThree((s) => s.gl)
   const shadowSignature = useRef('')
   useEffect(() => {
@@ -232,13 +151,11 @@ function Room({
     }
   }, [gl, room])
 
-  useFrame(({ camera }, delta) => {
-    // The pre-built room is fully static: liquids keep their colour and glow but do not shimmer.
-    if (LEGACY) liquidTime.value += Math.min(delta, 0.1)
-    for (const s of room.spinners) s.object.rotation.y += s.speed * Math.min(delta, 0.1)
+  // Walls between the camera and the room are hidden.
+  useFrame(({ camera }) => {
     let signature = ''
     for (const wall of room.walls) {
-      wall.mesh.visible = !(cutaway && wall.isCameraOutside(camera.position))
+      wall.mesh.visible = !wall.isCameraOutside(camera.position)
       signature += wall.mesh.visible ? '1' : '0'
     }
     if (signature !== shadowSignature.current) {
@@ -254,34 +171,15 @@ function Room({
   const center = useMemo(() => room.bounds.getCenter(new THREE.Vector3()), [room])
   const size = useMemo(() => room.bounds.getSize(new THREE.Vector3()), [room])
 
-  // Double-click to focus. Raycasting only on double-click (instead of R3F
-  // pointer events, which raycast every mesh on every pointer move) keeps
-  // orbiting smooth.
-  const camera = useThree((s) => s.camera)
-  useEffect(() => {
-    if (noFocus) return
-    const el = gl.domElement
-    const ray = new THREE.Raycaster()
-    const ndc = new THREE.Vector2()
-    const onDouble = (ev: MouseEvent) => {
-      const r = el.getBoundingClientRect()
-      ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1)
-      ray.setFromCamera(ndc, camera)
-      // Cut-away walls are hidden but still hit-testable: skip them.
-      const hit = ray.intersectObject(room.root, true).find((i) => isPickable(i.object))
-      if (!hit) return
-      rigRef.current?.focus(hit.object, hit.point)
-      onFocus?.(topLevelOf(hit.object, room.root).name)
-    }
-    el.addEventListener('dblclick', onDouble)
-    return () => el.removeEventListener('dblclick', onDouble)
-  }, [gl, camera, room, rigRef, onFocus, noFocus])
-
   return (
     <>
       <Lights room={room} />
       <Backdrop room={room} />
       <primitive object={room.root} />
+      {/* The five agents load after the room is on screen. */}
+      <Suspense fallback={null}>
+        <LabAgents room={room} bridge={bridge} followed={cameraAgent} onSelect={onAgentSelect} onStopFollowing={onStopFollowing} onHandoff={onHandoff} onSample={onSample} />
+      </Suspense>
       {/* Restrained grounding shadow under furniture legs; baked once (static room). */}
       <ContactShadows
         position={[center.x, floorY + 0.002, center.z]}
@@ -293,51 +191,21 @@ function Room({
         color="#1c2733"
         frames={1}
       />
-      {agents ? (
-        <AgentFigures floorY={floorY} {...agents} />
-      ) : (
-        (debug || people) && <FootprintMarkers floorY={floorY} aisle={debug} labels={!!people} />
-      )}
-      <CameraRig ref={rigRef} room={room} onManualControl={onManualControl} />
+      <CameraRig room={room} chatOpen={chatOpen} followingAgent={cameraAgent !== null} />
     </>
   )
 }
 
-export default function LabRoomCanvas({
-  rigRef,
-  effects,
-  cutaway,
-  people,
-  onReady,
-  onFocus,
-  onManualControl,
-  onPerformanceDrop,
-  noFocus,
-  agents,
-  onBackgroundClick,
-}: LabRoomCanvasProps) {
-  useEffect(() => {
-    liquidGlow.value = effects ? 1.75 : 1.3
-  }, [effects])
-
-  // Adaptive quality: start sharp, drop resolution (and tell the page to turn
-  // effects off) if the frame rate stays low; restore when it recovers.
+export default function LabRoomCanvas(props: Props) {
+  // Adaptive quality: start sharp, drop resolution if the frame rate stays low.
   const maxDpr = typeof window === 'undefined' ? 1.5 : Math.min(window.devicePixelRatio || 1, 1.5)
   const [dpr, setDpr] = useState(maxDpr)
-  const dropped = useRef(false)
-  const decline = () => {
-    setDpr(1)
-    if (!dropped.current) {
-      dropped.current = true
-      onPerformanceDrop?.()
-    }
-  }
 
   return (
     <Canvas
       shadows={{ type: THREE.PCFSoftShadowMap }}
       dpr={dpr}
-      camera={{ fov: 32, near: 0.02, far: 100, position: [3, 2.5, 3.5] }}
+      camera={ROOM_CAMERA}
       gl={{
         antialias: true,
         powerPreference: 'high-performance',
@@ -346,29 +214,16 @@ export default function LabRoomCanvas({
         outputColorSpace: THREE.SRGBColorSpace,
       }}
       style={{ position: 'absolute', inset: 0, touchAction: 'none' }}
-      onPointerMissed={onBackgroundClick}
     >
-      <PerformanceMonitor onDecline={decline} onIncline={() => setDpr(maxDpr)} onFallback={decline} flipflops={3} />
+      <PerformanceMonitor
+        onDecline={() => setDpr(1)}
+        onIncline={() => setDpr(maxDpr)}
+        onFallback={() => setDpr(1)}
+        flipflops={3}
+      />
       <Suspense fallback={null}>
-        <Room
-          rigRef={rigRef}
-          cutaway={cutaway}
-          people={people}
-          onReady={onReady}
-          onFocus={onFocus}
-          onManualControl={onManualControl}
-          noFocus={noFocus}
-          agents={agents}
-        />
+        <Room {...props} />
       </Suspense>
-
-      {effects && (
-        <EffectComposer multisampling={2}>
-          {/* Threshold sits above every lit surface, so only the emissive liquids bloom. */}
-          <Bloom mipmapBlur luminanceThreshold={1} luminanceSmoothing={0.12} intensity={1.05} radius={0.72} />
-          <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-        </EffectComposer>
-      )}
     </Canvas>
   )
 }
