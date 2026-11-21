@@ -1,0 +1,121 @@
+.np {
+  --ink: #1e293b;
+  --muted: #52647a;
+  --line: #e2e8f0;
+  --green: #007b80;
+  --port: #009fa5;
+  min-height: 100vh;
+  background: #f8fafc;
+  color: var(--ink);
+  font-family: var(--font-thai), var(--font-sans), sans-serif;
+}
+.np .np-nav, .np-brand, .np-nav-path, .np-preview, .np-panel-head, .np-panel-head h2,
+.np-switch, .np-tools, .np-legend, .np-legend span, .np-author, .np-note h4,
+.np-detail-tags, .np-card-top, .np-change, .np-card-scores { display: flex; align-items: center; }
+.np-nav { min-height: 62px; padding: 0 clamp(16px, 3vw, 54px); gap: 18px; background: white; border-bottom: 1px solid var(--line); }
+.np-brand { gap: 8px; font: 700 19px/1 var(--font-sans), sans-serif; letter-spacing: -.6px; }
+.np-brand img { object-fit: contain; }
+.np-nav-path { gap: 10px; color: var(--muted); font-size: 14px; }
+.np-preview { margin-left: auto; gap: 7px; color: #526959; border: 1px solid var(--line); border-radius: 20px; padding: 4px 11px; font-size: 12px; }
+.np-preview i { background: #759483; width: 7px; height: 7px; border-radius: 50%; }
+.np-page { max-width: 1680px; padding: 30px clamp(12px, 3vw, 54px) 28px; margin: auto; }
+.np-heading { margin-bottom: 23px; }
+.np-heading h1 { font-size: clamp(25px, 2.2vw, 37px); font-weight: 700; letter-spacing: -.055em; }
+.np-heading p { margin-top: 3px; color: var(--muted); font-size: 14px; }
+.np-heading p span, .np-author span { padding: 0 4px; color: #94a79d; }
+.np-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(290px, 340px); gap: 16px; align-items: start; }
+.np-graph, .np-details { background: white; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.np-panel-head { justify-content: space-between; gap: 8px; min-height: 54px; padding: 8px 18px; border-bottom: 1px solid var(--line); }
+.np-panel-head h2 { gap: 9px; font-size: 15px; font-weight: 700; }
+.np-panel-head h2 svg, .np-note svg { color: var(--green); }
+.np-switch { gap: 7px; font-size: 12px; color: var(--muted); padding: 5px 0 5px 8px; }
+.np-track { width: 26px; height: 15px; border-radius: 10px; background: #bac7c0; position: relative; }
+.np-track:after { content: ''; position: absolute; width: 11px; height: 11px; border-radius: 100%; top: 2px; left: 2px; background: white; }
+.np-switch[aria-pressed=true] .np-track { background: var(--green); }
+.np-switch[aria-pressed=true] .np-track:after { left: 13px; }
+.np-canvas { height: clamp(500px, 62vh, 730px); background: #f8fafc; }
+.np-card, .np-ingredient { position: relative; background: white; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 1px 2px #0f172a08; }
+.np-card { width: 224px; }
+.np-active { border-color: var(--port); box-shadow: 0 0 0 3px #009fa51c; }
+.np-card-button { display: block; padding: 0 12px; text-align: left; width: 100%; cursor: pointer; color: var(--ink); }
+.np-card-top, .np-ingredient-head { border-radius: 11px 11px 0 0; border-bottom: 1px solid var(--line); }
+.np-card-top { justify-content: space-between; margin: 0 -12px 8px; padding: 7px 12px; background: #f1f9f9; }
+.np-card-top strong, .np-ingredient-head { display: flex; align-items: center; gap: 6px; }
+.np-card-top svg, .np-ingredient-head svg { color: var(--port); }
+.np-card-top strong, .np-detail-tags > b { font: 700 14px/1.5 var(--font-mono), monospace; color: var(--green); }
+.np-card-button > b { display: block; font-size: 16px; }
+.np-parent { color: var(--muted); font-size: 11px; }
+.np-tag { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 20px; }
+.np-tag.teal { color: #286048; background: #e3f1e5; }
+.np-tag.amber { color: #845515; background: #fbefd7; }
+.np-tag.slate { color: #4b606c; background: #eaf0f3; }
+.np-card-scores { justify-content: space-between; margin-top: 7px; border-top: 1px solid #e4eae5; padding: 6px 0; font-size: 10px; color: var(--muted); }
+.np-card-scores b { color: var(--ink); }
+.np-ingredient { width: 118px; font-size: 12px; line-height: 1.4; }
+.np-ingredient-head { padding: 7px 9px; background: #f8fafc; font-weight: 600; }
+.np-ingredient-body { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 8px 9px; }
+.np-ingredient-body code { color: #64748b; font-size: 10px; }
+.np-ingredient-body strong { font-size: 13px; font-variant-numeric: tabular-nums; }
+.np .react-flow__handle { width: 12px; height: 12px; border: 2px solid white; background: var(--port); }
+.np .react-flow__handle-top { top: -6px; }
+.np .react-flow__handle-bottom { bottom: -6px; }
+.np .react-flow__handle-left { left: -6px; }
+.np .react-flow__handle-right { right: -6px; }
+.np .react-flow__edge.animated .react-flow__edge-path {
+  --dash-period: 9;
+  stroke: #a8afb9; stroke-width: 1.5; stroke-dasharray: 5 4;
+  animation: np-flow .75s linear infinite;
+}
+.np .react-flow__edge.np-branch .react-flow__edge-path { --dash-period: 13; stroke: #89939f; stroke-width: 1.8; stroke-dasharray: 8 5; }
+@keyframes np-flow { from { stroke-dashoffset: var(--dash-period); } to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .np .react-flow__edge.animated .react-flow__edge-path { animation: none; }
+}
+.np .react-flow__selection, .np .react-flow__nodesselection-rect {
+  background: rgb(0 159 165 / 7%); border: 1px dashed var(--port); border-radius: 4px;
+}
+.np .react-flow__node.selected :is(.np-card, .np-ingredient) { border-color: var(--port); box-shadow: 0 0 0 2px #009fa529; }
+.np-tools { overflow: hidden; background: white; border: 1px solid #cfdbd2; border-radius: 9px; }
+.np-tools button { width: 34px; height: 34px; display: grid; place-content: center; }
+.np-tools button + button { border-left: 1px solid var(--line); }
+.np-tools button[aria-pressed=true] { color: var(--green); background: #e5f5f4; }
+.np button:focus-visible, .np select:focus-visible { outline: 2px solid #29765d; outline-offset: -2px; border-radius: 6px; }
+.np-tools button:hover, .np-select:hover { background: #edf4ee; }
+.np .np-map { width: 92px; height: 58px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.np .np-map svg { width: 100%; height: 100%; }
+.np-legend { padding: 10px 17px; gap: 18px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--line); }
+.np-legend span { gap: 6px; }
+.np-legend i { width: 19px; border-top: 2px dashed #89939f; }
+.np-legend span + span i { border-top: 1px dashed #a8afb9; }
+.np-select { position: relative; border: 1px solid var(--line); border-radius: 6px; }
+.np-select select { appearance: none; background: transparent; padding: 4px 23px 4px 8px; font-family: var(--font-mono), monospace; font-size: 12px; cursor: pointer; }
+.np-select svg { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.np-inside { padding: 19px 19px 17px; }
+.np-detail-tags { gap: 9px; }
+.np-detail-tags > b { font-size: 16px; }
+.np-inside h3 { margin-top: 7px; font-size: 23px; font-weight: 700; letter-spacing: -.045em; line-height: 1.4; }
+.np-author { gap: 4px; margin: 9px 0 18px; font-size: 12px; color: var(--muted); }
+.np-author img { height: 26px; width: 26px; border-radius: 50%; object-fit: cover; object-position: center 24%; background: #edf1eb; margin-right: 3px; }
+.np-inside section { border-top: 1px solid var(--line); padding: 15px 0; }
+.np-inside h4 { font-size: 14px; font-weight: 700; }
+.np-inside h4 small { float: right; font-size: 10px; font-weight: 400; color: var(--muted); }
+.np-score { display: grid; grid-template-columns: 1fr minmax(40px, 32%) 24px; align-items: center; gap: 9px; margin-top: 9px; font-size: 12px; }
+.np-score b { text-align: right; font-variant-numeric: tabular-nums; }
+.np-rail { height: 5px; background: #e9efea; border-radius: 4px; overflow: hidden; }
+.np-rail i { display: block; height: 100%; background: var(--green); }
+.np-change { justify-content: space-between; margin-top: 7px; font-size: 13px; }
+.np-change s { color: var(--muted); text-decoration: none; }
+.np-note { background: #eff8f8; border-radius: 10px; padding: 13px; }
+.np-note h4 { gap: 7px; }
+.np-note p { font-size: 12px; line-height: 1.65; margin-top: 6px; color: #425e4e; }
+@media (max-width: 900px) {
+  .np-workspace { grid-template-columns: 1fr; }
+  .np-canvas { height: clamp(350px, 70vw, 540px); }
+}
+@media (max-width: 600px) {
+  .np .np-map { display: none; }
+  .np-page { padding-top: 20px; }
+  .np-heading { margin-bottom: 15px; }
+  .np-nav { min-height: 52px; gap: 10px; }
+  .np-panel-head { padding: 8px 12px; }
+}
