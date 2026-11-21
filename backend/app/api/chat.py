@@ -6,6 +6,7 @@ formula/assessment context and previews every mutating action before execution.
 import asyncio
 import json
 import re
+from typing import Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -255,6 +256,7 @@ SCIENTIFIC_AGENT_GUARD = """
 class ChatIn(BaseModel):
     question: str
     context: str | None = None
+    surface: Literal["workspace", "lab"] = "workspace"
 
 
 class ChatOut(BaseModel):
@@ -270,10 +272,11 @@ async def chat(body: ChatIn):
     # High-frequency demo intent: use a reviewed template rather than allowing
     # stochastic LLM output to invent extracts, omit preservation, or drift in
     # concentration on every request.
-    if _is_toner_creation_request(question):
+    lab = body.surface == "lab"
+    if not lab and _is_toner_creation_request(question):
         return ChatOut(answer=_gentle_toner_fallback(question) or "")
 
-    sensitisation_fixture = _sensitisation_ui_test_fallback(question)
+    sensitisation_fixture = None if lab else _sensitisation_ui_test_fallback(question)
     if sensitisation_fixture:
         return ChatOut(answer=sensitisation_fixture)
 
@@ -287,7 +290,15 @@ async def chat(body: ChatIn):
     payload = {
         "model": settings.GROQ_MODEL,
         "messages": [
-            {"role": "system", "content": SYSTEM_TH + SCIENTIFIC_AGENT_GUARD},
+            {"role": "system", "content": (
+                "คุณเป็นผู้ช่วยในแชต Ralph Lab ตอบตามบทบาทที่ระบุ ใช้ภาษาเดียวกับผู้ใช้ "
+                "ตอบเป็นข้อความสั้น อ่านง่าย สรุปประเด็นกับสิ่งที่ต้องตรวจต่อ "
+                "ใช้เฉพาะคะแนนผลคัดกรองของสูตรที่ให้มาในบริบท อธิบายความไม่แน่นอนและระบุส่วนที่ยังไม่มีข้อมูล "
+                "เมื่อมีผลรายด้าน UI จะแสดงตารางและกราฟเอง ไม่ต้องเขียนตารางซ้ำ "
+                "ผลคัดกรองเป็นข้อมูลจากแบบจำลอง ห้ามอ้างว่าเป็นผลแล็บ ยืนยันความปลอดภัย หรือรับรองประสิทธิผล "
+                "การคุยครั้งนี้ให้คำปรึกษาเท่านั้น ห้ามสร้างคำสั่งแก้ workspace หรืออ้างว่าได้ส่งงานหรือทดลองแล้ว"
+                if lab else SYSTEM_TH + SCIENTIFIC_AGENT_GUARD
+            )},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.6,
@@ -336,6 +347,8 @@ async def chat(body: ChatIn):
                     text = ""
                 if not text:
                     raise HTTPException(status_code=502, detail="LLM returned empty response")
+                if lab:
+                    return ChatOut(answer=text)
 
                 invalid_names = _unsupported_action_ingredients(text)
                 actions = _parse_actions(text)

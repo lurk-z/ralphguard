@@ -1,6 +1,15 @@
 """LLM actions are checked before the frontend offers confirmation."""
 
+import asyncio
+from unittest.mock import AsyncMock, patch
+
+import httpx
+import pytest
+from fastapi import HTTPException
+
 from app.api.chat import (
+    ChatIn,
+    chat,
     _gentle_toner_fallback,
     _has_action_markup,
     _is_sensitisation_ui_test_request,
@@ -11,6 +20,25 @@ from app.api.chat import (
     _strip_action_markup,
     _unsupported_action_ingredients,
 )
+
+
+def test_lab_chat_uses_provider_even_for_a_workspace_template(monkeypatch):
+    monkeypatch.setattr("app.api.chat.settings.GROQ_API_KEY", "test-only")
+    response = httpx.Response(200, json={"choices": [{"message": {"content": "คำตอบสำหรับแชต Lab"}}]})
+    with patch("app.api.chat.httpx.AsyncClient.post", new_callable=AsyncMock, return_value=response) as post:
+        result = asyncio.run(chat(ChatIn(surface="lab", question="make a gentle toner", context="Analyst")))
+    assert result.answer == "คำตอบสำหรับแชต Lab"
+    post.assert_awaited_once()
+    assert "Analyst" in post.await_args.kwargs["json"]["messages"][-1]["content"]
+
+
+def test_lab_without_key_reports_unavailable_while_editor_keeps_template(monkeypatch):
+    monkeypatch.setattr("app.api.chat.settings.GROQ_API_KEY", "")
+    question = "make a gentle toner"
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(chat(ChatIn(surface="lab", question=question)))
+    assert error.value.status_code == 503
+    assert _parse_actions(asyncio.run(chat(ChatIn(question=question))).answer)
 
 
 def test_detects_extracts_in_created_formula():
